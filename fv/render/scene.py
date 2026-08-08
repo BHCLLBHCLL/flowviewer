@@ -146,7 +146,7 @@ class Scene:
                     self._layer_actors["surface"] = list(
                         self._layer_actors["grid"])
             elif obj.kind == "plane" and obj.visible:
-                self._add_plane_actor(ff, obj)
+                self._add_plane_actors(ff, obj)
             elif obj.kind == "particle" and obj.visible:
                 self._add_particle_placeholder(obj)
 
@@ -234,45 +234,45 @@ class Scene:
         prop.SetLineWidth(1.0)
         self.add_actor("grid", actor)
 
-    def _add_plane_actor(self, ff: FieldFile, obj) -> None:
-        """Semi-transparent cut-plane rectangle at the object coordinate."""
-        if self._bounds is None and ff.vertices is not None:
-            v = np.asarray(ff.vertices, dtype=np.float64)
-            self._bounds = (
-                tuple(v.min(axis=0).tolist()),
-                tuple(v.max(axis=0).tolist()),
-            )
-        if self._bounds is None:
-            return
-        lo, hi = self._bounds
-        axis = (obj.axis or "Z").upper()
-        c = float(obj.coordinate)
-        # Build a vtkPlaneSource spanning the other two axes
-        src = vtk.vtkPlaneSource()
-        if axis == "X":
-            src.SetOrigin(c, lo[1], lo[2])
-            src.SetPoint1(c, hi[1], lo[2])
-            src.SetPoint2(c, lo[1], hi[2])
-        elif axis == "Y":
-            src.SetOrigin(lo[0], c, lo[2])
-            src.SetPoint1(hi[0], c, lo[2])
-            src.SetPoint2(lo[0], c, hi[2])
-        else:
-            src.SetOrigin(lo[0], lo[1], c)
-            src.SetPoint1(hi[0], lo[1], c)
-            src.SetPoint2(lo[0], hi[1], c)
-        src.SetResolution(1, 1)
-        src.Update()
-        mapper = vtk.vtkPolyDataMapper()
-        mapper.SetInputConnection(src.GetOutputPort())
-        actor = vtk.vtkActor()
-        actor.SetMapper(mapper)
-        prop = actor.GetProperty()
-        prop.SetColor(*obj.color)
-        prop.SetOpacity(0.35)
-        prop.EdgeVisibilityOn()
-        prop.SetEdgeColor(0.8, 0.2, 0.5)
-        self.add_actor("plane", actor)
+    def _add_plane_actors(self, ff: FieldFile, obj) -> None:
+        """Cut-plane pipeline: contour / vector / mesh / boundary / subline
+        actors from :func:`fv.render.plane.build_plane_actors`, plus a
+        semi-transparent base rectangle for orientation.
+        """
+        from . import plane as plane_render
+        actors = plane_render.build_plane_actors(ff, obj)
+        for key, actor in actors.items():
+            self.add_actor(f"plane:{key}", actor)
+        if "contour" not in actors and self._bounds is not None:
+            lo, hi = self._bounds
+            axis = (obj.axis or "Z").upper()
+            c = float(obj.coordinate)
+            src = vtk.vtkPlaneSource()
+            if axis == "X":
+                src.SetOrigin(c, lo[1], lo[2])
+                src.SetPoint1(c, hi[1], lo[2])
+                src.SetPoint2(c, lo[1], hi[2])
+            elif axis == "Y":
+                src.SetOrigin(lo[0], c, lo[2])
+                src.SetPoint1(hi[0], c, lo[2])
+                src.SetPoint2(lo[0], c, hi[2])
+            else:
+                src.SetOrigin(lo[0], lo[1], c)
+                src.SetPoint1(hi[0], lo[1], c)
+                src.SetPoint2(lo[0], hi[1], c)
+            src.SetResolution(1, 1)
+            src.Update()
+            mapper = vtk.vtkPolyDataMapper()
+            mapper.SetInputConnection(src.GetOutputPort())
+            actor = vtk.vtkActor()
+            actor.SetMapper(mapper)
+            prop = actor.GetProperty()
+            color = getattr(obj, "mesh_color", (0.8, 0.2, 0.5))
+            prop.SetColor(*color)
+            prop.SetOpacity(0.35)
+            prop.EdgeVisibilityOn()
+            prop.SetEdgeColor(*color)
+            self.add_actor("plane", actor)
 
     def _add_particle_placeholder(self, obj) -> None:
         """Record particle layer; full glyph rendering comes later."""

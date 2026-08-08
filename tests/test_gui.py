@@ -210,10 +210,15 @@ def test_plane_dialog_all_tabs(qapp):
     pd = PlaneDialog(p, field_file=ff)
     tabs = [pd.tabs.tabText(i) for i in range(pd.tabs.count())]
     assert tabs == ["Coordinate", "MAT", "Volume Region", "Contour", "Vector",
-                    "Mesh", "Automove", "Trim"]
+                    "Mesh", "Oil Flow", "Trim", "Automove", "Clip", "Pick",
+                    "Scalar Integration", "Vector Integration", "Others",
+                    "Texture", "Font"]
     assert pd.contour.combo.count() >= 1
     pd.apply_to(p)
     assert p.axis == "Z"
+    assert p.contour_var in [pd.contour.combo.itemData(i)
+                             for i in range(pd.contour.combo.count())]
+    assert p.contour_var in ff.variables
 
 
 def test_particle_dialog_all_tabs(qapp):
@@ -248,3 +253,165 @@ def test_mat_filter_from_fld(qapp):
             it.setCheckState(0, Qt.Checked)
     sd.apply_to(s)
     assert s.display_mats == [2]
+
+
+def test_plane_automove_roundtrip(qapp):
+    """Automove triplet spins round-trip through PlaneDialog.apply_to."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import PlaneObject
+    from fv.gui.object_dialogs import PlaneDialog
+    ff = load_file(FPH)
+    p = PlaneObject(index=1, axis="Z", coordinate=0.0)
+    p.automove_start_point = (1.0, 2.0, 3.0)
+    p.automove_start_normal = (0.0, 0.0, 1.0)
+    p.automove_ref_point = (4.0, 5.0, 6.0)
+    p.automove_ref_normal = (0.0, 1.0, 0.0)
+    p.automove_axis_point = (0.0, 0.0, 0.0)
+    p.automove_axis_dir = (0.0, 0.0, 1.0)
+    p.automove_method = "Rotation"
+    p.automove_angle = 45.0
+    p.automove_offset = 5.0
+    pd = PlaneDialog(p, field_file=ff)
+    pd.apply_to(p)
+    assert p.automove_start_point == (1.0, 2.0, 3.0)
+    assert p.automove_start_normal == (0.0, 0.0, 1.0)
+    assert p.automove_ref_point == (4.0, 5.0, 6.0)
+    assert p.automove_ref_normal == (0.0, 1.0, 0.0)
+    assert p.automove_axis_point == (0.0, 0.0, 0.0)
+    assert p.automove_axis_dir == (0.0, 0.0, 1.0)
+    assert abs(p.automove_angle - 45.0) < 1e-9
+    assert abs(p.automove_offset - 5.0) < 1e-9
+    assert pd.usage_guide_is_on() is (p.usage_guide and True)
+    pd._usage_guide_ck.setChecked(True)
+    assert pd.usage_guide_is_on() is True
+
+
+def _has_vtk():
+    try:
+        import vtk
+        vtk.vtkLogger.SetStderrVerbosity(vtk.vtkLogger.VERBOSITY_OFF)
+        return True
+    except Exception:  # pragma: no cover
+        return False
+
+
+_VTK = _has_vtk()
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_scene_plane_pipeline_3d():
+    """Plane render pipeline wired into Scene.build (enable_3d path)."""
+    from fv.model.dataset import load_file
+    from fv.render.scene import Scene
+    ff = load_file(FPH)
+    s = Scene(enable_3d=True)
+    s.build(ff)
+    names = s.actor_names()
+    assert "grid" in names
+    assert any(n == "plane" or n.startswith("plane:") for n in names)
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_automove_math_fph():
+    import numpy as np
+    from fv.model.objects import PlaneObject
+    from fv.render.plane import automove_coordinate, _rotate_vector
+    p = PlaneObject(index=1)
+    p.automove_method = "Line"
+    p.automove_start_point = (0.0, 0.0, 0.0)
+    p.automove_start_normal = (0.0, 0.0, 1.0)
+    p.automove_ref_point = (1.0, 0.0, 0.0)
+    p.automove_ref_normal = (0.0, 0.0, 1.0)
+    pt, n = automove_coordinate(p, 0.5)
+    assert abs(pt[0] - 0.5) < 1e-9
+    assert abs(np.linalg.norm(n) - 1.0) < 1e-9
+    # Sin method: x = sin(pi/2 * 0.5) = sqrt(2)/2
+    p.automove_method = "Sin"
+    pt, _ = automove_coordinate(p, 0.5)
+    assert abs(pt[0] - np.sin(np.pi / 4)) < 1e-9
+    # Cos method: f = 1 - cos(pi/2*t) -> 1 at t=1
+    p.automove_method = "Cos"
+    pt, _ = automove_coordinate(p, 1.0)
+    assert abs(pt[0] - 1.0) < 1e-9
+    # Rotation: (1,0,0) about z by 90° -> (0,1,0)
+    p.automove_method = "Rotation"
+    p.automove_axis_point = (0.0, 0.0, 0.0)
+    p.automove_axis_dir = (0.0, 0.0, 1.0)
+    p.automove_angle = 90.0
+    p.automove_offset = 0.0
+    p.automove_start_point = (1.0, 0.0, 0.0)
+    pt, n = automove_coordinate(p, 1.0)
+    assert abs(pt[0]) < 1e-9 and abs(pt[1] - 1.0) < 1e-9
+    v = _rotate_vector(np.array([1.0, 0.0, 0.0]),
+                       np.array([0.0, 0.0, 1.0]), 90.0)
+    assert abs(v[0]) < 1e-9 and abs(v[1] - 1.0) < 1e-9
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_plane_render_pipeline_fph():
+    import vtk
+    from fv.model.dataset import load_file
+    from fv.model.objects import PlaneObject
+    from fv.render import plane as rp
+    ff = load_file(FPH)
+    obj = PlaneObject(index=1, axis="Z", coordinate=0.0)
+    obj.show_contour = True
+    obj.contour_var = "PRES"
+    obj.contour_line = True
+    obj.show_vector = True
+    obj.vector_var = "VEL"
+    obj.show_mesh = True
+    obj.boundary_line = True
+    obj.subline_external = True
+    obj.trim_xmin = True
+    out = rp.build_plane_actors(ff, obj)
+    for key in ("contour", "contour_line", "vector", "mesh", "boundary",
+                "subline"):
+        assert key in out and out[key] is not None
+    # cell-centred scalar -> cut carries it in CellData
+    m = out["contour"].GetMapper()
+    assert m.GetScalarMode() == vtk.VTK_SCALAR_MODE_USE_CELL_DATA
+    # vector glyphs carry the interpolated field
+    vec_in = out["vector"].GetMapper().GetInput()
+    assert vec_in.GetPointData().GetVectors() is not None
+    # integration readout on the cut (scalar must be attached before cutting)
+    ug, cc = rp.build_ugrid(ff)
+    rp.attach_scalar(ug, ff, "PRES", cc)
+    cut = rp.cut_grid(ug, obj)
+    res = rp.integrate_cut(cut, "PRES")
+    assert res["area"] > 0 and abs(res["average"]) > 0
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
+def test_plane_render_pipeline_fld():
+    import vtk
+    from fv.model.dataset import load_file
+    from fv.model.objects import PlaneObject
+    from fv.render import plane as rp
+    ff = load_file(FLD)
+    obj = PlaneObject(index=1, axis="X", coordinate=0.045,
+                      point=(0.045, 0.0, 0.0), normal=(1.0, 0.0, 0.0))
+    obj.show_contour = True
+    obj.contour_var = "TEMP"
+    obj.contour_line = True
+    obj.show_vector = True
+    obj.vector_var = "VECT"
+    obj.show_mesh = True
+    obj.boundary_line = True
+    out = rp.build_plane_actors(ff, obj)
+    for key in ("contour", "contour_line", "vector", "mesh", "boundary"):
+        assert key in out and out[key] is not None
+    # node-centred scalar -> cut carries it in PointData
+    m = out["contour"].GetMapper()
+    assert m.GetScalarMode() == vtk.VTK_SCALAR_MODE_USE_POINT_DATA
+    # integration
+    ug, cc = rp.build_ugrid(ff)
+    cut = rp.cut_grid(ug, obj)
+    arr = rp.attach_scalar(ug, ff, "TEMP", cc)
+    cut.GetPointData().AddArray(arr)
+    res = rp.integrate_cut(cut, "TEMP")
+    assert res["area"] > 0 and abs(res["average"]) > 0

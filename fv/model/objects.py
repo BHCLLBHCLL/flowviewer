@@ -68,33 +68,169 @@ class SurfaceObject(PostObject):
 
 @dataclass
 class PlaneObject(PostObject):
-    """Cut plane (scPOST Plane) — Coordinate tab defaults."""
+    """Cut plane (scPOST ``CutPlane@pst``) — all tab defaults."""
 
     kind: str = "plane"
     title: str = "Plane"
+    # ── Coordinate tab ────────────────────────────────────────────────
     axis: str = "Z"                    # X | Y | Z | Arbitrary
     coordinate: float = 0.0            # m along axis
     point: tuple[float, float, float] = (0.0, 0.0, 0.0)
     normal: tuple[float, float, float] = (0.0, 0.0, 1.0)
-    show_mesh: bool = True
-    color: tuple[float, float, float] = (1.0, 0.4, 0.7)
-    # MAT / Volume Region
+    arbitrary_enabled: bool = False    # ArbitraryPlaneDefinitionState
+    arbitrary_normal_r: float = 1.0    # spherical normal R/T/P
+    arbitrary_normal_t: float = 0.0
+    arbitrary_normal_p: float = 0.0
+    operate_object: bool = False
+    # Rotate sub-tab
+    rotate_axis: str = "XYZ"           # XYZ | Arb.
+    rotate_angle: float = 1.0          # degrees per click
+    # Usage Guide sub-tab
+    usage_guide: bool = False
+    usage_hv: bool = False             # Horz/Vert
+    usage_axis: bool = False
+    usage_line_paint: bool = False
+    usage_color_idx: int = 0
+    # Pick sub-tab
+    pick_mode: bool = False            # define plane by picking 3 points
+    pick_hide: bool = False
+    # ── MAT / Volume Region ───────────────────────────────────────────
     display_mats: list[int] = field(default_factory=list)
     display_volume_regions: list[str] = field(default_factory=list)
-    # Contour / Vector
+    # ── Contour tab ───────────────────────────────────────────────────
     show_contour: bool = True
     contour_var: str = ""
+    contour_paint: bool = True
+    contour_transparent: bool = False
+    contour_luster: bool = False
+    contour_water: bool = False
+    contour_line: bool = False
+    contour_line_transparent: bool = False
+    contour_broken_line: bool = False
+    contour_mono_color: bool = False
+    contour_mono_rgb: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    contour_value: bool = False
+    contour_thickness: int = 1
+    # ── Vector tab ────────────────────────────────────────────────────
     show_vector: bool = False
     vector_var: str = ""
-    # Mesh tab
+    vector_location: str = "Uniform"   # Uniform | Actual | Center | Nodes
+    vector_space_u: float = 1.0
+    vector_space_v: float = 1.0
+    vector_type: str = "Standard"      # Simple | Standard | Triangle | 3D | Animation
+    vector_constant_length: bool = False
+    vector_transparent: bool = False
+    vector_mono_color: bool = False
+    vector_mono_rgb: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    vector_contour_color: bool = False
+    vector_projection: bool = False
+    vector_scale_length: float = 1.0
+    vector_scale_thickness: float = 1.0
+    vector_arrow_angle: float = 1.0
+    vector_arrow_size: float = 1.0
+    # ── Mesh tab ──────────────────────────────────────────────────────
+    show_mesh: bool = True
+    mesh_color: tuple[float, float, float] = (0.05, 0.05, 0.08)
+    mesh_transparent: bool = False
+    mesh_thickness: int = 1
+    mesh_paint: bool = False
+    mesh_paint_rgb: tuple[float, float, float] = (0.7, 0.7, 0.7)
+    mesh_block: bool = False
+    mesh_luster: bool = False
+    mesh_water: bool = False
+    # Boundary
     boundary_line: bool = True
     boundary_color: tuple[float, float, float] = (0.0, 0.0, 0.0)
     boundary_transparent: bool = False
-    # Automove tab
-    automove_method: str = "Line"      # Line | Sin | Cos | Rotation | Custom Path
+    boundary_auto: bool = False
+    boundary_broken_line: bool = False
+    # Subline
+    subline_external: bool = False
+    subline_automatic: bool = True
+    subline_display_location: bool = False
+    # ── Automove tab (CutPlaneAutoMove@pst) ───────────────────────────
     automove_enabled: bool = False
-    # Trim tab
+    automove_method: str = "Line"      # Line | Sin | Cos | Rotation | Custom Path
+    automove_start_point: tuple = (0.0, 0.0, 0.0)
+    automove_start_normal: tuple = (0.0, 0.0, 1.0)
+    automove_ref_point: tuple = (1.0, 0.0, 0.0)
+    automove_ref_normal: tuple = (0.0, 0.0, 1.0)
+    automove_axis_point: tuple = (0.0, 0.0, 0.0)
+    automove_axis_dir: tuple = (0.0, 0.0, 1.0)
+    automove_loop: bool = False
+    automove_standby: bool = False
+    automove_frames: int = 10
+    automove_angle: float = 90.0       # Rotation only
+    automove_offset: float = 0.0       # Rotation only
+    # Custom Path
+    automove_csv: str = ""
+    automove_show_path: bool = False
+    automove_path_sync: bool = True    # position at current transient time
+    automove_path_distance: float = 0.0
+    automove_path_start: float = 0.0
+    automove_path_end: float = 1.0
+    # ── Trim tab ──────────────────────────────────────────────────────
     trim_objects: list[str] = field(default_factory=list)
+    # ── Oil Flow tab (OilFlow@pst) ────────────────────────────────────
+    oilflow_display: bool = False
+    oilflow_var: str = ""
+    oilflow_transparent: bool = False
+    oilflow_thickness: float = 1.0
+    oilflow_space_u: float = 1.0
+    oilflow_space_v: float = 1.0
+    oilflow_length: float = 1.0
+    oilflow_draw_type: str = "Line"
+    oilflow_integration_method: str = "Runge-Kutta"  # Runge-Kutta | Euler
+    oilflow_steps: int = 10
+    oilflow_accuracy: int = 1
+    # ── Clip tab ──────────────────────────────────────────────────────
+    clip_enabled: bool = False
+    clip_xmin: float = 0.0
+    clip_ymin: float = 0.0
+    clip_xmax: float = 1.0
+    clip_ymax: float = 1.0
+    clip_display_region: bool = False
+    # ── Pick tab ──────────────────────────────────────────────────────
+    pick_scalar: bool = True
+    pick_scalar_var: str = ""
+    pick_vector: bool = False
+    pick_vector_var: str = ""
+    pick_ijk: bool = False
+    pick_cycle_graph: bool = False
+    pick_show_all_vars: bool = False
+    pick_show_numbers: bool = False
+    pick_color_enabled: bool = False
+    pick_shape: str = "Sphere"
+    pick_line_color: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    pick_solid_color: tuple[float, float, float] = (1.0, 1.0, 0.0)
+    # ── Scalar / Vector Integration ───────────────────────────────────
+    integrate_scalar_enabled: bool = False
+    integrate_vector_enabled: bool = False
+    integrate_output_file: bool = False
+    integrate_output_csv: str = ""
+    integrate_include_labels: bool = True
+    integrate_beep: bool = False
+    integrate_recalc_redraw: bool = False
+    # ── Texture tab ───────────────────────────────────────────────────
+    texture_enabled: bool = False
+    texture_file: str = ""
+    texture_method: str = "Plane"
+    texture_scale: float = 1.0
+    texture_angle: float = 0.0
+    texture_pos_u: float = 0.0
+    texture_pos_v: float = 0.0
+    # ── Font / Others ─────────────────────────────────────────────────
+    font_name: str = "MS Gothic"
+    font_size: int = 9
+    font_float: float = 100.0
+    colorbar_contour: str = ""
+    colorbar_vector: str = ""
+    use_model_coord: bool = True
+    no_vector_contour_simultaneous: bool = False
+    inter_surface: bool = False
+    inter_isosurface: bool = False
+    inter_plane: bool = False
+    inter_undisplayed: bool = False
 
 
 @dataclass
