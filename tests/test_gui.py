@@ -462,6 +462,36 @@ def test_plane_vector_integration(qapp):
 
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_plane_integration_csv_output(qapp):
+    """Integration result written to CSV when Output-to-file checked (P1.3)."""
+    import csv
+    import tempfile
+    from fv.model.dataset import load_file
+    from fv.model.objects import PlaneObject
+    from fv.gui.object_dialogs import PlaneDialog
+    ff = load_file(FPH)
+    obj = PlaneObject(index=1, axis="Z", coordinate=0.0)
+    obj.contour_var = "PRES"
+    with tempfile.TemporaryDirectory(
+            dir=r"C:\Users\sdcll\AppData\Local\Temp\opencode") as td:
+        out_csv = Path(td) / "integral.csv"
+        d = PlaneDialog(obj, ff)
+        d.int_scalar.setChecked(True)
+        d.int_out.setChecked(True)
+        d.int_csv.setText(str(out_csv))
+        d._on_integrate()
+        assert out_csv.exists()
+        with open(out_csv, newline="", encoding="utf-8") as fh:
+            rows = list(csv.reader(fh))
+        assert rows[0] == ["Item", "Value"]
+        labels = [r[0] for r in rows[1:]]
+        assert "Area [m^2]" in labels
+        assert f"{obj.contour_var} sum" in labels
+        assert float(rows[1][1]) > 0
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
 def test_plane_render_pipeline_fld():
     import vtk

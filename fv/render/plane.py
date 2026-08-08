@@ -810,6 +810,38 @@ def integrate_cut(pd, scalar_name: Optional[str],
     return out
 
 
+def write_integration_csv(path: str, res: dict, obj, *,
+                          include_labels: bool = True) -> None:
+    """Persist a Scalar/Vector Integration result to CSV (P1.3).
+
+    ``res`` is the dict from :func:`integrate_cut`. Writes a small
+    label/value table; ``include_labels=False`` skips the label column.
+    """
+    import csv
+    from pathlib import Path
+    out_path = Path(path)
+    if out_path.parent and not out_path.parent.exists():
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+    rows: list[tuple[str, float | str]] = [("Area [m^2]", res["area"])]
+    if "sum" in res:
+        rows.append((f"{obj.contour_var} sum", res["sum"]))
+        rows.append((f"{obj.contour_var} average", res["average"]))
+    if "in_normal" in res:
+        rows.append(("Normal flux [m^3/s]", res["in_normal"]))
+        rows.append(("Normal flux average [m/s]", res["avg_normal"]))
+        rows.append(("Flux X [m^3/s]", res["in_axes"][0]))
+        rows.append(("Flux Y [m^3/s]", res["in_axes"][1]))
+        rows.append(("Flux Z [m^3/s]", res["in_axes"][2]))
+    with open(out_path, "w", newline="", encoding="utf-8") as fh:
+        writer = csv.writer(fh)
+        writer.writerow(["Item", "Value"] if include_labels else ["Value"])
+        for label, value in rows:
+            if include_labels:
+                writer.writerow([label, f"{value:.9g}"])
+            else:
+                writer.writerow([f"{value:.9g}"])
+
+
 def build_plane_actors(ff: FieldFile, obj, ugrid=None,
                        cell_centered: bool = True) -> dict:
     """High-level entry: produce every actor for a PlaneObject.

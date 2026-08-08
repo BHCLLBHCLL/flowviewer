@@ -1421,7 +1421,9 @@ class PlaneDialog(_PinnedDialog):
     def _on_integrate(self) -> None:
         """Execute the scPOST integral over the current cut."""
         try:
-            from ..render.plane import build_ugrid, integrate_cut, cut_with_fields
+            from ..render.plane import (
+                build_ugrid, integrate_cut, cut_with_fields,
+                write_integration_csv)
             if self.field_file is None:
                 return
             ug, cc = build_ugrid(self.field_file)
@@ -1443,6 +1445,11 @@ class PlaneDialog(_PinnedDialog):
             if vec is not None:
                 txt += (f"\nNormal flux : {res['in_normal']:.6g} m^3/s"
                         f"\nAverage : {res['avg_normal']:.6g} m/s")
+            if self.int_out.isChecked() and self.int_csv.text():
+                write_integration_csv(
+                    self.int_csv.text(), res, self.plane,
+                    include_labels=self.int_labels.isChecked())
+                txt += f"\nCSV: {self.int_csv.text()}"
             self.integrate_result.setText(txt)
         except Exception as exc:  # noqa: BLE001
             self.integrate_result.setText(f"Integral failed: {exc}")
