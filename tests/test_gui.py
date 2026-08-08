@@ -519,6 +519,41 @@ def test_plane_oilflow_streamlines():
 
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_plane_clip_region():
+    """Clip tab X/Y region clips the cut and draws its frame (P2.5)."""
+    import numpy as np
+    from fv.model.dataset import load_file
+    from fv.model.objects import PlaneObject
+    from fv.render import plane as rp
+    ff = load_file(FPH)
+    v = np.asarray(ff.vertices)
+    obj = PlaneObject(index=1, axis="Z", coordinate=0.0)
+    obj.show_contour = True
+    obj.contour_var = "PRES"
+    ug, cc = rp.build_ugrid(ff)
+    rp.attach_scalar(ug, ff, "PRES", cc)
+    cut = rp.cut_grid(ug, obj)
+    full = rp.integrate_cut(cut, "PRES")["area"]
+    obj.clip_enabled = True
+    obj.clip_xmin = float(v[:, 0].min())
+    obj.clip_xmax = float(v[:, 0].max())
+    obj.clip_ymin = -0.01
+    obj.clip_ymax = 0.01
+    clipped = rp.clip_cut(cut, obj)
+    c = rp.integrate_cut(clipped, "PRES")["area"]
+    assert 0 < c < full
+    # region frame actor appears when display_region on
+    obj.clip_display_region = True
+    out = rp.build_plane_actors(ff, obj)
+    assert "clip_region" in out and out["clip_region"] is not None
+    # disabled -> no clip, no frame
+    obj.clip_enabled = False
+    out2 = rp.build_plane_actors(ff, obj)
+    assert "clip_region" not in out2
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
 def test_plane_render_pipeline_fld():
     import vtk

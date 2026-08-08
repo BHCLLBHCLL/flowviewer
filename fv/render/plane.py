@@ -641,19 +641,97 @@ def trim_cut(pd, obj) -> "vtk.vtkPolyData":
         if lo is None and hi is None:
             continue
         i = {"X": 0, "Y": 1, "Z": 2}[axis]
-        for bound in (lo, hi):
+        for bound, sign in ((lo, 1.0), (hi, -1.0)):
             if bound is None:
                 continue
             clip = vtk.vtkPlane()
             clip.SetOrigin(*_point_axis(i, bound))
             # keep coords >= lo  and  coords <= hi
-            clip.SetNormal(*_axis_vec(i, 1.0 if bound is lo else -1.0))
+            clip.SetNormal(*_axis_vec(i, sign))
             clipper = vtk.vtkClipPolyData()
             clipper.SetInputData(out)
             clipper.SetClipFunction(clip)
             clipper.Update()
             out = clipper.GetOutput()
     return out
+
+
+def clip_cut(pd, obj) -> "vtk.vtkPolyData":
+    """Clip the cut against the Clip tab X/Y region.
+
+    ``obj.clip_enabled`` gates the clip; ``clip_xmin/xmax/ymin/ymax`` are
+    world-coordinate bounds. ``clip_display_region`` additionally returns the
+    rectangular boundary frame as an actor (see :func:`clip_region_actor`).
+    """
+    if not getattr(obj, "clip_enabled", False):
+        return pd
+    out = pd
+    for axis, key in (("X", "clip_xmin"), ("X", "clip_xmax"),
+                      ("Y", "clip_ymin"), ("Y", "clip_ymax")):
+        val = getattr(obj, key, None)
+        if val is None:
+            continue
+        i = {"X": 0, "Y": 1}[axis]
+        # vtkClipPolyData keeps the side the normal points toward; for a
+        # "min" bound we keep coords >= min (normal +axis), for "max" we keep
+        # coords <= max (normal -axis).
+        sign = 1.0 if key.endswith("min") else -1.0
+        clip = vtk.vtkPlane()
+        clip.SetOrigin(*_point_axis(i, float(val)))
+        clip.SetNormal(*_axis_vec(i, sign))
+        clipper = vtk.vtkClipPolyData()
+        clipper.SetInputData(out)
+        clipper.SetClipFunction(clip)
+        clipper.Update()
+        out = clipper.GetOutput()
+    return out
+
+
+def clip_region_actor(obj) -> Optional["vtk.vtkActor"]:
+    """Wireframe rectangle for the Clip region (``clip_display_region``)."""
+    if not getattr(obj, "clip_enabled", False):
+        return None
+    if not getattr(obj, "clip_display_region", False):
+        return None
+    x0 = getattr(obj, "clip_xmin", None)
+    x1 = getattr(obj, "clip_xmax", None)
+    y0 = getattr(obj, "clip_ymin", None)
+    y1 = getattr(obj, "clip_ymax", None)
+    if None in (x0, x1, y0, y1):
+        return None
+    p = np.asarray(getattr(obj, "point", (0.0, 0.0, 0.0)))
+    n = np.asarray(getattr(obj, "normal", (0.0, 0.0, 1.0)))
+    n = n / (np.linalg.norm(n) + 1e-12)
+    e1 = np.array([1.0, 0.0, 0.0])
+    if abs(np.dot(e1, n)) > 0.99:
+        e1 = np.array([0.0, 1.0, 0.0])
+    e1 = e1 - np.dot(e1, n) * n
+    e1 /= np.linalg.norm(e1)
+    e2 = np.cross(n, e1)
+    # project (x,y) bounds onto the plane frame
+    lines = vtk.vtkPolyData()
+    pts = vtk.vtkPoints()
+    corners = [
+        p + float(x0) * e1 + float(y0) * e2,
+        p + float(x1) * e1 + float(y0) * e2,
+        p + float(x1) * e1 + float(y1) * e2,
+        p + float(x0) * e1 + float(y1) * e2,
+    ]
+    for c in corners:
+        pts.InsertNextPoint(*c)
+    lines.SetPoints(pts)
+    la = vtk.vtkCellArray()
+    la.InsertNextCell(5)
+    for k in range(5):
+        la.InsertCellPoint(k % 4)
+    lines.SetLines(la)
+    mapper = vtk.vtkPolyDataMapper()
+    mapper.SetInputData(lines)
+    actor = vtk.vtkActor()
+    actor.SetMapper(mapper)
+    actor.GetProperty().SetColor(0.0, 0.0, 0.0)
+    actor.GetProperty().SetLineWidth(1)
+    return actor
 
 
 def _axis_vec(i: int, s: float):
@@ -869,6 +947,14 @@ def build_plane_actors(ff: FieldFile, obj, ugrid=None,
 
     # Trim
     cut = trim_cut(cut, obj)
+    # Clip (X/Y region)
+    cut = clip_cut(cut, obj)
+
+    # Clip region frame
+    if getattr(obj, "clip_display_region", False):
+        r = clip_region_actor(obj)
+        if r is not None:
+            out["clip_region"] = r
 
     # Contour
     if (getattr(obj, "show_contour", False) and getattr(obj, "contour_var", "")
