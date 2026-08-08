@@ -230,7 +230,6 @@ def run_gui(filepath: Optional[str] = None) -> int:
     if QApplication is None:
         print("PyQt5 not installed; cannot start GUI", file=sys.stderr)
         return 2
-    from PyQt5.QtWidgets import QApplication
     app = QApplication.instance() or QApplication(sys.argv)
     win = FlowViewer(filepath=filepath, enable_3d=True)
     win.show()
