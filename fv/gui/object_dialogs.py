@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 try:
     from PyQt5.QtCore import Qt
     from PyQt5.QtWidgets import (
@@ -1106,7 +1108,40 @@ class PlaneDialog(_PinnedDialog):
         self.trim_tree = _CheckTree(
             "Object", objects, list(self.plane.trim_objects))
         lay.addWidget(self.trim_tree, 1)
+        lay.addWidget(_hline(page))
+        lay.addWidget(QLabel("Coordinate range (blank = not trimmed):", page))
+        form = QFormLayout()
+        self._trim_eds: dict[str, QDoubleSpinBox] = {}
+        for axis in ("X", "Y", "Z"):
+            lo_ed = QDoubleSpinBox(page)
+            hi_ed = QDoubleSpinBox(page)
+            for ed, key in ((lo_ed, f"trim_{axis.lower()}min"),
+                            (hi_ed, f"trim_{axis.lower()}max")):
+                ed.setDecimals(8)
+                ed.setRange(-1e9, 1e9)
+                ed.setSpecialValueText("(off)")
+                val = getattr(self.plane, key, None)
+                ed.setValue(float(val) if val is not None else ed.minimum())
+                self._trim_eds[key] = ed
+            row = QHBoxLayout()
+            row.addWidget(lo_ed, 1)
+            row.addWidget(QLabel("to", page))
+            row.addWidget(hi_ed, 1)
+            form.addRow(f"{axis}:", row)
+        lay.addLayout(form)
+        lay.addStretch(1)
         return page
+
+    def _trim_vals(self) -> dict[str, Optional[float]]:
+        """Trim coordinates → {key: float|None}. A spin at its minimum
+        (special-value ``(off)``) is treated as untrimmed."""
+        out: dict[str, Optional[float]] = {}
+        for key, ed in getattr(self, "_trim_eds", {}).items():
+            if ed.value() <= -1e9 + 1.0:
+                out[key] = None
+            else:
+                out[key] = float(ed.value())
+        return out
 
     # ── Automove ─────────────────────────────────────────────────────────
 
@@ -1628,6 +1663,8 @@ class PlaneDialog(_PinnedDialog):
 
         # Trim
         plane.trim_objects = self.trim_tree.checked()
+        for key, val in self._trim_vals().items():
+            setattr(plane, key, val)
 
         # Automove
         plane.automove_enabled = self.auto_enabled.isChecked()

@@ -171,6 +171,13 @@ class PlaneObject(PostObject):
     automove_path_end: float = 1.0
     # ── Trim tab ──────────────────────────────────────────────────────
     trim_objects: list[str] = field(default_factory=list)
+    # Coordinate-range trimming (None = not trimmed on that side)
+    trim_xmin: Optional[float] = None
+    trim_xmax: Optional[float] = None
+    trim_ymin: Optional[float] = None
+    trim_ymax: Optional[float] = None
+    trim_zmin: Optional[float] = None
+    trim_zmax: Optional[float] = None
     # ── Oil Flow tab (OilFlow@pst) ────────────────────────────────────
     oilflow_display: bool = False
     oilflow_var: str = ""

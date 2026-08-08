@@ -555,29 +555,31 @@ def subline_actor(ff, obj) -> Optional["vtk.vtkActor"]:
 # ---------------------------------------------------------------------------
 
 def trim_cut(pd, obj) -> "vtk.vtkPolyData":
-    """Clip the cut against trimming planes (Trim tab: X/Y/Z min/max)."""
+    """Clip the cut against coordinate ranges (Trim tab).
+
+    ``obj.trim_{x,y,z}{min,max}`` are ``Optional[float]`` coordinate bounds;
+    ``None`` means that side is not trimmed. The positive side of each bound
+    plane is kept (scPOST-style near/far keep).
+    """
     out = pd
-    for axis, key, sign in (
-            ("X", "trim_xmin", -1.0), ("X", "trim_xmax", 1.0),
-            ("Y", "trim_ymin", -1.0), ("Y", "trim_ymax", 1.0),
-            ("Z", "trim_zmin", -1.0), ("Z", "trim_zmax", 1.0)):
-        if not getattr(obj, key, False):
+    for axis in ("X", "Y", "Z"):
+        lo = getattr(obj, f"trim_{axis.lower()}min", None)
+        hi = getattr(obj, f"trim_{axis.lower()}max", None)
+        if lo is None and hi is None:
             continue
         i = {"X": 0, "Y": 1, "Z": 2}[axis]
-        bounds = out.GetBounds()
-        clip = vtk.vtkPlane()
-        clip.SetOrigin(*(0.0, 0.0, 0.0))
-        if sign < 0:
-            clip.SetNormal(*_axis_vec(i, -1.0))
-            clip.SetOrigin(*_point_axis(i, bounds[2 * i]))
-        else:
-            clip.SetNormal(*_axis_vec(i, 1.0))
-            clip.SetOrigin(*_point_axis(i, bounds[2 * i + 1]))
-        clipper = vtk.vtkClipPolyData()
-        clipper.SetInputData(out)
-        clipper.SetClipFunction(clip)
-        clipper.Update()
-        out = clipper.GetOutput()
+        for bound in (lo, hi):
+            if bound is None:
+                continue
+            clip = vtk.vtkPlane()
+            clip.SetOrigin(*_point_axis(i, bound))
+            # keep coords >= lo  and  coords <= hi
+            clip.SetNormal(*_axis_vec(i, 1.0 if bound is lo else -1.0))
+            clipper = vtk.vtkClipPolyData()
+            clipper.SetInputData(out)
+            clipper.SetClipFunction(clip)
+            clipper.Update()
+            out = clipper.GetOutput()
     return out
 
 

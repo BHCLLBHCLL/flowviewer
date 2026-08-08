@@ -366,7 +366,6 @@ def test_plane_render_pipeline_fph():
     obj.show_mesh = True
     obj.boundary_line = True
     obj.subline_external = True
-    obj.trim_xmin = True
     out = rp.build_plane_actors(ff, obj)
     for key in ("contour", "contour_line", "vector", "mesh", "boundary",
                 "subline"):
@@ -383,6 +382,54 @@ def test_plane_render_pipeline_fph():
     cut = rp.cut_grid(ug, obj)
     res = rp.integrate_cut(cut, "PRES")
     assert res["area"] > 0 and abs(res["average"]) > 0
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_plane_trim_coordinate_ranges():
+    """Trim tab coordinate ranges actually clip the cut (P1.1)."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import PlaneObject
+    from fv.render import plane as rp
+    ff = load_file(FPH)
+    obj = PlaneObject(index=1, axis="Z", coordinate=0.0)
+    obj.show_contour = True
+    obj.contour_var = "PRES"
+    ug, cc = rp.build_ugrid(ff)
+    rp.attach_scalar(ug, ff, "PRES", cc)
+    cut = rp.cut_grid(ug, obj)
+    full_area = rp.integrate_cut(cut, "PRES")["area"]
+    assert full_area > 0
+    # trim to a small band around x = 0.03
+    obj.trim_xmin = 0.03
+    obj.trim_xmax = 0.031
+    trimmed = rp.trim_cut(cut, obj)
+    tarea = rp.integrate_cut(trimmed, "PRES")["area"]
+    assert 0 < tarea < full_area
+    # trim the whole band away on one axis side
+    obj2 = PlaneObject(index=1, axis="Z", coordinate=0.0)
+    obj2.show_contour = True
+    obj2.contour_var = "PRES"
+    obj2.trim_ymin = 1e9
+    obj2.trim_ymax = 1e9 + 1
+    trimmed2 = rp.trim_cut(cut, obj2)
+    assert rp.integrate_cut(trimmed2, "PRES")["area"] == 0
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_plane_trim_dialog_roundtrip(qapp):
+    """Trim coordinate fields survive dialog apply (P1.1)."""
+    from fv.model.objects import PlaneObject
+    from fv.gui.object_dialogs import PlaneDialog
+    p = PlaneObject(index=1, trim_xmin=0.2, trim_xmax=0.8)
+    d = PlaneDialog(p)
+    d.apply_to(p)
+    assert p.trim_xmin == 0.2
+    assert p.trim_xmax == 0.8
+    assert p.trim_ymin is None
+    assert p.trim_ymax is None
+    assert p.trim_zmin is None
 
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
