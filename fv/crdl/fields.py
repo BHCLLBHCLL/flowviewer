@@ -19,7 +19,70 @@ from .core import (
     iter_data_blocks,
     open_buffer,
     f32_be_array,
+    read_i32_be,
+    read_f64_be,
 )
+
+
+def parse_cycle_meta(data) -> tuple[Optional[int], Optional[float]]:
+    """Parse header ``Cycle`` section → ``(cycle_id, time)``.
+
+    scPOST Draw Window overlay uses these as ``Cycle`` / ``Time``.
+    Layout: after the section name, the first I4 data block is the cycle
+    number and the first R8 (float64) data block is the physical time.
+    """
+    sec_start = find_section(data, "Cycle")
+    if sec_start < 0:
+        return None, None
+    sec_end = section_end(data, sec_start)
+    cycle: Optional[int] = None
+    time: Optional[float] = None
+    pos = sec_start + 40
+    while pos + 12 <= sec_end:
+        if read_i32_be(data, pos) != 12:
+            pos += 4
+            continue
+        bc = read_i32_be(data, pos + 4)
+        # I4 payload: [12][4][value][4]
+        if (bc == 4 and pos + 16 <= sec_end
+                and read_i32_be(data, pos + 12) == 4):
+            val = read_i32_be(data, pos + 8)
+            if cycle is None and 0 <= val < 10_000_000:
+                cycle = int(val)
+            pos += 16
+            continue
+        # R8 payload: [12][8][f64][8]
+        if (bc == 8 and pos + 20 <= sec_end
+                and read_i32_be(data, pos + 16) == 8):
+            val = read_f64_be(data, pos + 8)
+            if time is None and abs(val) < 1e20:
+                time = float(val)
+            pos += 20
+            continue
+        # Descriptor [12, type∈{4,8}, dim0, dim1]
+        if bc in (4, 8) and pos + 16 <= sec_end:
+            pos += 16
+            continue
+        if bc >= 0 and pos + 8 + bc + 4 <= sec_end:
+            pos = pos + 8 + bc + 4
+            continue
+        pos += 4
+    return cycle, time
+
+
+def has_particle_results(data) -> bool:
+    """True if the file contains scFLOW particle result sections."""
+    for name in ("LS_ParticlesPosition", "LS_ParticleV:VELP"):
+        # Section names may be longer than 32? Cradle pads to 32.
+        # LS_ParticleV:VELP fits in 32 with spaces.
+        if find_section(data, name) >= 0:
+            return True
+        # Fallback: raw name search with leading I4=32 marker
+        padded = name.ljust(32).encode("ascii")
+        idx = data.find(padded)
+        if idx >= 4 and read_i32_be(data, idx - 4) == 32:
+            return True
+    return False
 
 
 def parse_fph_flow_solution(data, n_cells: int) -> dict[str, np.ndarray]:

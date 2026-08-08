@@ -60,6 +60,9 @@ class FieldFile:
     parts: list = field(default_factory=list)
     variables: dict = field(default_factory=dict)
     file_size: int = 0
+    cycle: Optional[int] = None
+    time: Optional[float] = None
+    has_particles: bool = False
 
     # ── helpers ────────────────────────────────────────────────────────────
 
@@ -107,6 +110,11 @@ def load_file(filepath: str) -> FieldFile:
                 location="node",
                 array=arr,
             )
+        with open_buffer(str(path)) as data:
+            ff.cycle, ff.time = fld_fields.parse_cycle_meta(data)
+            ff.has_particles = fld_fields.has_particle_results(data)
+        if ff.cycle is None:
+            ff.cycle = _cycle_from_filename(path)
         return ff
 
     mesh = mesh_gph.parse_gph_mesh(str(path))
@@ -129,7 +137,20 @@ def load_file(filepath: str) -> FieldFile:
                 location="cell",
                 array=arr,
             )
+        ff.cycle, ff.time = fld_fields.parse_cycle_meta(data)
+        ff.has_particles = fld_fields.has_particle_results(data)
+    if ff.cycle is None:
+        ff.cycle = _cycle_from_filename(path)
     return ff
+
+
+def _cycle_from_filename(path: Path) -> Optional[int]:
+    """Fallback: ``ex1_100.fld`` / ``tr03_9.fph`` → cycle from trailing digits."""
+    import re
+    m = re.search(r"_(\d+)$", path.stem)
+    if m:
+        return int(m.group(1))
+    return None
 
 
 def _field_kind(name: str) -> str:

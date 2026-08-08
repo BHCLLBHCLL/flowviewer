@@ -1,4 +1,4 @@
-"""VTK scene builder: convert a FieldFile into renderable actors."""
+"""VTK scene builder: FieldFile → wireframe grid + objects + text overlay."""
 
 from __future__ import annotations
 
@@ -29,20 +29,31 @@ class Scene:
         self.enable_3d = enable_3d and _HAS_VTK
         self.renderer = None
         self._layer_actors: dict[str, list] = {}
+        self._overlay = None
+        self._overlay_text = ""
+        self._bounds: Optional[tuple] = None
         if self.enable_3d:
             self.renderer = vtk.vtkRenderer()
-            # Light scPOST / cabdecoding Draw Window gradient
-            self.renderer.SetBackground(0.93, 0.93, 0.94)
-            self.renderer.SetBackground2(0.78, 0.82, 0.90)
+            # Light scPOST Draw Window (near-white)
+            self.renderer.SetBackground(1.0, 1.0, 1.0)
+            self.renderer.SetBackground2(0.92, 0.94, 0.97)
             self.renderer.GradientBackgroundOn()
             self.renderer.GetActiveCamera().ParallelProjectionOn()
 
     def reset(self) -> None:
-        if self.enable_3d:
+        if self.enable_3d and self.renderer is not None:
             for actors in self._layer_actors.values():
                 for a in actors:
                     self.renderer.RemoveActor(a)
+            if self._overlay is not None:
+                try:
+                    self.renderer.RemoveActor2D(self._overlay)
+                except Exception:
+                    pass
+                self._overlay = None
         self._layer_actors = {}
+        self._overlay_text = ""
+        self._bounds = None
 
     def add_actor(self, layer: str, actor) -> None:
         if self.enable_3d:
@@ -64,48 +75,96 @@ class Scene:
         if self.enable_3d and self.renderer:
             self.renderer.ResetCamera()
 
+    # ── overlay (File / Cycle / Time) ─────────────────────────────────────
+
+    def set_overlay(self, file_name: str, cycle=None, time=None) -> None:
+        """Top-left Draw Window info matching scPOST."""
+        cyc = "—" if cycle is None else str(cycle)
+        if time is None:
+            tim = "—"
+        else:
+            tim = f"{time:.6g}"
+        text = f"File : {file_name}\nCycle : {cyc}\nTime : {tim}"
+        self._overlay_text = text
+        if not self.enable_3d or self.renderer is None:
+            return
+        if self._overlay is None:
+            self._overlay = vtk.vtkTextActor()
+            tp = self._overlay.GetTextProperty()
+            tp.SetFontFamilyToCourier()
+            tp.SetFontSize(14)
+            tp.SetBold(1)
+            tp.SetColor(0.0, 0.0, 0.0)
+            tp.SetLineSpacing(1.15)
+            self._overlay.GetPositionCoordinate().SetCoordinateSystemToNormalizedDisplay()
+            self._overlay.SetPosition(0.02, 0.92)
+            self.renderer.AddActor2D(self._overlay)
+        self._overlay.SetInput(text)
+
+    def overlay_text(self) -> str:
+        return self._overlay_text
+
     # ── builders ───────────────────────────────────────────────────────────
 
-    def build(self, ff: FieldFile) -> None:
-        """Rebuild all actors for *ff* into layers 'grid' and 'bc'."""
+    def build(self, ff: FieldFile, main=None) -> None:
+        """Rebuild actors: wireframe grid + default Surface/Plane[/Particle]."""
         self.reset()
+        from pathlib import Path
+        self.set_overlay(
+            Path(ff.path).name,
+            getattr(ff, "cycle", None),
+            getattr(ff, "time", None),
+        )
+
         if not self.enable_3d:
-            # Headless: record layer names so tests can assert structure.
-            if ff.kind == "fph":
-                self._layer_actors["grid"] = ["fph_boundary"]
-            else:
-                self._layer_actors["grid"] = ["fld_hex"]
-            if ff.surface_regions or ff.bc_plan:
-                self._layer_actors["bc"] = [n for n in self._region_names(ff)]
+            self._layer_actors["grid"] = ["wireframe"]
+            self._layer_actors["surface"] = ["surface_1"]
+            self._layer_actors["plane"] = ["plane_1"]
+            if getattr(ff, "has_particles", False) or (
+                    main is not None and getattr(main, "has_particles", False)):
+                self._layer_actors["particle"] = ["particle_1"]
             return
 
         if ff.kind == "fph":
-            self._build_fph(ff)
+            self._build_fph_wireframe(ff)
         else:
-            self._build_fld(ff)
+            self._build_fld_wireframe(ff)
 
-    @staticmethod
-    def _region_names(ff: FieldFile) -> list[str]:
-        names = [n for n, _ in ff.surface_regions]
-        if not names and ff.bc_plan:
-            names = [n for n, _, cnt in ff.bc_plan if cnt]
-        return names
+        # Default objects (Magic-open style)
+        children = list(getattr(main, "children", []) or [])
+        if not children:
+            from ..model.objects import MainObject
+            children = MainObject.from_field_file(ff).children
+        for obj in children:
+            if obj.kind == "surface" and obj.visible:
+                # Surface shares the boundary wireframe (already in grid);
+                # keep a named layer for visibility toggles.
+                self._layer_actors.setdefault("surface", [])
+                if self._layer_actors.get("grid"):
+                    self._layer_actors["surface"] = list(
+                        self._layer_actors["grid"])
+            elif obj.kind == "plane" and obj.visible:
+                self._add_plane_actor(ff, obj)
+            elif obj.kind == "particle" and obj.visible:
+                self._add_particle_placeholder(obj)
 
-    def _build_fph(self, ff: FieldFile) -> None:
+    def _polydata_boundary(self, ff: FieldFile):
         ld = ff.link_data
         if ld is None or ff.vertices is None:
-            return
+            return None
         face_nodes = np.asarray(ld["face_nodes"], dtype=np.int64)
         face_offsets = np.asarray(ld["face_offsets"], dtype=np.int64)
         neighbour = np.asarray(ld["neighbour"], dtype=np.int64)
         verts = np.asarray(ff.vertices, dtype=np.float64)
+        self._bounds = (
+            tuple(verts.min(axis=0).tolist()),
+            tuple(verts.max(axis=0).tolist()),
+        )
 
-        # Boundary faces: neighbour == -1.
         bnd = np.flatnonzero(neighbour == -1)
         if bnd.size == 0:
-            bnd = np.arange(len(face_offsets) - 1)
+            bnd = np.arange(max(0, len(face_offsets) - 1))
         bnd = np.asarray(bnd, dtype=np.int64)
-        n_faces = bnd.size
 
         points = vtk.vtkPoints()
         points.SetData(_vns.numpy_to_vtk(verts, deep=True))
@@ -118,29 +177,38 @@ class Scene:
             for vi in face_nodes[lo:hi]:
                 ids.InsertNextId(int(vi))
             polys.InsertNextCell(ids)
-
         pd = vtk.vtkPolyData()
         pd.SetPoints(points)
         pd.SetPolys(polys)
+        return pd
 
+    def _build_fph_wireframe(self, ff: FieldFile) -> None:
+        pd = self._polydata_boundary(ff)
+        if pd is None:
+            return
+        # Extract edges for crisp black wireframe (scPOST mesh lines)
+        edges = vtk.vtkExtractEdges()
+        edges.SetInputData(pd)
+        edges.Update()
         mapper = vtk.vtkPolyDataMapper()
-        mapper.SetInputData(pd)
+        mapper.SetInputConnection(edges.GetOutputPort())
         actor = vtk.vtkActor()
         actor.SetMapper(mapper)
         prop = actor.GetProperty()
-        prop.SetColor(0.75, 0.78, 0.85)
-        prop.SetEdgeColor(0.35, 0.38, 0.45)
-        prop.EdgeVisibilityOn()
+        prop.SetColor(0.05, 0.05, 0.08)
         prop.SetLineWidth(1.0)
+        prop.SetRepresentationToWireframe()
         self.add_actor("grid", actor)
-        self._fph_boundary = bnd
 
-    def _build_fld(self, ff: FieldFile) -> None:
+    def _build_fld_wireframe(self, ff: FieldFile) -> None:
         if ff.vertices is None or ff.cell_conn is None:
             return
         verts = np.asarray(ff.vertices, dtype=np.float64)
         conn = np.asarray(ff.cell_conn, dtype=np.int64)
-
+        self._bounds = (
+            tuple(verts.min(axis=0).tolist()),
+            tuple(verts.max(axis=0).tolist()),
+        )
         ugrid = vtk.vtkUnstructuredGrid()
         points = vtk.vtkPoints()
         points.SetData(_vns.numpy_to_vtk(verts, deep=True))
@@ -152,16 +220,61 @@ class Scene:
                 hexa.GetPointIds().SetId(k, int(row[k]))
             cells.InsertNextCell(hexa)
         ugrid.SetCells(vtk.VTK_HEXAHEDRON, cells)
-
-        mapper = vtk.vtkDataSetMapper()
-        mapper.SetInputData(ugrid)
+        edges = vtk.vtkExtractEdges()
+        edges.SetInputData(ugrid)
+        edges.Update()
+        mapper = vtk.vtkPolyDataMapper()
+        mapper.SetInputConnection(edges.GetOutputPort())
         actor = vtk.vtkActor()
         actor.SetMapper(mapper)
         prop = actor.GetProperty()
-        prop.SetColor(0.7, 0.76, 0.85)
-        prop.SetEdgeColor(0.3, 0.34, 0.42)
-        prop.EdgeVisibilityOn()
+        prop.SetColor(0.05, 0.05, 0.08)
+        prop.SetLineWidth(1.0)
         self.add_actor("grid", actor)
+
+    def _add_plane_actor(self, ff: FieldFile, obj) -> None:
+        """Semi-transparent cut-plane rectangle at the object coordinate."""
+        if self._bounds is None and ff.vertices is not None:
+            v = np.asarray(ff.vertices, dtype=np.float64)
+            self._bounds = (
+                tuple(v.min(axis=0).tolist()),
+                tuple(v.max(axis=0).tolist()),
+            )
+        if self._bounds is None:
+            return
+        lo, hi = self._bounds
+        axis = (obj.axis or "Z").upper()
+        c = float(obj.coordinate)
+        # Build a vtkPlaneSource spanning the other two axes
+        src = vtk.vtkPlaneSource()
+        if axis == "X":
+            src.SetOrigin(c, lo[1], lo[2])
+            src.SetPoint1(c, hi[1], lo[2])
+            src.SetPoint2(c, lo[1], hi[2])
+        elif axis == "Y":
+            src.SetOrigin(lo[0], c, lo[2])
+            src.SetPoint1(hi[0], c, lo[2])
+            src.SetPoint2(lo[0], c, hi[2])
+        else:
+            src.SetOrigin(lo[0], lo[1], c)
+            src.SetPoint1(hi[0], lo[1], c)
+            src.SetPoint2(lo[0], hi[1], c)
+        src.SetResolution(1, 1)
+        src.Update()
+        mapper = vtk.vtkPolyDataMapper()
+        mapper.SetInputConnection(src.GetOutputPort())
+        actor = vtk.vtkActor()
+        actor.SetMapper(mapper)
+        prop = actor.GetProperty()
+        prop.SetColor(*obj.color)
+        prop.SetOpacity(0.35)
+        prop.EdgeVisibilityOn()
+        prop.SetEdgeColor(0.8, 0.2, 0.5)
+        self.add_actor("plane", actor)
+
+    def _add_particle_placeholder(self, obj) -> None:
+        """Record particle layer; full glyph rendering comes later."""
+        self._layer_actors.setdefault("particle", ["particle_1"])
 
 
 def numpy_to_vtk_array(arr: np.ndarray, name: str):

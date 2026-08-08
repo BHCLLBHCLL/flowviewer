@@ -55,6 +55,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._enable_3d = enable_3d
         self.datasets: list = []
         self.dataset = None
+        self.main_object = None
         self._iren_ready = False
         self._orientation = None
         self._mouse_mode = "trackball"
@@ -110,13 +111,15 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.object_tree = ObjectTree(self)
         self.object_tree.visibility_changed.connect(self._on_tree_visibility)
         self.object_tree.item_activated_name.connect(self._on_tree_activated)
+        self.object_tree.object_activated.connect(self._on_object_activated)
         left = PaneFrame("Control Window", self.object_tree)
 
         if self._enable_3d:
             self.vtk_widget = QVTKRenderWindowInteractor(self)
             self.renderer = vtk.vtkRenderer()
-            self.renderer.SetBackground(0.93, 0.93, 0.94)
-            self.renderer.SetBackground2(0.78, 0.82, 0.90)
+            # scPOST Draw Window: near-white + light gradient
+            self.renderer.SetBackground(1.0, 1.0, 1.0)
+            self.renderer.SetBackground2(0.92, 0.94, 0.97)
             self.renderer.GradientBackgroundOn()
             self.renderer.GetActiveCamera().ParallelProjectionOn()
             self.vtk_widget.GetRenderWindow().AddRenderer(self.renderer)
@@ -388,15 +391,38 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
     def on_open_dialog(self) -> None:
         from .dialogs import OpenDialog
-        dlg = OpenDialog(self)
-        dlg.browse()
-        if dlg.exec_() == QtWidgets.QDialog.Accepted:
-            path = dlg.selected_path()
-            if path:
-                self.open_file(path)
+        start = None
+        if self.dataset is not None and getattr(self.dataset, "path", None):
+            start = str(Path(self.dataset.path).parent)
+        dlg = OpenDialog(self, start_dir=start)
+        if dlg.exec_() != QtWidgets.QDialog.Accepted:
+            return
+        path = dlg.selected_path()
+        if not path:
+            return
+        opts = dlg.open_options()
+        flags = opts.summary_lines()
+        self.message_win.log(
+            f"Open [{opts.filter_name}]: {path}"
+            + (f"  ({', '.join(flags)})" if flags else ""))
+        if opts.magic_open or opts.trimming_open or opts.remote_open:
+            self.message_win.log(
+                "Magic / Trimming / Remote open reserved for later "
+                "(options recorded, not applied)", "WARN")
+        if not dlg.is_loadable(path):
+            self.message_win.log(
+                f"Loader for '{Path(path).suffix}' is not implemented yet",
+                "WARN")
+            self.status.showMessage(
+                f"Open: {Path(path).name} — type not yet supported", 6000)
+            return
+        self.open_file(path, options=opts)
 
-    def open_file(self, filepath: str) -> None:
+    def open_file(self, filepath: str, options=None) -> None:
         from ..model.dataset import load_file
+        from ..model.objects import MainObject
+        if options is not None and getattr(options, "close_current", False):
+            self._close_current_files()
         self.status.showMessage(f"Loading {Path(filepath).name} …")
         self.message_win.log(f"Loading {filepath} …")
         try:
@@ -408,18 +434,51 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.dataset = ff
         if ff not in self.datasets:
             self.datasets.append(ff)
-        self.scene.build(ff)
+        # scPOST Magic-open defaults: Surface(1) / Plane(1) [/ Particle(1)]
+        self.main_object = MainObject.from_field_file(ff, magic=True)
+        self.scene.build(ff, main=self.main_object)
         if self._enable_3d:
             self.scene.fit()
             self._refresh_gl()
-        self._populate_tree(ff)
-        self.timeline.set_range(0, 0)
-        self._cycle_label.setText("Cycle 0")
+        self.object_tree.load_main(self.main_object)
+        cyc = ff.cycle if ff.cycle is not None else 0
+        self.timeline.set_range(cyc, cyc)
+        self.timeline.set_step(cyc)
+        self._cycle_label.setText(f"Cycle {cyc}")
+        if ff.time is not None:
+            self.timeline.edit_time.setText(f"{ff.time:.6g}")
         self.setWindowTitle(f"flowviewer — {Path(filepath).name}")
+        kids = ", ".join(o.label for o in self.main_object.children)
         msg = (f"{ff.kind.upper()}: {ff.n_cells:,} cells, "
-               f"{ff.n_vertices:,} vertices, {len(ff.variables)} variables")
+               f"{ff.n_vertices:,} vertices, {len(ff.variables)} variables"
+               f" | Cycle={ff.cycle} Time={ff.time}")
         self.status.showMessage(msg)
         self.message_win.log(msg)
+        self.message_win.log(
+            f"Initialized objects: {kids}"
+            + (" (+ particles)" if ff.has_particles else ""))
+        if options is not None:
+            if getattr(options, "accelerate_memory", False):
+                self.message_win.log(
+                    "Option: accelerate using more memory "
+                    "(hash table — deferred)")
+            if getattr(options, "read_faster", False):
+                self.message_win.log(
+                    "Option: read faster by estimating file size "
+                    "(old field files — deferred)")
+
+    def _close_current_files(self) -> None:
+        """Clear loaded datasets / scene (Read after closing current files)."""
+        self.datasets.clear()
+        self.dataset = None
+        self.main_object = None
+        self.scene.reset()
+        self.object_tree.build_startup_tree()
+        self.timeline.set_range(0, 0)
+        self._cycle_label.setText("Cycle —")
+        self.setWindowTitle("flowviewer")
+        self.message_win.log("Closed current files")
+        self._refresh_gl()
 
     def on_fit(self) -> None:
         self.scene.fit()
@@ -446,18 +505,6 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if self._enable_3d and self.vtk_widget is not None:
             self.vtk_widget.GetRenderWindow().Render()
 
-    def _populate_tree(self, ff) -> None:
-        roots: list[tuple] = [("Main", [Path(ff.path).name])]
-        if ff.parts:
-            roots.append(("Parts", ff.parts))
-        if ff.variable_names():
-            roots.append(("Variables", ff.variable_names()))
-        if ff.surface_regions:
-            roots.append(("Boundary", [n for n, _ in ff.surface_regions]))
-        elif ff.bc_plan:
-            roots.append(("Boundary", [n for n, _, c in ff.bc_plan if c]))
-        self.object_tree.clear_and_rebuild(roots)
-
     def _on_tree_visibility(self, name: str, on: bool) -> None:
         key = name.split(":")[0].strip()
         if key.startswith("Draw Window"):
@@ -472,15 +519,27 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self._act_view_tl.blockSignals(True)
             self._act_view_tl.setChecked(on)
             self._act_view_tl.blockSignals(False)
-        elif name in ("Option", "Camera", "Unit"):
-            pass  # visibility only; settings via double-click
+        elif name in ("Option", "Camera", "Unit", "Light (1)"):
+            return
         else:
-            # layer toggle for loaded objects
-            layer = name.lower()
-            if layer in ("main", "grid", "boundary", "parts", "variables"):
-                self.scene.set_layer_visible(
-                    "grid" if layer in ("main", "grid", "parts") else "bc",
-                    on)
+            kind = self.object_tree._object_kinds.get(name, "")
+            layer = {
+                "surface": "surface",
+                "plane": "plane",
+                "particle": "particle",
+                "main": "grid",
+            }.get(kind, "")
+            if layer:
+                # Surface shares the wireframe grid actors
+                if layer == "surface":
+                    self.scene.set_layer_visible("grid", on)
+                    self.scene.set_layer_visible("surface", on)
+                else:
+                    self.scene.set_layer_visible(layer, on)
+                if self.main_object is not None:
+                    for obj in self.main_object.children:
+                        if obj.label == name:
+                            obj.visible = on
                 self._refresh_gl()
 
     def _on_tree_activated(self, name: str) -> None:
@@ -492,6 +551,33 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self._nyi("Camera")
         elif name.startswith("Draw Window"):
             self._nyi("Draw Window settings")
+
+    def _on_object_activated(self, kind: str, label: str) -> None:
+        """Double-click Surface/Plane/Particle → property dialog."""
+        if self.main_object is None or self.dataset is None:
+            return
+        obj = next((o for o in self.main_object.children
+                    if o.label == label), None)
+        if obj is None:
+            return
+        from .object_dialogs import ParticleDialog, PlaneDialog, SurfaceDialog
+        dlg_cls = {
+            "surface": SurfaceDialog,
+            "plane": PlaneDialog,
+            "particle": ParticleDialog,
+        }.get(kind)
+        if dlg_cls is None:
+            return
+        dlg = dlg_cls(obj, field_file=self.dataset, parent=self)
+        if dlg.exec_() == QtWidgets.QDialog.Accepted:
+            if hasattr(dlg, "apply_to"):
+                dlg.apply_to(obj)
+            # Rebuild scene so Plane coordinate / visibility updates apply
+            self.scene.build(self.dataset, main=self.main_object)
+            if self._enable_3d:
+                self.scene.fit()
+                self._refresh_gl()
+            self.message_win.log(f"Applied settings: {label}")
 
     def _on_timeline_step(self, step: int) -> None:
         self._cycle_label.setText(f"Cycle {step}")

@@ -104,14 +104,17 @@ class ObjectTree(QTreeWidget if _HAS_QT else object):
 
     visibility_changed = pyqtSignal(str, bool) if _HAS_QT else None
     item_activated_name = pyqtSignal(str) if _HAS_QT else None
+    # kind, label  (e.g. "surface", "Surface (1)")
+    object_activated = pyqtSignal(str, str) if _HAS_QT else None
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._items: dict[str, QTreeWidgetItem] = {}
+        self._object_kinds: dict[str, str] = {}
         if not _HAS_QT:
             return
         self.setHeaderLabels(["Object", "Status"])
-        self.setColumnWidth(0, 220)
+        self.setColumnWidth(0, 240)
         self.setRootIsDecorated(True)
         self.setUniformRowHeights(True)
         self.itemChanged.connect(self._on_item_changed)
@@ -125,6 +128,7 @@ class ObjectTree(QTreeWidget if _HAS_QT else object):
         self.blockSignals(True)
         self.clear()
         self._items.clear()
+        self._object_kinds.clear()
         root = QTreeWidgetItem(["POST application", ""])
         root.setFlags(root.flags() & ~Qt.ItemIsUserCheckable)
         self.addTopLevelItem(root)
@@ -157,8 +161,78 @@ class ObjectTree(QTreeWidget if _HAS_QT else object):
         glob.setExpanded(True)
         self.blockSignals(False)
 
+    def load_main(self, main) -> None:
+        """Insert field-file Main node with Surface/Plane[/Particle] children.
+
+        Layout matches scPOST Magic-open tree (screenshot)::
+
+            POST application
+              …
+              ..path\\file.fph
+                Surface (1)
+                Plane (1)
+                Particle (1)   # if particle results
+              Global Objects
+                Option / Camera / Light (1)
+        """
+        if not _HAS_QT:
+            return
+        from .icons import AppIcons
+        self.build_startup_tree()
+        root = self._items["POST application"]
+        glob = self._items["Global Objects"]
+        self.blockSignals(True)
+
+        file_item = QTreeWidgetItem([main.display_name, ""])
+        file_item.setFlags(
+            file_item.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+        file_item.setCheckState(0, Qt.Checked)
+        try:
+            file_item.setIcon(0, AppIcons.get("project", 16))
+        except Exception:
+            pass
+        # Insert before Global Objects
+        root.insertChild(root.indexOfChild(glob), file_item)
+        self._items[main.display_name] = file_item
+        self._items["__main__"] = file_item
+        self._object_kinds[main.display_name] = "main"
+
+        for obj in main.children:
+            label = obj.label
+            it = QTreeWidgetItem([label, ""])
+            it.setFlags(it.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+            it.setCheckState(0, Qt.Checked if obj.visible else Qt.Unchecked)
+            icon_name = {
+                "surface": "surface",
+                "plane": "plane_xy",
+                "particle": "point",
+            }.get(obj.kind, "project")
+            try:
+                it.setIcon(0, AppIcons.get(icon_name, 16))
+            except Exception:
+                pass
+            file_item.addChild(it)
+            self._items[label] = it
+            self._object_kinds[label] = obj.kind
+
+        file_item.setExpanded(True)
+
+        # Light (1) under Global Objects (scPOST default after open)
+        light = QTreeWidgetItem(["Light (1)", ""])
+        light.setFlags(light.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+        light.setCheckState(0, Qt.Checked)
+        try:
+            light.setIcon(0, AppIcons.get("display", 16))
+        except Exception:
+            pass
+        glob.addChild(light)
+        self._items["Light (1)"] = light
+        self._object_kinds["Light (1)"] = "light"
+        glob.setExpanded(True)
+        self.blockSignals(False)
+
     def clear_and_rebuild(self, root_items: list[tuple]) -> None:
-        """Rebuild after loading a field file (keeps POST application chrome)."""
+        """Legacy rebuild helper (kept for tests / non-Main listings)."""
         if not _HAS_QT:
             return
         self.build_startup_tree()
@@ -189,8 +263,12 @@ class ObjectTree(QTreeWidget if _HAS_QT else object):
         self.visibility_changed.emit(name, on)
 
     def _on_double_clicked(self, item, _column) -> None:
+        name = item.text(0)
         if self.item_activated_name is not None:
-            self.item_activated_name.emit(item.text(0))
+            self.item_activated_name.emit(name)
+        kind = self._object_kinds.get(name, "")
+        if kind and self.object_activated is not None:
+            self.object_activated.emit(kind, name)
 
 
 class TimelineWindow(QWidget if _HAS_QT else object):
