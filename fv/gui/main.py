@@ -106,13 +106,26 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         """)
 
     def _build_central(self) -> None:
-        from .panes import MessageWindow, ObjectTree, PaneFrame, TimelineWindow
+        from .panes import (
+            MessageWindow, ObjectTree, PaneFrame, PropertyHost, TimelineWindow,
+        )
 
         self.object_tree = ObjectTree(self)
         self.object_tree.visibility_changed.connect(self._on_tree_visibility)
         self.object_tree.item_activated_name.connect(self._on_tree_activated)
         self.object_tree.object_activated.connect(self._on_object_activated)
-        left = PaneFrame("Control Window", self.object_tree)
+
+        # scPOST Control Window: tree (upper) + tiled settings (lower)
+        self.property_host = PropertyHost(self)
+        self.property_host.applied.connect(self._on_property_applied)
+        left_split = QSplitter(Qt.Vertical, self)
+        left_split.addWidget(PaneFrame("Control Window", self.object_tree))
+        left_split.addWidget(self.property_host)
+        left_split.setStretchFactor(0, 3)
+        left_split.setStretchFactor(1, 2)
+        left_split.setSizes([320, 280])
+        self._left_splitter = left_split
+        left = left_split
 
         if self._enable_3d:
             self.vtk_widget = QVTKRenderWindowInteractor(self)
@@ -441,6 +454,16 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self.scene.fit()
             self._refresh_gl()
         self.object_tree.load_main(self.main_object)
+        # Auto-open first object settings in the tiled pane (scPOST-like)
+        if self.main_object.children:
+            first = self.main_object.children[0]
+            self.property_host.show_object(
+                first.kind, first, field_file=ff)
+            item = self.object_tree._items.get(first.label)
+            if item is not None:
+                self.object_tree.blockSignals(True)
+                self.object_tree.setCurrentItem(item)
+                self.object_tree.blockSignals(False)
         cyc = ff.cycle if ff.cycle is not None else 0
         self.timeline.set_range(cyc, cyc)
         self.timeline.set_step(cyc)
@@ -474,6 +497,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.main_object = None
         self.scene.reset()
         self.object_tree.build_startup_tree()
+        self.property_host.clear()
         self.timeline.set_range(0, 0)
         self._cycle_label.setText("Cycle —")
         self.setWindowTitle("flowviewer")
@@ -553,31 +577,29 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self._nyi("Draw Window settings")
 
     def _on_object_activated(self, kind: str, label: str) -> None:
-        """Double-click Surface/Plane/Particle → property dialog."""
+        """Select / double-click Surface/Plane/Particle → tiled settings pane."""
         if self.main_object is None or self.dataset is None:
+            return
+        if kind not in ("surface", "plane", "particle"):
             return
         obj = next((o for o in self.main_object.children
                     if o.label == label), None)
         if obj is None:
             return
-        from .object_dialogs import ParticleDialog, PlaneDialog, SurfaceDialog
-        dlg_cls = {
-            "surface": SurfaceDialog,
-            "plane": PlaneDialog,
-            "particle": ParticleDialog,
-        }.get(kind)
-        if dlg_cls is None:
+        self.property_host.show_object(kind, obj, field_file=self.dataset)
+        # Ensure the lower pane is visible after hide
+        self.property_host.setVisible(True)
+
+    def _on_property_applied(self, obj) -> None:
+        """Apply from tiled settings pane → rebuild scene."""
+        if self.dataset is None or self.main_object is None:
             return
-        dlg = dlg_cls(obj, field_file=self.dataset, parent=self)
-        if dlg.exec_() == QtWidgets.QDialog.Accepted:
-            if hasattr(dlg, "apply_to"):
-                dlg.apply_to(obj)
-            # Rebuild scene so Plane coordinate / visibility updates apply
-            self.scene.build(self.dataset, main=self.main_object)
-            if self._enable_3d:
-                self.scene.fit()
-                self._refresh_gl()
-            self.message_win.log(f"Applied settings: {label}")
+        self.scene.build(self.dataset, main=self.main_object)
+        if self._enable_3d:
+            self.scene.fit()
+            self._refresh_gl()
+        label = getattr(obj, "label", str(obj))
+        self.message_win.log(f"Applied settings: {label}")
 
     def _on_timeline_step(self, step: int) -> None:
         self._cycle_label.setText(f"Cycle {step}")
@@ -655,7 +677,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             from ..render.axes import orientation_marker_widget
             iren = self.vtk_widget.GetRenderWindow().GetInteractor()
             self._orientation = orientation_marker_widget(
-                iren, corner="top-right")
+                iren, corner="bottom-left")
         except Exception as exc:  # noqa: BLE001
             self.message_win.log(f"Orientation marker failed: {exc}", "WARN")
 

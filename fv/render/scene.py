@@ -44,6 +44,8 @@ class Scene:
         if self.enable_3d and self.renderer is not None:
             for actors in self._layer_actors.values():
                 for a in actors:
+                    if isinstance(a, str):
+                        continue
                     self.renderer.RemoveActor(a)
             if self._overlay is not None:
                 try:
@@ -68,7 +70,7 @@ class Scene:
 
     def set_layer_visible(self, layer: str, visible: bool) -> None:
         for a in self._layer_actors.get(layer, []):
-            if self.enable_3d:
+            if self.enable_3d and not isinstance(a, str):
                 a.SetVisibility(1 if visible else 0)
 
     def fit(self) -> None:

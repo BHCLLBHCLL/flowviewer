@@ -9,8 +9,8 @@ try:
     from PyQt5.QtCore import Qt, pyqtSignal
     from PyQt5.QtWidgets import (
         QButtonGroup, QCheckBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
-        QPlainTextEdit, QPushButton, QRadioButton, QSlider, QTreeWidget,
-        QTreeWidgetItem, QVBoxLayout, QWidget,
+        QPlainTextEdit, QPushButton, QRadioButton, QSlider, QStackedWidget,
+        QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
     )
     _HAS_QT = True
 except Exception:  # pragma: no cover - headless
@@ -119,6 +119,7 @@ class ObjectTree(QTreeWidget if _HAS_QT else object):
         self.setUniformRowHeights(True)
         self.itemChanged.connect(self._on_item_changed)
         self.itemDoubleClicked.connect(self._on_double_clicked)
+        self.itemSelectionChanged.connect(self._on_selection_changed)
         self.build_startup_tree()
 
     def build_startup_tree(self) -> None:
@@ -269,6 +270,105 @@ class ObjectTree(QTreeWidget if _HAS_QT else object):
         kind = self._object_kinds.get(name, "")
         if kind and self.object_activated is not None:
             self.object_activated.emit(kind, name)
+
+    def _on_selection_changed(self) -> None:
+        """Single-click Surface/Plane/Particle → show tiled settings (scPOST)."""
+        items = self.selectedItems() if _HAS_QT else []
+        if not items:
+            return
+        name = items[0].text(0)
+        kind = self._object_kinds.get(name, "")
+        if kind in ("surface", "plane", "particle") and self.object_activated:
+            self.object_activated.emit(kind, name)
+
+
+class PropertyHost(QWidget if _HAS_QT else object):
+    """Lower half of Control Window — hosts tiled Surface/Plane/Particle sheets.
+
+    Replaces modal popups: selecting a tree object fills this pane.
+    """
+
+    applied = pyqtSignal(object) if _HAS_QT else None  # post-object after Apply
+    hidden = pyqtSignal() if _HAS_QT else None
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._obj = None
+        self._panel = None
+        self._kind = ""
+        if not _HAS_QT:
+            return
+        self.setObjectName("PaneFrame")
+        self.setAutoFillBackground(True)
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+        self._stack = QStackedWidget(self)
+        self._empty = QLabel(
+            "Select Surface / Plane / Particle\nin the tree above", self)
+        self._empty.setAlignment(Qt.AlignCenter)
+        self._empty.setStyleSheet("color:#666; font-size:11px;")
+        self._stack.addWidget(self._empty)
+        lay.addWidget(self._stack, 1)
+
+    @property
+    def current_object(self):
+        return self._obj
+
+    @property
+    def current_panel(self):
+        return self._panel
+
+    def clear(self) -> None:
+        if not _HAS_QT:
+            return
+        if self._panel is not None:
+            self._stack.removeWidget(self._panel)
+            self._panel.deleteLater()
+        self._panel = None
+        self._obj = None
+        self._kind = ""
+        self._stack.setCurrentWidget(self._empty)
+
+    def show_object(self, kind: str, obj, field_file=None) -> None:
+        """Embed Surface/Plane/Particle settings panel for *obj*."""
+        if not _HAS_QT:
+            return
+        from .object_dialogs import ParticleDialog, PlaneDialog, SurfaceDialog
+        cls = {
+            "surface": SurfaceDialog,
+            "plane": PlaneDialog,
+            "particle": ParticleDialog,
+        }.get(kind)
+        if cls is None:
+            return
+        # Reuse panel if same object already shown
+        if self._obj is obj and self._panel is not None:
+            self._stack.setCurrentWidget(self._panel)
+            return
+        self.clear()
+        panel = cls(obj, field_file=field_file, parent=self)
+        panel.apply_requested.connect(self._on_apply)
+        panel.close_requested.connect(self._on_hide)
+        self._panel = panel
+        self._obj = obj
+        self._kind = kind
+        self._stack.addWidget(panel)
+        self._stack.setCurrentWidget(panel)
+
+    def _on_apply(self) -> None:
+        if self._panel is None or self._obj is None:
+            return
+        if hasattr(self._panel, "apply_to"):
+            self._panel.apply_to(self._obj)
+        if self.applied is not None:
+            self.applied.emit(self._obj)
+
+    def _on_hide(self) -> None:
+        self.clear()
+        if self.hidden is not None:
+            self.hidden.emit()
 
 
 class TimelineWindow(QWidget if _HAS_QT else object):

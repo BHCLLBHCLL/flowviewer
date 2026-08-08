@@ -131,13 +131,48 @@ def test_scene_fph_actor_build(qapp):
     assert "particle" in names
 
 
+def test_scene_reset_with_string_placeholders(qapp):
+    """Regression: 3D reset() must not call RemoveActor on string placeholders
+    (e.g. particle layer 'particle_1'), which crashed Plane-dialog apply."""
+    from fv.render.scene import Scene
+    s = Scene(enable_3d=False)
+    s._layer_actors["particle"] = ["particle_1"]
+    s.reset()
+    assert s.actor_names() == []
+    s._layer_actors["grid"] = ["wireframe"]
+    s.set_layer_visible("grid", False)  # must not crash on strings
+
+
 def test_surface_plane_dialogs(qapp):
-    from fv.gui.object_dialogs import PlaneDialog, SurfaceDialog
+    from fv.gui.object_dialogs import (
+        ObjectSettingsPanel, PlaneDialog, SurfaceDialog,
+    )
     from fv.model.objects import PlaneObject, SurfaceObject
     sd = SurfaceDialog(SurfaceObject(index=1))
     assert sd.windowTitle().startswith("Surface")
+    assert isinstance(sd, ObjectSettingsPanel)
     pd = PlaneDialog(PlaneObject(index=1, axis="Z", coordinate=0.0))
     assert pd.windowTitle().startswith("Plane")
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_tiled_property_host(qapp):
+    """Settings open under the tree (not as a modal popup)."""
+    w = _make(qapp, FPH)
+    assert hasattr(w, "property_host")
+    # Auto-shows Surface (1) after open
+    assert w.property_host.current_object is not None
+    assert w.property_host.current_object.label == "Surface (1)"
+    assert w.property_host.current_panel is not None
+    # Switch to Plane via activation
+    w._on_object_activated("plane", "Plane (1)")
+    assert w.property_host.current_object.label == "Plane (1)"
+    # Apply rebuilds without modal exec_
+    w.property_host._on_apply()
+    assert "plane" in w.scene.actor_names()
+    # Hide clears the host
+    w.property_host._on_hide()
+    assert w.property_host.current_panel is None
 
 
 def test_surface_dialog_all_tabs_and_filter(qapp):

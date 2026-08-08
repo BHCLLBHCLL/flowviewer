@@ -134,33 +134,89 @@ class _CheckTree(QWidget if _HAS_QT else object):
             it.setCheckState(0, st)
 
 
-class _PinnedDialog(QDialog if _HAS_QT else object):
-    """Title bar chrome shared by object property dialogs."""
+if _HAS_QT:
+    from PyQt5.QtCore import pyqtSignal as _Sig
+else:  # pragma: no cover
+    _Sig = lambda *a, **k: None  # type: ignore
+
+
+class ObjectSettingsPanel(QWidget if _HAS_QT else object):
+    """scPOST Control-Window lower pane: tiled (not modal) object settings."""
+
+    apply_requested = _Sig()
+    close_requested = _Sig()
 
     def __init__(self, title: str, parent=None):
         super().__init__(parent)
         if not _HAS_QT:
             return
         self.setWindowTitle(title)
-        self.setWindowFlags(self.windowFlags() | Qt.Window)
-        self.resize(480, 420)
         self._root = QVBoxLayout(self)
-        self._root.setContentsMargins(6, 6, 6, 6)
-        self._root.setSpacing(4)
-        from .dialogs import DialogHeader
-        self._root.addWidget(DialogHeader(title, "surface", self))
-        self.tabs = QTabWidget(self)
-        self._root.addWidget(self.tabs, 1)
+        self._root.setContentsMargins(0, 0, 0, 0)
+        self._root.setSpacing(0)
+
+        bar = QFrame(self)
+        bar.setObjectName("PaneTitleBar")
+        bar.setFixedHeight(24)
+        bar.setAutoFillBackground(True)
+        bar.setAttribute(Qt.WA_StyledBackground, True)
+        hb = QHBoxLayout(bar)
+        hb.setContentsMargins(8, 0, 4, 0)
+        self._title_label = QLabel(title, bar)
+        self._title_label.setObjectName("PaneTitle")
+        hb.addWidget(self._title_label)
+        hb.addStretch(1)
+        self._btn_pin = QPushButton("P", bar)
+        self._btn_pin.setFixedSize(22, 20)
+        self._btn_pin.setCheckable(True)
+        self._btn_pin.setChecked(True)
+        self._btn_pin.setToolTip("Keep settings pane open (pin)")
+        self._btn_pin.setStyleSheet(
+            "QPushButton { border: none; font-size: 11px; font-weight: bold; }"
+            "QPushButton:checked { background: #c8e0f8; }")
+        hb.addWidget(self._btn_pin)
+        self._btn_hide = QPushButton("x", bar)
+        self._btn_hide.setFixedSize(22, 20)
+        self._btn_hide.setToolTip("Hide settings pane")
+        self._btn_hide.setStyleSheet(
+            "QPushButton { border: none; font-weight: bold; font-size: 13px; }"
+            "QPushButton:hover { background: #e0e0e0; }")
+        self._btn_hide.clicked.connect(self._on_hide)
+        hb.addWidget(self._btn_hide)
+        self._root.addWidget(bar)
+
+        body = QWidget(self)
+        body_lay = QVBoxLayout(body)
+        body_lay.setContentsMargins(4, 4, 4, 4)
+        body_lay.setSpacing(4)
+        self.tabs = QTabWidget(body)
+        body_lay.addWidget(self.tabs, 1)
         brow = QHBoxLayout()
         brow.addStretch(1)
-        ok = QPushButton("OK", self)
-        ok.setDefault(True)
-        ok.clicked.connect(self.accept)
-        cancel = QPushButton("Cancel", self)
-        cancel.clicked.connect(self.reject)
-        brow.addWidget(ok)
-        brow.addWidget(cancel)
-        self._root.addLayout(brow)
+        self._btn_apply = QPushButton("Apply", body)
+        self._btn_apply.setDefault(True)
+        self._btn_apply.clicked.connect(self._on_apply)
+        brow.addWidget(self._btn_apply)
+        body_lay.addLayout(brow)
+        self._root.addWidget(body, 1)
+
+    def set_title(self, title: str) -> None:
+        self.setWindowTitle(title)
+        if _HAS_QT:
+            self._title_label.setText(title)
+
+    def is_pinned(self) -> bool:
+        return bool(_HAS_QT and self._btn_pin.isChecked())
+
+    def _on_apply(self) -> None:
+        self.apply_requested.emit()
+
+    def _on_hide(self) -> None:
+        self.close_requested.emit()
+
+
+# Backward-compatible alias used by older call sites / docs
+_PinnedDialog = ObjectSettingsPanel
 
 
 def _hline(parent) -> QFrame:
