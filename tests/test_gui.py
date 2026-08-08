@@ -555,6 +555,46 @@ def test_plane_clip_region():
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_plane_vector_extras():
+    """Vector projection / constant-length / arrow sizing (P2.7)."""
+    import numpy as np
+    from vtk.util import numpy_support as vns
+    from fv.model.dataset import load_file
+    from fv.model.objects import PlaneObject
+    from fv.render import plane as rp
+    ff = load_file(FPH)
+    obj = PlaneObject(index=1, axis="Z", coordinate=0.0)
+    obj.show_vector = True
+    obj.vector_var = "VEL"
+    obj.vector_type = "Standard"
+    # projection zeroes the plane-normal (Z) component
+    obj.vector_projection = True
+    out = rp.build_plane_actors(ff, obj)
+    glyph = out["vector"].GetMapper().GetInputAlgorithm()
+    v = vns.vtk_to_numpy(
+        glyph.GetInput().GetPointData().GetVectors()).reshape(-1, 3)
+    assert np.abs(v[:, 2]).max() < 1e-8
+    # constant-length normalises every arrow to unit length
+    obj.vector_projection = False
+    obj.vector_constant_length = True
+    out2 = rp.build_plane_actors(ff, obj)
+    g2 = out2["vector"].GetMapper().GetInputAlgorithm()
+    v2 = vns.vtk_to_numpy(
+        g2.GetInput().GetPointData().GetVectors()).reshape(-1, 3)
+    lens = np.linalg.norm(v2, axis=1)
+    assert lens.min() == 0.0 and abs(lens.max() - 1.0) < 1e-9
+    # arrow size/angle scale the tip geometry (via source-output bounds)
+    obj.vector_constant_length = False
+    obj.vector_arrow_size = 1.5
+    obj.vector_arrow_angle = 0.7
+    out3 = rp.build_plane_actors(ff, obj)
+    g3 = out3["vector"].GetMapper().GetInputAlgorithm()
+    b3 = g3.GetSource().GetBounds()
+    assert abs(b3[2]) - 0.15 < 1e-6 and abs(b3[3]) - 0.15 < 1e-6
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_plane_contour_extras():
     """Contour mono/luster/water/value flags take effect (P2.6)."""
     from fv.model.dataset import load_file

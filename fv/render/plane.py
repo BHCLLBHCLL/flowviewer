@@ -292,8 +292,14 @@ def _data_range(pd, name: str) -> tuple[float, float]:
 # Vector
 # ---------------------------------------------------------------------------
 
-def _glyph_actor(pts_pd, obj, scale: float) -> "vtk.vtkActor":
-    """Orient + scale arrow glyphs from ``pts_pd`` PointData vectors."""
+def _glyph_actor(pts_pd, obj, scale: float,
+                 project_normal: Optional[np.ndarray] = None) -> "vtk.vtkActor":
+    """Orient + scale arrow glyphs from ``pts_pd`` PointData vectors.
+
+    ``project_normal`` (unit vector, optional) zeroes the normal component of
+    each vector (scPOST Vector → Projection). ``vector_constant_length`` makes
+    every arrow the same length (unit direction × scale).
+    """
     vec = pts_pd.GetPointData().GetVectors()
     if vec is None:
         return None
@@ -305,11 +311,31 @@ def _glyph_actor(pts_pd, obj, scale: float) -> "vtk.vtkActor":
         src.SetRadius(0.15)
     else:  # Standard | Triangle
         src = vtk.vtkArrowSource()
-        src.SetTipLength(0.35)
-        src.SetTipRadius(0.1)
+        src.SetTipLength(max(0.05, float(getattr(obj, "vector_arrow_angle",
+                                                 1.0) or 1.0) * 0.35))
+        src.SetTipRadius(max(0.05, float(getattr(obj, "vector_arrow_size",
+                                                 1.0) or 1.0) * 0.1))
         src.SetShaftRadius(0.04)
+
+    work = pts_pd
+    if project_normal is not None or getattr(obj, "vector_constant_length",
+                                             False):
+        arr = _vns.vtk_to_numpy(vec).reshape(-1, 3).astype(np.float64)
+        if project_normal is not None:
+            n = np.asarray(project_normal)
+            arr = arr - np.outer(np.dot(arr, n), n)
+        if getattr(obj, "vector_constant_length", False):
+            lens = np.linalg.norm(arr, axis=1)
+            ok = lens > 1e-12
+            arr[ok] = arr[ok] / lens[ok, None]
+        new_vec = _vns.numpy_to_vtk(arr, deep=True)
+        new_vec.SetName(vec.GetName())
+        work = vtk.vtkPolyData()
+        work.ShallowCopy(pts_pd)
+        work.GetPointData().SetVectors(new_vec)
+
     glyph = vtk.vtkGlyph3D()
-    glyph.SetInputData(pts_pd)
+    glyph.SetInputData(work)
     glyph.SetSourceConnection(src.GetOutputPort())
     glyph.SetInputArrayToProcess(
         1, 0, 0, vtk.vtkDataObject.FIELD_ASSOCIATION_POINTS,
@@ -388,7 +414,11 @@ def vector_actor(ugrid, ff: FieldFile, obj,
     # Probe/cutter copy arrays but lose the active-attribute flag.
     glyph_in.GetPointData().SetActiveVectors(base)
     scale = _vector_scale(ugrid, obj)
-    return _glyph_actor(glyph_in, obj, scale)
+    proj = None
+    if getattr(obj, "vector_projection", False):
+        proj = np.asarray(getattr(obj, "normal", (0.0, 0.0, 1.0)))
+        proj = proj / (np.linalg.norm(proj) + 1e-12)
+    return _glyph_actor(glyph_in, obj, scale, project_normal=proj)
 
 
 def cut_vector_array(ugrid, ff: FieldFile, obj,
