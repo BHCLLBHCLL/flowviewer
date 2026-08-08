@@ -310,12 +310,66 @@ Turbo/Blade-to-Blade、Volume renderer、UV、Pathfull、3D-ROM、VBS 宏等（�
 
 ---
 
-## 8. 下一步（ToDo）
+## 8. Plane 对象 16-tab 渲染映射审计（2026-08-09）
+
+> 范围：`PlaneDialog`（`fv/gui/object_dialogs.py`）16 个 tab 的 UI 选项 →
+> `PlaneObject`（`fv/model/objects.py`）字段 → `fv/render/plane.py` 渲染管线
+> （`build_plane_actors` / `trim_cut` / `automove_coordinate` / `integrate_cut`）
+> 的映射覆盖度审计。V0.2 已实现：Contour / Vector / Mesh / Boundary / Subline
+> 基础渲染 + Automove 数学 + Scalar Integration 弹窗。
+
+### 8.1 审计结果
+
+| Tab | 已映射到渲染 | 未映射（缺口） |
+|---|---|---|
+| **Coordinate** | axis、coordinate、point/normal（`cut_grid`/`plane_from_object`）、Rotate 点击 | `operate_object`、`pick_mode`/`pick_hide`（需交互器拾取）、`arbitrary_normal_r/t/p`、`usage_*`（视图态） |
+| **MAT** | — | **整 tab**（`display_mats`，需 `LS_MatOfElements` → cell 过滤） |
+| **Volume Region** | — | **整 tab**（`display_volume_regions`，需 region→cell 关联） |
+| **Contour** | var、transparent、line、line_transparent、broken_line、thickness | `contour_paint`、`luster`、`water`、`mono_color/rgb`、`contour_value`（标注） |
+| **Vector** | var、location、space_u、type、transparent、mono_color、scale_length | `space_v`、`constant_length`、`contour_color`（按标量着色）、`projection`、`scale_thickness`、`arrow_angle/size` |
+| **Mesh** | show_mesh、color、thickness、transparent | `mesh_paint/rgb`、`mesh_block`、`mesh_luster`、`mesh_water` |
+| **Boundary/Subline** | boundary_line、boundary_color、boundary_transparent、subline_external | `boundary_auto`、`boundary_broken_line`、`subline_automatic`、`subline_display_location` |
+| **Oil Flow** | — | **整 tab**（流线/streakline 需新增 `vtkStreamTracer` 管线） |
+| **Trim** | — | **整 tab**：`trim_cut` 读 `trim_xmin/…`，但 `PlaneObject` 与 Trim tab 只有 `trim_objects`——属性名错位，实际 no-op |
+| **Automove** | 数学（Line/Sin/Cos/Rotation，`automove_coordinate`） | Custom Path（csv）、`show_path`、`sync/distance/start/end`；**无动画驱动**（scene 无人调用重切） |
+| **Clip** | — | **整 tab**（`clip_enabled`/`clip_x*`/`display_region` 未被 render 读取） |
+| **Pick** | — | **整 tab**（需鼠标拾取 + 消息窗口/数值标注） |
+| **Scalar Integration** | area/sum/average 弹窗显示（`_on_integrate`） | CSV 输出（`integrate_output_file/csv`）、`labels`、`beep`、`recalc` |
+| **Vector Integration** | — | **未接线**：`_on_integrate` 恒传 `vector=None`，勾选 `int_vector` 也不计算 |
+| **Others** | — | colorbar（`cb_contour/cb_vector`，无 `vtkScalarBarActor`）、`use_model_coord`、`no_vector_contour_simultaneous`、`inter_*` 交线计算 |
+| **Texture** | — | **整 tab**（无 `vtkTexture`/UV 生成） |
+| **Font** | — | **整 tab**（仅服务 contour_value / pick_numbers 文字标注，尚无 text actor） |
+
+### 8.2 修改提升计划（按优先级）
+
+**P1 — 修复错位 / 断链（低风险、立即见效）**
+1. **Trim tab 属性错位**：`trim_cut` 改读 `trim_objects` 语义；或把 `trim_xmin/…` 加回 `PlaneObject` 且 Trim tab 提供坐标输入，二选一并补测试。
+2. **Vector Integration 接线**：`_on_integrate` 中 `int_vector` 勾选时 attach vector（复用 CellData→PointData→probe 流程）传给 `integrate_cut`。
+3. **Integration CSV 输出**：`integrate_output_file` 时把 `{var, area, sum, average}` 写入 `integrate_output_csv`。
+
+**P2 — 直接可实现的 VTK 增强**
+4. **Oil Flow**：新增 `fv/render/oilflow.py`，切面起点网格（`oilflow_space_u/v`）+ `vtkStreamTracer`（RK/Euler、`oilflow_steps`）→ Line/Standard/Triangle 流线 actor；`thickness/transparent/length` 生效。
+5. **Clip tab**：`build_plane_actors` 按 `clip_enabled`+`clip_xmin/xmax/ymin/ymax` 做 `vtkClipPolyData`（与 surface.trim_surface 同款）；`display_region` 画裁剪框线。
+6. **Contour 补项**：`mono_color`（纯色）、`contour_value`（`vtkLabeledDataMapper`）、`luster/water` → vtk 材质镜面/透明度。
+7. **Vector 补项**：`constant_length`（ScalingOff）、`projection`（法向分量置零）、`arrow_size/angle` 传 glyph 源。
+
+**P3 — 数据模型 + 交互**
+8. **MAT / Volume Region 过滤**：解析 `LS_MatOfElements`（cell→mat）与 volume region→cell 映射，`build_ugrid` 按 `display_mats`/`display_volume_regions` 裁剪 cell。
+9. **Colorbar / Font / Texture**：`vtkScalarBarActor` 接入 Others 两个下拉；字体应用到标注；`vtkTexture` 加载 `texture_file` 贴切面。
+10. **Automove 动画驱动**：Scene 加 `animate(t)`，用 `automove_coordinate` 更新 plane 并重切。
+11. **Pick 交互**：render window 拾取回调（`vtkPropPicker`），按 `pick_scalar/vector/shape/color` 输出到消息窗口。
+
+**执行顺序建议**：P1（1→2→3）→ P2（4→5→6→7）→ 视需求做 P3。每项配 headless 测试（`enable_3d=False` build 层名 + `enable_3d=True` 校验 actor 数量/标量模式）。
+
+---
+
+## 9. 下一步（ToDo）
 
 1. （评审）确认范围与优先级（是否包含 CGNS/Streamline/多视图等 P3–P4 项）。
-2. （T1）建立骨架：`fv/` 包 + `tests/` + `requirements.txt` + 入口 `fv_gui.py`。
-3. （T2）实现 `crdl/core.py` + `mesh_gph.py`（mmap、float32/float64 自检）。
-4. （T3）最小 GUI：主窗口 + Open 对话框 + 渲染 FPH 边界网格 + 状态栏坐标。
-5. （T4）FLD 解析 + 序列 cycle；逐步补齐 P2/P3。
+2. （T1）建立骨架：`fv/` 包 + `tests/` + `requirements.txt` + 入口 `fv_gui.py`。✅
+3. （T2）实现 `crdl/core.py` + `mesh_gph.py`（mmap、float32/float64 自检）。✅
+4. （T3）最小 GUI：主窗口 + Open 对话框 + 渲染 FPH 边界网格 + 状态栏坐标。✅
+5. （T4）FLD 解析 + 序列 cycle；逐步补齐 P2/P3。✅（Surface/Plane/Particle 渲染管线已接入 scene）
+6. （T5）Plane 16-tab 审计提升：P1 → P2 → P3（见 §8.2）。
 
 > 本文定期依据实际开发进度更新，重大变更需更新版本号与历史表。
