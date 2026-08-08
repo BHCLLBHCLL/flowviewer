@@ -433,6 +433,35 @@ def test_plane_trim_dialog_roundtrip(qapp):
 
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_plane_vector_integration(qapp):
+    """Vector integration returns normal flux / axes on the cut (P1.2)."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import PlaneObject
+    from fv.render import plane as rp
+    ff = load_file(FPH)
+    obj = PlaneObject(index=1, axis="Z", coordinate=0.0)
+    obj.vector_var = "VEL"
+    ug, cc = rp.build_ugrid(ff)
+    cut, vec = rp.cut_with_fields(ug, ff, obj, cc, vector="VEL")
+    assert vec is not None and vec.shape[1] == 3
+    assert vec.shape[0] == cut.GetNumberOfPoints()
+    res = rp.integrate_cut(cut, None, vec)
+    assert res["area"] > 0
+    assert abs(res["in_normal"]) > 0
+    assert len(res["in_axes"]) == 3
+    # dialog executes vector + scalar integration end-to-end
+    from fv.gui.object_dialogs import PlaneDialog
+    obj.contour_var = "PRES"
+    d = PlaneDialog(obj, ff)
+    d.int_scalar.setChecked(True)
+    d.int_vector.setChecked(True)
+    d._on_integrate()
+    assert "m^2" in d.integrate_result.text()
+    assert "m/s" in d.integrate_result.text()
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
 def test_plane_render_pipeline_fld():
     import vtk

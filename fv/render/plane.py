@@ -353,6 +353,79 @@ def vector_actor(ugrid, ff: FieldFile, obj,
     return _glyph_actor(glyph_in, obj, scale)
 
 
+def cut_vector_array(ugrid, ff: FieldFile, obj,
+                     cell_centered: bool) -> Optional[np.ndarray]:
+    """Interpolated vector field on the cut vertices, as ``(n_pts, 3)``.
+
+    Cell-centred vectors are converted to point data first so ``vtkCutter``
+    interpolates them. Used by Vector Integration (``∫v·n dS``).
+    """
+    base = obj.vector_var
+    if not base:
+        return None
+    vec = attach_vector(ugrid, ff, base, cell_centered)
+    if vec is None:
+        return None
+    work = ugrid
+    if cell_centered:
+        c2p = vtk.vtkCellDataToPointData()
+        c2p.SetInputData(ugrid)
+        c2p.PassCellDataOn()
+        c2p.Update()
+        work = c2p.GetOutput()
+    cutter = vtk.vtkCutter()
+    cutter.SetCutFunction(plane_from_object(obj))
+    cutter.SetInputData(work)
+    cutter.Update()
+    cut = cutter.GetOutput()
+    if cut.GetNumberOfPoints() == 0:
+        return None
+    arr = cut.GetPointData().GetVectors(base)
+    if arr is None:
+        arr = cut.GetPointData().GetArray(base)
+    if arr is None:
+        return None
+    return np.asarray(_vns.vtk_to_numpy(arr), dtype=np.float64).reshape(-1, 3)
+
+
+def cut_with_fields(ugrid, ff: FieldFile, obj, cell_centered: bool,
+                    scalar: Optional[str] = None,
+                    vector: Optional[str] = None):
+    """Attach scalar + vector, convert to point data, cut once.
+
+    Returns ``(cut_polydata, vector_np_or_None)``. The single cut carries the
+    scalar in CellData and the interpolated vector in PointData, so Scalar and
+    Vector integration run on one consistent surface.
+    """
+    if scalar:
+        attach_scalar(ugrid, ff, scalar, cell_centered)
+    if vector:
+        attach_vector(ugrid, ff, vector, cell_centered)
+    work = ugrid
+    if cell_centered:
+        c2p = vtk.vtkCellDataToPointData()
+        c2p.SetInputData(ugrid)
+        c2p.PassCellDataOn()
+        c2p.Update()
+        work = c2p.GetOutput()
+    cutter = vtk.vtkCutter()
+    cutter.SetCutFunction(plane_from_object(obj))
+    cutter.SetInputData(work)
+    cutter.Update()
+    cut = cutter.GetOutput()
+    if cut.GetNumberOfPoints() == 0:
+        return cut, None
+    vec = None
+    if vector:
+        arr = cut.GetPointData().GetVectors(vector)
+        if arr is None:
+            arr = cut.GetPointData().GetArray(vector)
+        if arr is not None:
+            vec = np.asarray(_vns.vtk_to_numpy(arr), dtype=np.float64) \
+                .reshape(-1, 3)
+    return cut, vec
+
+
 def _uniform_points_on_cut(ugrid, obj):
     """Evenly spaced sample points on the plane (scPOST Uniform location)."""
     b = ugrid.GetBounds()
@@ -678,36 +751,35 @@ def integrate_cut(pd, scalar_name: Optional[str],
 
     Returns dict with ``area``, ``sum``/``in_normal``/``in_axes`` and
     corresponding ``average`` fields, mirroring the scPOST readout.
-    """
-    normals = vtk.vtkPolyDataNormals()
-    normals.SetInputData(pd)
-    normals.ComputePointNormalsOn()
-    normals.ComputeCellNormalsOn()
-    normals.Update()
-    cut = normals.GetOutput()
-    cell_normals = cut.GetCellData().GetNormals()
 
-    pd_array = cut.GetPointData().GetArray(scalar_name) if scalar_name else None
-    cd_array = cut.GetCellData().GetArray(scalar_name) if scalar_name else None
+    ``vector`` (optional) is a ``(n_points, 3)`` array indexed by the *input*
+    ``pd`` point ids, so normals are computed from the triangle geometry
+    directly (no ``vtkPolyDataNormals``, which would reindex points).
+    """
+    pd_array = pd.GetPointData().GetArray(scalar_name) if scalar_name else None
+    cd_array = pd.GetCellData().GetArray(scalar_name) if scalar_name else None
 
     area = 0.0
     scalar_sum = 0.0
-    vec_normal = np.zeros(3)
+    vec_normal = 0.0
     vec_axes = np.zeros(3)
-    n_cells = cut.GetNumberOfCells()
+    n_cells = pd.GetNumberOfCells()
 
     for c in range(n_cells):
-        cell = cut.GetCell(c)
+        cell = pd.GetCell(c)
         ids = cell.GetPointIds()
         n = ids.GetNumberOfIds()
         if n < 3:
             continue
-        p0 = np.array(cut.GetPoint(ids.GetId(0)))
-        p1 = np.array(cut.GetPoint(ids.GetId(1)))
-        p2 = np.array(cut.GetPoint(ids.GetId(2)))
-        tri_area = 0.5 * np.linalg.norm(np.cross(p1 - p0, p2 - p0))
+        p0 = np.array(pd.GetPoint(ids.GetId(0)))
+        p1 = np.array(pd.GetPoint(ids.GetId(1)))
+        p2 = np.array(pd.GetPoint(ids.GetId(2)))
+        cross = np.cross(p1 - p0, p2 - p0)
+        tri_area = 0.5 * np.linalg.norm(cross)
         area += tri_area
-        cn = np.array(cell_normals.GetTuple3(c))
+        if tri_area == 0.0:
+            continue
+        cn = cross / (2.0 * tri_area)
         # scalar: cell-centred → per-triangle value; node-centred → mean of
         # vertices
         if scalar_name is not None:

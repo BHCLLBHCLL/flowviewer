@@ -1421,27 +1421,28 @@ class PlaneDialog(_PinnedDialog):
     def _on_integrate(self) -> None:
         """Execute the scPOST integral over the current cut."""
         try:
-            from ..render.plane import build_ugrid, cut_grid, integrate_cut
+            from ..render.plane import build_ugrid, integrate_cut, cut_with_fields
             if self.field_file is None:
                 return
             ug, cc = build_ugrid(self.field_file)
             if ug is None:
                 return
-            cut = cut_grid(ug, self.plane)
             scalar = None
             vector = None
             if self.int_scalar.isChecked() and self.plane.contour_var:
-                from ..render.plane import attach_scalar
-                arr = attach_scalar(ug, self.field_file,
-                                    self.plane.contour_var, cc)
-                if arr is not None:
-                    cut.GetPointData().AddArray(arr)
-                    scalar = self.plane.contour_var
-            res = integrate_cut(cut, scalar, vector)
-            txt = (f"Area : {res['area']:.6g} m^2"
-                   + (f"\nSum  : {res['sum']:.6g}"
-                      f"\nAverage : {res['average']:.6g}"
-                      if scalar else ""))
+                scalar = self.plane.contour_var
+            if self.int_vector.isChecked() and self.plane.vector_var:
+                vector = self.plane.vector_var
+            cut, vec = cut_with_fields(ug, self.field_file, self.plane, cc,
+                                       scalar=scalar, vector=vector)
+            res = integrate_cut(cut, scalar, vec)
+            txt = f"Area : {res['area']:.6g} m^2"
+            if scalar:
+                txt += (f"\nSum  : {res['sum']:.6g}"
+                        f"\nAverage : {res['average']:.6g}")
+            if vec is not None:
+                txt += (f"\nNormal flux : {res['in_normal']:.6g} m^3/s"
+                        f"\nAverage : {res['avg_normal']:.6g} m/s")
             self.integrate_result.setText(txt)
         except Exception as exc:  # noqa: BLE001
             self.integrate_result.setText(f"Integral failed: {exc}")
