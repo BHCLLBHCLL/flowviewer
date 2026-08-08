@@ -1,0 +1,4 @@
+numpy>=1.24
+PyQt5>=5.15
+vtk>=9.3
+pytest>=7.0
