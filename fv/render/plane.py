@@ -900,4 +900,12 @@ def build_plane_actors(ff: FieldFile, obj, ugrid=None,
         if s is not None:
             out["subline"] = s
 
+    # Oil Flow (streamlines from cut-plane seeds)
+    if getattr(obj, "oilflow_display", False):
+        from .oilflow import build_oilflow_actor
+        o = build_oilflow_actor(ff, obj, ugrid=ugrid,
+                                cell_centered=cell_centered)
+        if o is not None:
+            out["oilflow"] = o
+
     return out

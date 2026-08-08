@@ -492,6 +492,33 @@ def test_plane_integration_csv_output(qapp):
 
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_plane_oilflow_streamlines():
+    """Oil Flow tab produces streamlines from cut-plane seeds (P2.4)."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import PlaneObject
+    from fv.render import plane as rp
+    ff = load_file(FPH)
+    obj = PlaneObject(index=1, axis="Z", coordinate=0.0)
+    obj.oilflow_display = True
+    obj.oilflow_var = "VEL"
+    obj.oilflow_draw_type = "Line"
+    obj.oilflow_length = 1.0
+    out = rp.build_plane_actors(ff, obj)
+    assert "oilflow" in out and out["oilflow"] is not None
+    m = out["oilflow"].GetMapper()
+    assert m is not None
+    # tube variant also builds
+    obj.oilflow_draw_type = "Standard"
+    out2 = rp.build_plane_actors(ff, obj)
+    assert "oilflow" in out2
+    # disabled -> no actor
+    obj.oilflow_display = False
+    out3 = rp.build_plane_actors(ff, obj)
+    assert "oilflow" not in out3
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
 def test_plane_render_pipeline_fld():
     import vtk
