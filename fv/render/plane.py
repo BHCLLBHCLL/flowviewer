@@ -193,6 +193,10 @@ def contour_actor(pd, scalar_array_name: str, obj,
 
     ``pd`` carries the scalar in CellData (cell-centred FPH source) or
     PointData (node-centred FLD source); the mapper picks the right mode.
+
+    Honour flags: ``contour_transparent``, ``contour_mono_color``
+    (flat colour instead of scalar map), ``contour_luster`` (specular) and
+    ``contour_water`` (higher transparency/sheen).
     """
     mapper = vtk.vtkPolyDataMapper()
     mapper.SetInputData(pd)
@@ -206,9 +210,43 @@ def contour_actor(pd, scalar_array_name: str, obj,
         mapper.SetLookupTable(lut)
     actor = vtk.vtkActor()
     actor.SetMapper(mapper)
+    prop = actor.GetProperty()
+    if obj.contour_mono_color:
+        mapper.ScalarVisibilityOff()
+        prop.SetColor(*obj.contour_mono_rgb)
+    opacity = 1.0
     if obj.contour_transparent:
-        actor.GetProperty().SetOpacity(0.5)
-    actor.GetProperty().SetInterpolationToPhong()
+        opacity = 0.5
+    if obj.contour_water:
+        opacity = min(opacity, 0.65)
+        prop.SetSpecular(0.9)
+        prop.SetSpecularPower(60.0)
+        prop.SetInterpolationToGouraud()
+    if obj.contour_luster:
+        prop.SetSpecular(0.5)
+        prop.SetSpecularPower(20.0)
+    prop.SetOpacity(opacity)
+    if not (obj.contour_water or obj.contour_luster):
+        prop.SetInterpolationToPhong()
+    return actor
+
+
+def contour_value_actor(pd, scalar_array_name: str, obj) -> "vtk.vtkActor":
+    """Value labels over the cut (scPOST Contour → Value)."""
+    # keep only points carrying a value (deduplicate for labels)
+    dd = vtk.vtkCleanPolyData()
+    dd.SetInputData(pd)
+    dd.Update()
+    lm = vtk.vtkLabeledDataMapper()
+    lm.SetInputConnection(dd.GetOutputPort())
+    lm.SetLabelModeToLabelFieldData()
+    lm.SetFieldDataName(scalar_array_name)
+    tp = lm.GetLabelTextProperty()
+    tp.SetFontSize(max(8, int(getattr(obj, "font_size", 9) or 9)))
+    tp.SetFontFamilyToCourier()
+    tp.SetColor(0.0, 0.0, 0.0)
+    actor = vtk.vtkActor2D()
+    actor.SetMapper(lm)
     return actor
 
 
@@ -962,6 +1000,9 @@ def build_plane_actors(ff: FieldFile, obj, ugrid=None,
         out["contour"] = contour_actor(cut, obj.contour_var, obj)
         if getattr(obj, "contour_line", False):
             out["contour_line"] = contour_line_actor(
+                cut, obj.contour_var, obj)
+        if getattr(obj, "contour_value", False):
+            out["contour_value"] = contour_value_actor(
                 cut, obj.contour_var, obj)
 
     # Vector

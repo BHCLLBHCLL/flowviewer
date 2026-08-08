@@ -554,6 +554,35 @@ def test_plane_clip_region():
 
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_plane_contour_extras():
+    """Contour mono/luster/water/value flags take effect (P2.6)."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import PlaneObject
+    from fv.render import plane as rp
+    ff = load_file(FPH)
+    obj = PlaneObject(index=1, axis="Z", coordinate=0.0)
+    obj.show_contour = True
+    obj.contour_var = "PRES"
+    obj.contour_mono_color = True
+    obj.contour_luster = True
+    obj.contour_water = True
+    obj.contour_value = True
+    out = rp.build_plane_actors(ff, obj)
+    assert "contour" in out
+    assert out["contour"].GetMapper().GetScalarVisibility() == 0
+    assert "contour_value" in out
+    assert out["contour_value"].GetMapper() is not None
+    # default (no extras) keeps scalar map
+    obj2 = PlaneObject(index=1, axis="Z", coordinate=0.0)
+    obj2.show_contour = True
+    obj2.contour_var = "PRES"
+    out2 = rp.build_plane_actors(ff, obj2)
+    assert out2["contour"].GetMapper().GetScalarVisibility() == 1
+    assert "contour_value" not in out2
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
 def test_plane_render_pipeline_fld():
     import vtk
