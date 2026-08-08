@@ -31,8 +31,9 @@ class Scene:
         self._layer_actors: dict[str, list] = {}
         if self.enable_3d:
             self.renderer = vtk.vtkRenderer()
-            self.renderer.SetBackground(0.15, 0.17, 0.2)
-            self.renderer.SetBackground2(0.4, 0.45, 0.52)
+            # Light scPOST / cabdecoding Draw Window gradient
+            self.renderer.SetBackground(0.93, 0.93, 0.94)
+            self.renderer.SetBackground2(0.78, 0.82, 0.90)
             self.renderer.GradientBackgroundOn()
             self.renderer.GetActiveCamera().ParallelProjectionOn()
 

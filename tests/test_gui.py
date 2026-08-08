@@ -36,7 +36,10 @@ def _make(qapp, path, enable_3d=False):
 def test_window_fph_layout(qapp):
     w = _make(qapp, FPH)
     assert w.dataset.kind == "fph"
-    assert w.object_tree.topLevelItemCount() >= 3
+    root = w.object_tree.topLevelItem(0)
+    assert root is not None and root.text(0) == "POST application"
+    # Main / Parts / Variables / Boundary hang under POST application
+    assert root.childCount() >= 4
     assert w.scene.actor_names() == ["grid", "bc"]
     assert w.status.currentMessage().startswith("FPH")
 
@@ -51,8 +54,23 @@ def test_window_fld_layout(qapp):
 
 def test_window_without_file(qapp):
     w = _make(qapp, None)
-    assert w.object_tree.topLevelItemCount() == 0
+    # Startup tree: POST application root (scPOST Control Window)
+    assert w.object_tree.topLevelItemCount() == 1
+    assert w.object_tree.topLevelItem(0).text(0) == "POST application"
     assert w.scene.actor_names() == []
+    assert w.timeline is not None
+    assert w.timeline.mode() == "Static"
+    assert hasattr(w, "tb_file")
+    assert hasattr(w, "draw_pane")
+    assert hasattr(w, "timeline_pane")
+
+
+def test_open_dialog_chrome(qapp):
+    from fv.gui.dialogs import DialogHeader, OpenDialog
+    dlg = OpenDialog()
+    assert dlg.windowTitle() == "Open"
+    hdr = DialogHeader("Open Field File", "open")
+    assert hdr.caption_label.text() == "Open Field File"
 
 
 def test_headless_imports():
