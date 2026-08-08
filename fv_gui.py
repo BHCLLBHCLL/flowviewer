@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""flowviewer entry point: ``python fv_main.py [file.fld | file.fph]``."""
+"""flowviewer GUI entry point: ``python fv_gui.py``."""
 
 import sys
 
@@ -12,13 +12,13 @@ def main(argv=None) -> int:
     if argv in (["--version"], ["-V"]):
         print(f"flowviewer {__version__}")
         return 0
-    if argv in (["--help"], ["-h"], []):
-        print("usage: python fv_main.py [file.fld | file.fph]")
-        return 0 if argv else 1
+    if argv in (["--help"], ["-h"]):
+        print("usage: python fv_gui.py")
+        return 0
 
     from fv.gui.main import run_gui
 
-    return run_gui(argv[0] if argv else None)
+    return run_gui(None)
 
 
 if __name__ == "__main__":

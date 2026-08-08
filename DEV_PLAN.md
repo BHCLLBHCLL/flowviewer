@@ -154,7 +154,7 @@ flowviewer/
 │   │   ├── options.py       # QSettings + OptionsDialog
 │   │   ├── dialogs.py       # Open 对话框（含文件信息）、Variable Registration、Cycle 等
 │   │   └── tasks.py         # QThread 工作线程 + 进度信号
-│   fv_main.py               # 入口：python fv_main.py [file.fld | file.fph]
+│   fv_gui.py                 # 入口：python fv_gui.py
 ├── tests/
 │   ├── test_crdl.py
 │   ├── test_mesh_gph.py     # 用 tr03_9.fph 断言
@@ -287,7 +287,7 @@ Turbo/Blade-to-Blade、Volume renderer、UV、Pathfull、3D-ROM、VBS 宏等（�
 
 ### 验收标准
 
-1. `python fv_main.py tests/…/tr03_9.fph` 打开后能显示边界网格；
+1. `python fv_gui.py` 打开后能显示边界网格（通过 File>Open 加载）；
 2. 打开 FLD 序列（如 `ex1_100.fld`/`ex1_200.fld`）能切换 Cycle 并同步时间滑块；
 3. 可创建 Surface/Plane 并绘制标量云图（Contour）与矢量箭头；
 4. Colorbar 范围可改（Auto/Min/Max），全局共享；
@@ -313,7 +313,7 @@ Turbo/Blade-to-Blade、Volume renderer、UV、Pathfull、3D-ROM、VBS 宏等（�
 ## 8. 下一步（ToDo）
 
 1. （评审）确认范围与优先级（是否包含 CGNS/Streamline/多视图等 P3–P4 项）。
-2. （T1）建立骨架：`fv/` 包 + `tests/` + `requirements.txt` + 入口 `fv_main.py`。
+2. （T1）建立骨架：`fv/` 包 + `tests/` + `requirements.txt` + 入口 `fv_gui.py`。
 3. （T2）实现 `crdl/core.py` + `mesh_gph.py`（mmap、float32/float64 自检）。
 4. （T3）最小 GUI：主窗口 + Open 对话框 + 渲染 FPH 边界网格 + 状态栏坐标。
 5. （T4）FLD 解析 + 序列 cycle；逐步补齐 P2/P3。
