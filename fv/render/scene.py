@@ -139,16 +139,11 @@ class Scene:
             children = MainObject.from_field_file(ff).children
         for obj in children:
             if obj.kind == "surface" and obj.visible:
-                # Surface shares the boundary wireframe (already in grid);
-                # keep a named layer for visibility toggles.
-                self._layer_actors.setdefault("surface", [])
-                if self._layer_actors.get("grid"):
-                    self._layer_actors["surface"] = list(
-                        self._layer_actors["grid"])
+                self._add_surface_actors(ff, obj)
             elif obj.kind == "plane" and obj.visible:
                 self._add_plane_actors(ff, obj)
             elif obj.kind == "particle" and obj.visible:
-                self._add_particle_placeholder(obj)
+                self._add_particle_actors(ff, obj)
 
     def _polydata_boundary(self, ff: FieldFile):
         ld = ff.link_data
@@ -234,6 +229,23 @@ class Scene:
         prop.SetLineWidth(1.0)
         self.add_actor("grid", actor)
 
+    def _add_surface_actors(self, ff: FieldFile, obj) -> None:
+        """Boundary-surface pipeline: contour / vector / mesh actors from
+        :func:`fv.render.surface.build_surface_actors`.
+        """
+        from . import surface as surface_render
+        actors = surface_render.build_surface_actors(ff, obj)
+        if not actors:
+            # Fallback: share the boundary wireframe already in the grid
+            # layer so the Surface stays visible when nothing is enabled.
+            self._layer_actors.setdefault("surface", [])
+            if self._layer_actors.get("grid"):
+                self._layer_actors["surface"] = list(
+                    self._layer_actors["grid"])
+            return
+        for key, actor in actors.items():
+            self.add_actor(f"surface:{key}", actor)
+
     def _add_plane_actors(self, ff: FieldFile, obj) -> None:
         """Cut-plane pipeline: contour / vector / mesh / boundary / subline
         actors from :func:`fv.render.plane.build_plane_actors`, plus a
@@ -274,8 +286,14 @@ class Scene:
             prop.SetEdgeColor(*color)
             self.add_actor("plane", actor)
 
-    def _add_particle_placeholder(self, obj) -> None:
-        """Record particle layer; full glyph rendering comes later."""
+    def _add_particle_actors(self, ff, obj) -> None:
+        """Build particle actors from the file's particle sections."""
+        from .particle import build_particle_actors
+        actors = build_particle_actors(obj, ff)
+        if not actors:
+            return
+        for key, actor in actors.items():
+            self.add_actor(f"particle:{key}", actor)
         self._layer_actors.setdefault("particle", ["particle_1"])
 
 

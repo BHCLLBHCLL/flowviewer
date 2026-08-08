@@ -415,3 +415,111 @@ def test_plane_render_pipeline_fld():
     cut.GetPointData().AddArray(arr)
     res = rp.integrate_cut(cut, "TEMP")
     assert res["area"] > 0 and abs(res["average"]) > 0
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_surface_render_pipeline_fph():
+    import vtk
+    from fv.model.dataset import load_file
+    from fv.model.objects import SurfaceObject
+    from fv.render import surface as sr
+    ff = load_file(FPH)
+    s = SurfaceObject(index=1)
+    s.selected_regions = [ff.surface_regions[0][0]]
+    s.show_contour = True
+    s.contour_var = "PRES"
+    s.show_vector = True
+    s.vector_var = "VEL"
+    s.show_mesh = True
+    out = sr.build_surface_actors(ff, s)
+    for key in ("contour", "vector", "mesh"):
+        assert key in out and out[key] is not None
+    # cell-centred FPH scalar lives in CellData on the surface
+    m = out["contour"].GetMapper()
+    assert m.GetScalarMode() == vtk.VTK_SCALAR_MODE_USE_CELL_DATA
+    # region filtering narrows the face set
+    pd, cc, fi = sr.build_surface_polydata(ff, s)
+    all_pd, _, _ = sr.build_surface_polydata(ff, SurfaceObject(index=1))
+    assert 0 < pd.GetNumberOfCells() <= all_pd.GetNumberOfCells()
+    # integration
+    sr.attach_scalar(ff, pd, fi, "PRES", cc)
+    res = sr.integrate_surface(pd, "PRES")
+    assert res["area"] > 0 and abs(res["average"]) > 0
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
+def test_surface_render_pipeline_fld():
+    import vtk
+    from fv.model.dataset import load_file
+    from fv.model.objects import SurfaceObject
+    from fv.render import surface as sr
+    ff = load_file(FLD)
+    regs = ff.boundary_regions()
+    s = SurfaceObject(index=1)
+    s.selected_regions = [r.name for r in regs if "Xmax" in r.name]
+    s.show_contour = True
+    s.contour_var = "TEMP"
+    s.show_vector = True
+    s.vector_var = "VECT"
+    s.show_mesh = True
+    out = sr.build_surface_actors(ff, s)
+    for key in ("contour", "vector", "mesh"):
+        assert key in out and out[key] is not None
+    # node-centred FLD scalar -> PointData
+    m = out["contour"].GetMapper()
+    assert m.GetScalarMode() == vtk.VTK_SCALAR_MODE_USE_POINT_DATA
+    # integration
+    pd, cc, fi = sr.build_surface_polydata(ff, s)
+    sr.attach_scalar(ff, pd, fi, "TEMP", cc)
+    res = sr.integrate_surface(pd, "TEMP")
+    assert res["area"] > 0 and abs(res["average"]) > 0
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_particle_render_pipeline_fph():
+    """Particle positions/velocities parsed and rendered for FPH."""
+    import vtk
+    from fv.crdl.fields import parse_particles
+    from fv.model.dataset import load_file
+    from fv.model.objects import ParticleObject
+    from fv.render import particle as pr
+    ff = load_file(FPH)
+    assert ff.has_particles
+    with open(ff.path, "rb") as fh:
+        buf = fh.read()
+    pos, vel = parse_particles(buf)
+    assert pos.shape == (50, 3)
+    assert vel.shape == (50, 3)
+    p = ParticleObject(index=1)
+    p.particle_type = "Points"
+    p.show_vector = True
+    out = pr.build_particle_actors(p, ff)
+    assert "particle" in out
+    # point-id scalar coloured points actor
+    m = out["particle"].GetMapper()
+    assert m.GetScalarMode() == vtk.VTK_SCALAR_MODE_USE_POINT_DATA
+    # vector glyph present when requested
+    assert "vector" in out and out["vector"].GetMapper() is not None
+    # sphere variant also builds
+    p2 = ParticleObject(index=1)
+    p2.particle_type = "Sphere"
+    out2 = pr.build_particle_actors(p2, ff)
+    assert "particle" in out2
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_particle_render_pipeline_scene():
+    """Particle actors wired into Scene.build (enable_3d path)."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import MainObject
+    from fv.render.scene import Scene
+    ff = load_file(FPH)
+    main = MainObject.from_field_file(ff)
+    s = Scene(enable_3d=True)
+    s.build(ff, main)
+    names = s.actor_names()
+    assert any(n.startswith("particle:") for n in names)

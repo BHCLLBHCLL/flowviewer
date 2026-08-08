@@ -85,6 +85,44 @@ def has_particle_results(data) -> bool:
     return False
 
 
+def parse_particles(data) -> Optional[tuple[np.ndarray, np.ndarray]]:
+    """Parse scFLOW particle sections → ``(positions, velocities)`` as
+    ``(N, 3)`` float64 arrays, or ``None`` when the file has none.
+
+    Layout (both sections share it): a 40-byte section header, then a few
+    ``[12][4][..]`` descriptors, then one ``[12][200]`` payload block per
+    coordinate (50 float32). ``LS_ParticlesPosition`` carries X/Y/Z,
+    ``LS_ParticleV:VELP`` (a nested section) carries VX/VY/VZ.
+    """
+    pos_sec = find_section(data, "LS_ParticlesPosition")
+    if pos_sec < 0:
+        return None
+    vel_sec = find_section(data, "LS_ParticleV:VELP")
+
+    def _coords(sec_start: int, boundary: int) -> Optional[np.ndarray]:
+        if sec_start < 0:
+            return None
+        comps: list[np.ndarray] = []
+        for p, bc in iter_data_blocks(data, sec_start, boundary):
+            if bc == 200 and p + bc <= boundary:
+                comps.append(f32_be_array(data, p, bc // 4))
+            if len(comps) == 3:
+                break
+        if len(comps) != 3 or any(a.size == 0 for a in comps):
+            return None
+        return np.column_stack(comps).astype(np.float64)
+
+    end = section_end(data, pos_sec)
+    vel_boundary = len(data)
+    positions = _coords(pos_sec, end)
+    velocities = _coords(vel_sec, vel_boundary)
+    if velocities is None:
+        velocities = np.zeros_like(positions)
+    if velocities.shape != positions.shape:
+        velocities = np.zeros_like(positions)
+    return positions, velocities
+
+
 def parse_fph_flow_solution(data, n_cells: int) -> dict[str, np.ndarray]:
     """Parse ``LS_SPHFile`` → ``{var: float64 (n_cells,)}`` (cell-centred)."""
     sec_start = find_section(data, "LS_SPHFile")
@@ -163,7 +201,6 @@ def parse_fields_from_file(filepath: str) -> dict[str, np.ndarray]:
 
 def _fld_vertex_count(data) -> int:
     """Best-effort FLD vertex count (LS_Nodes f64 block first element)."""
-    from .core import f64_be_array
     from . import mesh_fld
     xyz, n = mesh_fld._parse_ls_nodes(data)
     return n
