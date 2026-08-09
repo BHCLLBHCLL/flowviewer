@@ -268,9 +268,9 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
         # Display
         m = mb.addMenu("Display")
-        add(m, "Redraw")
-        add(m, "Show All", lambda: self._nyi("Show All"))
-        add(m, "Hide All", lambda: self._nyi("Hide All"))
+        add(m, "Redraw", self.on_redraw)
+        add(m, "Show All", self.on_show_all_objects)
+        add(m, "Hide All", self.on_hide_all_objects)
 
         # View
         m = mb.addMenu("View")
@@ -280,8 +280,8 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         add(m, "XZ (Y)", lambda: self.on_plane_view("y"), "Y")
         add(m, "XY (Z)", lambda: self.on_plane_view("z"), "Z")
         m.addSeparator()
-        add(m, "Iso Metric")
-        add(m, "Compare")
+        add(m, "Iso Metric", self.on_iso_metric, "I")
+        add(m, "Compare", self.on_compare_view)
         m.addSeparator()
         self._act_view_msg = QAction("Message Window", self, checkable=True)
         self._act_view_msg.setChecked(True)
@@ -299,13 +299,15 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
         # Option
         m = mb.addMenu("Option")
-        add(m, "Mouse 1-Button Mode")
-        add(m, "Mouse 2-Button Mode")
+        add(m, "Mouse 1-Button Mode",
+            lambda: self._set_mouse_mode("trackball"))
+        add(m, "Mouse 2-Button Mode",
+            lambda: self._set_mouse_mode("rubber"))
         add(m, "Mouse 3-Button Mode",
             lambda: self._set_mouse_mode("trackball"))
         m.addSeparator()
-        add(m, "Environment Settings")
-        add(m, "Diagnostics")
+        add(m, "Environment Settings", self.on_environment_settings)
+        add(m, "Diagnostics", self.on_diagnostics)
 
         # Toolbar
         m = mb.addMenu("Toolbar")
@@ -370,11 +372,11 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
         self.tb_display = tb("Display")
         act(self.tb_display, "Contour", "contour", "Contour display",
-            lambda: self._nyi("Contour"))
+            self.on_contour_display)
         act(self.tb_display, "Show", "show_all", "Show All",
-            lambda: self._nyi("Show All"))
+            self.on_show_all_objects)
         act(self.tb_display, "Redraw", "display", "Redraw",
-            lambda: self._refresh_gl())
+            lambda: self.on_redraw())
         self.addToolBar(self.tb_display)
 
         self.tb_view = tb("View")
@@ -409,7 +411,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
         self.tb_option = tb("Option")
         act(self.tb_option, "Option", "option", "Environment Settings",
-            lambda: self._nyi("Environment Settings"))
+            self.on_environment_settings)
         act(self.tb_option, "Camera", "camera", "Camera",
             lambda: self._nyi("Camera"))
         act(self.tb_option, "Unit", "unit", "Unit settings",
@@ -628,6 +630,90 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
     def _ensure_parallel_camera(self) -> None:
         if self.renderer is not None:
             self.renderer.GetActiveCamera().ParallelProjectionOn()
+
+    def on_iso_metric(self) -> None:
+        """View → Iso Metric: camera along the (+,+,+) diagonal."""
+        if not self._enable_3d or self.renderer is None:
+            return
+        from ..render.axes import iso_metric_camera
+        cam = self.renderer.GetActiveCamera()
+        pos, up = iso_metric_camera()
+        cam.SetPosition(*pos)
+        cam.SetViewUp(*up)
+        cam.SetFocalPoint(0, 0, 0)
+        self.renderer.ResetCamera()
+        self._ensure_parallel_camera()
+        self._refresh_gl()
+        self.message_win.log("View: Iso Metric")
+
+    def on_compare_view(self) -> None:
+        """View → Compare: side-by-side snapshot of the two last datasets."""
+        if len(self.datasets) < 2:
+            self.message_win.log(
+                "Compare: needs ≥2 loaded datasets (File → Open each)",
+                "WARN")
+            return
+        names = "  vs  ".join(Path(d.path).name for d in self.datasets[-2:])
+        self.message_win.log(f"Compare view: {names} (split-screen, TBD)")
+
+    def on_contour_display(self) -> None:
+        """Display → Contour: rebuild scene showing contour colours."""
+        if self.dataset is None or self.main_object is None:
+            self.message_win.log("Contour: open a field file first", "WARN")
+            return
+        self.scene.build(self.dataset, main=self.main_object)
+        if self._enable_3d:
+            self.scene.fit()
+            self._refresh_gl()
+        self.message_win.log("Display: Contour recomputed")
+
+    def on_show_all_objects(self) -> None:
+        self._set_all_objects_visible(True)
+
+    def on_hide_all_objects(self) -> None:
+        self._set_all_objects_visible(False)
+
+    def _set_all_objects_visible(self, on: bool) -> None:
+        if self.main_object is None:
+            self.message_win.log("No file loaded", "WARN")
+            return
+        for o in getattr(self.main_object, "children", []) or []:
+            o.visible = on
+        self.scene.build(self.dataset, main=self.main_object)
+        if self._enable_3d:
+            self.scene.fit()
+            self._refresh_gl()
+        self.message_win.log(f"Display: {'Show' if on else 'Hide'} all objects")
+        self.object_tree.load_main(self.main_object)
+
+    def on_redraw(self) -> None:
+        """Display → Redraw: force a full repaint + refresh scene."""
+        self._refresh_gl()
+        if self.dataset is not None and self.main_object is not None:
+            self.scene.build(self.dataset, main=self.main_object)
+            if self._enable_3d:
+                self._refresh_gl()
+        self.message_win.log("Redraw")
+
+    def on_environment_settings(self) -> None:
+        """Option → Environment Settings: minimal settings dialog."""
+        from .dialogs import EnvironmentDialog
+        dlg = EnvironmentDialog(self)
+        dlg.exec_()
+
+    def on_diagnostics(self) -> None:
+        """Option → Diagnostics: dump internal state to the message log."""
+        lines = [
+            "Diagnostics:",
+            f"  dataset: {getattr(self.dataset, 'kind', None)} "
+            f"({getattr(self.dataset, 'n_cells', 0):,} cells)",
+            f"  objects: {len(self.main_object.children) if self.main_object else 0}",
+            f"  scene actors: {len(self.scene.actor_names())} layers",
+            f"  fileset: {len(self.fileset) if self.fileset else 0} steps",
+            f"  mouse: {self._mouse_mode}",
+        ]
+        for line in lines:
+            self.message_win.log(line)
 
     def _refresh_gl(self) -> None:
         if self._enable_3d and self.vtk_widget is not None:

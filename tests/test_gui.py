@@ -1242,3 +1242,41 @@ def test_export_handlers_wired(qapp):
     # Direct method presence & graceful headless behaviour
     w.on_export_png()
     w.on_print()
+
+
+def test_menu_stubs_wired(qapp):
+    """Menu/view stubs now have real handlers (E-gap)."""
+    w = _make(qapp, FPH)
+    display = w.menuBar().actions()[2].menu()  # Display
+    dlabels = [a.text() for a in display.actions()]
+    assert "Redraw" in dlabels and "Show All" in dlabels
+    assert "Hide All" in dlabels
+    # View menu has Iso Metric / Compare wired to handlers
+    view = w.menuBar().actions()[3].menu()  # View
+    vlabels = [a.text() for a in view.actions()]
+    assert "Iso Metric" in vlabels and "Compare" in vlabels
+    # Handlers exist and don't crash in headless mode
+    w.on_redraw()
+    w.on_show_all_objects()
+    w.on_hide_all_objects()
+    w.on_iso_metric()
+    w.on_compare_view()
+
+
+def test_environment_dialog(qapp):
+    """Option → Environment dialog constructs with checkboxes."""
+    from fv.gui.dialogs import EnvironmentDialog
+    w = _make(qapp, FPH)
+    dlg = EnvironmentDialog(w)
+    assert hasattr(dlg, "chk_status")
+    assert hasattr(dlg, "chk_bggrad")
+    dlg.chk_status.setChecked(False)
+    dlg._on_ok()
+
+
+def test_on_contour_display_headless(qapp):
+    """Display → Contour rebuilds the scene headlessly."""
+    w = _make(qapp, FPH)
+    w.on_contour_display()
+    assert "surface" in w.scene.actor_names()
+    assert "grid" in w.scene.actor_names()

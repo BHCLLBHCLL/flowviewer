@@ -96,3 +96,11 @@ def plane_view_camera(plane: str, *, negative: bool = False
         return (0.0, sign, 0.0), (0.0, 0.0, 1.0)
     # yz / x
     return (sign, 0.0, 0.0), (0.0, 0.0, 1.0)
+
+
+def iso_metric_camera() -> tuple[tuple[float, float, float],
+                                 tuple[float, float, float]]:
+    """Isometric view—camera along the (+,+,+) diagonal, Z-up-ish."""
+    pos = (1.0, 1.0, 1.0)
+    up = (0.0, 0.0, 1.0)
+    return pos, up

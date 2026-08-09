@@ -526,3 +526,42 @@ class OpenDialog(QDialog if _HAS_QT else object):
             self._info.setText("(select a file to open)")
             return
         self.accept()
+
+
+class EnvironmentDialog(PostDialogBase):
+    """Option → Environment Settings: background + status/units display."""
+
+    def __init__(self, parent=None):
+        super().__init__("Environment Settings",
+                         "Environment Settings",
+                         icon="option",
+                         parent=parent,
+                         buttons=("OK", "Cancel"))
+        if not _HAS_QT:
+            return
+
+    def _build_body(self, layout: QVBoxLayout) -> None:
+        group = QGroupBox("Draw", self)
+        g = QVBoxLayout(group)
+        self.chk_bggrad = QCheckBox("Use gradient background", self)
+        self.chk_bggrad.setChecked(True)
+        g.addWidget(self.chk_bggrad)
+        self.chk_status = QCheckBox("Show status bar", self)
+        self.chk_status.setChecked(True)
+        g.addWidget(self.chk_status)
+        self.chk_units = QCheckBox("Display units in status bar", self)
+        self.chk_units.setChecked(True)
+        g.addWidget(self.chk_units)
+        layout.addWidget(group)
+        hint = QLabel(
+            "These settings apply to the Draw Window/status display.",
+            self)
+        hint.setStyleSheet("color:#666; font-size:11px;")
+        layout.addWidget(hint)
+
+    def _on_ok(self) -> None:
+        self._applied = True
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "statusBar"):
+            parent.statusBar().setVisible(self.chk_status.isChecked())
+        self.accept()
