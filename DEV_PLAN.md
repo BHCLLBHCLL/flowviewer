@@ -582,4 +582,5 @@ EMT 别名、headless placeholder）。验证 5 项全过。
 - 渲染：Surface 8-tab / Plane 16-tab / Particle 7-tab 对话框与管线、Oil Flow、
   Trim/Clip/Automove/Pick/OilFlow/Texture/Font、新 5 对象渲染管线、轴。
 - 平铺设置面板 + PropertyHost 8 kind 映射。
-- 测试：`tests/test_gui.py` 44 项通过。
+- 测试：`tests/test_gui.py` 66 项 + `test_scene_snapshot.py` 5 项
+  + crdl/fld/gph 13 项 = 全量 84 项通过（2026-08-09 实测）。
