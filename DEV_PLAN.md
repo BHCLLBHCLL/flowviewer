@@ -503,6 +503,12 @@ Hide All（`main.py:234-236`）、Option→Mouse 1/2-Button/Environment/Diagnost
 
 → 目标：Iso 等轴视图、Show/Hide All 场景显隐、Environment/Unit 对话框。
 
+**✅ 已完成（2026-08-09，commit 7f656ec）**：Display→Redraw/Show All/Hide All
+（接线+树显隐）、View→Iso Metric（`axes.iso_metric_camera`）/Compare、
+Option→Contour（重算场景）、Environment（`dialogs.EnvironmentDialog`）/
+Diagnostics（状态转储）、Mouse 1/2-Button 接入。工具栏 Save/Print/Contour/
+Show/Redraw/Option 均已接线。Unit/Camera 对话框仍 NYI。
+
 ### F. 已知 inert 控件
 
 | 控件 | 证据 |
