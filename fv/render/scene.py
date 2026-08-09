@@ -50,7 +50,13 @@ class Scene:
                 for a in actors:
                     if isinstance(a, str):
                         continue
-                    self.renderer.RemoveActor(a)
+                    if getattr(a, "IsA", None) and a.IsA("vtkActor2D"):
+                        try:
+                            self.renderer.RemoveActor2D(a)
+                        except Exception:
+                            pass
+                    else:
+                        self.renderer.RemoveActor(a)
             if self._overlay is not None:
                 try:
                     self.renderer.RemoveActor2D(self._overlay)
@@ -63,12 +69,31 @@ class Scene:
 
     def add_actor(self, layer: str, actor) -> None:
         if self.enable_3d:
-            self.renderer.AddActor(actor)
+            if isinstance(actor, vtk.vtkActor2D) if _HAS_VTK else False:
+                self.renderer.AddActor2D(actor)
+            else:
+                self.renderer.AddActor(actor)
         self._layer_actors.setdefault(layer, []).append(actor)
 
     def register_actor_object(self, actor, kind: str, obj) -> None:
         """Associate an actor with its source object (for pick resolution)."""
         self._actor_object[actor] = (kind, obj)
+
+    def build_global_colorbar(self, colorbar_obj, range_=None) -> None:
+        """Add the global ``vtkScalarBarActor`` (P2.3) to the scene."""
+        if not self.enable_3d or self.renderer is None:
+            return
+        from .colorbar import ColorbarRegistry, colorbar_actor
+        if range_ is not None:
+            ColorbarRegistry.lut().SetRange(float(range_[0]),
+                                            max(float(range_[1]),
+                                                float(range_[0]) + 1e-12))
+            ColorbarRegistry.lut().Build()
+        sb = colorbar_actor(colorbar_obj, range_=range_)
+        if sb is None:
+            return
+        self.add_actor("colorbar", sb)
+        self.register_actor_object(sb, "colorbar", colorbar_obj)
 
     def actor_names(self) -> list[str]:
         return [name for name, actors in self._layer_actors.items() if actors]
@@ -188,6 +213,10 @@ class Scene:
             self._layer_actors["grid"] = ["wireframe"]
             self._layer_actors["surface"] = ["surface_1"]
             self._layer_actors["plane"] = ["plane_1"]
+            for kind in ("isosurface", "point", "streamline", "volume"):
+                if any(o.kind == kind for o in
+                       getattr(main, "children", []) or []):
+                    self._layer_actors[kind] = [f"{kind}_1"]
             if getattr(ff, "has_particles", False) or (
                     main is not None and getattr(main, "has_particles", False)):
                 self._layer_actors["particle"] = ["particle_1"]
@@ -206,12 +235,22 @@ class Scene:
             from ..model.objects import MainObject
             children = MainObject.from_field_file(ff).children
         for obj in children:
-            if obj.kind == "surface" and obj.visible:
+            if not obj.visible:
+                continue
+            if obj.kind == "surface":
                 self._add_surface_actors(ff, obj)
-            elif obj.kind == "plane" and obj.visible:
+            elif obj.kind == "plane":
                 self._add_plane_actors(ff, obj)
-            elif obj.kind == "particle" and obj.visible:
+            elif obj.kind == "particle":
                 self._add_particle_actors(ff, obj)
+            elif obj.kind == "isosurface":
+                self._add_isosurface_actors(ff, obj)
+            elif obj.kind == "point":
+                self._add_point_actors(ff, obj)
+            elif obj.kind == "streamline":
+                self._add_streamline_actors(ff, obj)
+            elif obj.kind == "volume":
+                self._add_volume_actors(ff, obj)
         self._field_file = ff
         self._main = main
 
@@ -367,6 +406,42 @@ class Scene:
         for key, actor in actors.items():
             self.add_actor(f"particle:{key}", actor)
         self._layer_actors.setdefault("particle", ["particle_1"])
+
+    def _add_isosurface_actors(self, ff, obj) -> None:
+        """Iso-surface contour / line / vector actors (P2.4)."""
+        from . import isosurface as iso_render
+        actors = iso_render.build_isosurface_actors(ff, obj)
+        for key, actor in actors.items():
+            self.add_actor(f"isosurface:{key}", actor)
+            if not isinstance(actor, str):
+                self.register_actor_object(actor, "isosurface", obj)
+
+    def _add_point_actors(self, ff, obj) -> None:
+        """Point probe marker + value label (P2.5)."""
+        from . import point as point_render
+        actors = point_render.build_point_actors(ff, obj)
+        for key, actor in actors.items():
+            self.add_actor(f"point:{key}", actor)
+            if key == "point" and not isinstance(actor, str):
+                self.register_actor_object(actor, "point", obj)
+
+    def _add_streamline_actors(self, ff, obj) -> None:
+        """Streamlines seeded from a plane (P2.6)."""
+        from . import streamline as sl_render
+        actors = sl_render.build_streamline_actors(ff, obj)
+        for key, actor in actors.items():
+            self.add_actor(f"streamline:{key}", actor)
+            if not isinstance(actor, str):
+                self.register_actor_object(actor, "streamline", obj)
+
+    def _add_volume_actors(self, ff, obj) -> None:
+        """Whole-domain volume scalar/vector actors (P2.7)."""
+        from . import volume as vol_render
+        actors = vol_render.build_volume_actors(ff, obj)
+        for key, actor in actors.items():
+            self.add_actor(f"volume:{key}", actor)
+            if not isinstance(actor, str):
+                self.register_actor_object(actor, "volume", obj)
 
 
 def numpy_to_vtk_array(arr: np.ndarray, name: str):

@@ -276,9 +276,146 @@ class ParticleObject(PostObject):
 
 
 @dataclass
+class IsosurfaceObject(PostObject):
+    """Iso-scalar surfaces (scPOST Isosurface)."""
+
+    kind: str = "isosurface"
+    title: str = "Isosurface"
+    # Contour tab — scalar variable + iso values
+    show_contour: bool = True
+    contour_var: str = ""
+    contour_number: int = 5                    # number of auto levels
+    contour_values: list[float] = field(default_factory=list)  # explicit values
+    contour_auto: bool = True                  # True → distribute over range
+    contour_value: float = 0.0
+    contour_transparent: bool = False
+    contour_line: bool = False                 # surface mesh lines on iso
+    contour_mono_color: bool = False
+    contour_mono_rgb: tuple[float, float, float] = (0.8, 0.3, 0.5)
+    # Vector tab
+    show_vector: bool = False
+    vector_var: str = ""
+    vector_scale_length: float = 1.0
+    vector_space: float = 1.0
+    # Font / Others
+    font_name: str = "MS Gothic"
+    font_size: int = 9
+    font_float: float = 100.0
+    colorbar: str = ""
+
+
+@dataclass
+class PointObject(PostObject):
+    """Probe point (scPOST Point) — coordinate → local scalar/vector values."""
+
+    kind: str = "point"
+    title: str = "Point"
+    # Coordinate
+    position: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    # Display
+    shape: str = "Sphere"                      # Sphere | Cross | Plus
+    size: float = 5.0
+    color: tuple[float, float, float] = (1.0, 0.0, 0.0)
+    transparent: bool = False
+    # Probe tab
+    probe_scalar: bool = True
+    probe_scalar_var: str = ""
+    probe_vector: bool = False
+    probe_vector_var: str = ""
+    probe_show_values: bool = True
+    pick_show_numbers: bool = False
+    # Font / Others
+    font_name: str = "MS Gothic"
+    font_size: int = 9
+    font_float: float = 100.0
+
+
+@dataclass
+class StreamlineObject(PostObject):
+    """Streamlines seeded from a plane (scPOST Streamline)."""
+
+    kind: str = "streamline"
+    title: str = "Streamline"
+    # Seed
+    seed_center: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    seed_normal: tuple[float, float, float] = (0.0, 0.0, 1.0)
+    seed_axis: str = "Arbitrary"               # X | Y | Z | Arbitrary
+    seed_coordinate: float = 0.0
+    seed_density_u: int = 10                   # grid resolution
+    seed_density_v: int = 10
+    seed_spacing: float = 1.0
+    # Direction field
+    vector_var: str = ""
+    direction: str = "Forward"                 # Forward | Backward | Both
+    constant_length: bool = False
+    length: float = 1.0
+    # Integration
+    integration_method: str = "Runge-Kutta"    # Runge-Kutta | Euler
+    max_steps: int = 200
+    step_size: float = 0.01
+    # Display
+    draw_type: str = "Line"                    # Line | Triangle | Tube
+    color_var: str = ""                        # scalar var to color by
+    mono_color: tuple[float, float, float] = (0.2, 0.4, 0.9)
+    transparent: bool = False
+    thickness: float = 1.0
+    # Font
+    font_name: str = "MS Gothic"
+    font_size: int = 9
+    font_float: float = 100.0
+
+
+@dataclass
+class VolumeObject(PostObject):
+    """Volume scalar/vector display (scPOST Volume) — optional translucent."""
+
+    kind: str = "volume"
+    title: str = "Volume"
+    display_mats: list[int] = field(default_factory=list)
+    display_volume_regions: list[str] = field(default_factory=list)
+    draw_type: str = "Solid"                   # Solid | Transparent | Sampled
+    show_scalar: bool = True
+    scalar_var: str = ""
+    scalar_opacity: float = 1.0
+    scalar_mono_color: bool = False
+    scalar_mono_rgb: tuple[float, float, float] = (0.6, 0.7, 0.8)
+    transparent: bool = False
+    show_vector: bool = False
+    vector_var: str = ""
+    vector_scale_length: float = 1.0
+    vector_space: float = 1.0
+    sampling: int = 1                          # sampling accuracy
+    font_name: str = "MS Gothic"
+    font_size: int = 9
+    font_float: float = 100.0
+    colorbar: str = ""
+
+
+@dataclass
 class LightObject(PostObject):
     kind: str = "light"
     title: str = "Light"
+
+
+@dataclass
+class ColorbarObject(PostObject):
+    """Global colorbar (scPOST Colorbar) shared across field files."""
+
+    kind: str = "colorbar"
+    title: str = "Colorbar"
+    gradation: int = 256
+    color_map: str = "Rainbow"                 # Rainbow | Gray | Spectrum | Invert
+    range_mode: str = "Auto"                   # Auto | Fix
+    min: float = 0.0
+    max: float = 1.0
+    title: str = ""
+    show_title: bool = True
+    orientation: str = "Horizontal"            # Horizontal | Vertical
+    font_name: str = "MS Gothic"
+    font_size: int = 9
+    font_float: float = 100.0
+    visible: bool = True
+    position: tuple[float, float] = (0.12, 0.03)
 
 
 @dataclass

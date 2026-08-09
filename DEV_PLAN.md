@@ -373,5 +373,38 @@ Turbo/Blade-to-Blade、Volume renderer、UV、Pathfull、3D-ROM、VBS 宏等（�
 4. （T3）最小 GUI：主窗口 + Open 对话框 + 渲染 FPH 边界网格 + 状态栏坐标。✅
 5. （T4）FLD 解析 + 序列 cycle；逐步补齐 P2/P3。✅（Surface/Plane/Particle 渲染管线已接入 scene）
 6. （T5）Plane 16-tab 审计提升：P1 → P2 → P3（见 §8.2）。
+7. （T6）**scPOST 补充对象**：Isosurface / Point / Streamline / Volume / Colorbar（模型 + 渲染 + 设置面板）。✅ 完成于 2026-08-09（见 §10）。
 
 > 本文定期依据实际开发进度更新，重大变更需更新版本号与历史表。
+
+---
+
+## 10. scPOST 补充对象（T6，2026-08-09）
+
+> 范围：除 Surface / Plane / Particle 之外的核心 scPOST 对象——Isosurface、
+> Point、Streamline、Volume、Colorbar，覆盖「模型字段 → 渲染管线 → 平铺设置
+> 面板 → PropertyHost 接线」。
+
+### 10.1 交付清单
+
+| 对象 | 模型 | 渲染 | 设置面板 | 验证 |
+|---|---|---|---|---|
+| **Isosurface** | `IsosurfaceObject` | `fv/render/isosurface.py`（vtkContourFilter + contour_line + vector） | `IsosurfaceDialog` | FLD 管线测试 |
+| **Point** | `PointObject` | `fv/render/point.py`（marker + 探针标注，FLD 走最近节点） | `PointDialog` | FPH/FLD 探针测试 |
+| **Streamline** | `StreamlineObject` | `fv/render/streamline.py`（vtkStreamTracer / FLD 数值 Euler 追踪） | `StreamlineDialog` | FPH/FLD 流线测试 |
+| **Volume** | `VolumeObject` | `fv/render/volume.py`（vtkDataSetMapper + 采样） | `VolumeDialog` | FPH 体积测试 |
+| **Colorbar** | `ColorbarObject` | `fv/render/colorbar.py`（全局 LUT + vtkScalarBarActor） | `ColorbarDialog` | LUT / actor 测试 |
+
+### 10.2 接线
+
+- `fv/gui/panes.py` `PropertyHost.show_object` 收录
+  `isosurface / point / streamline / volume / colorbar` 五种 kind。
+- `fv/render/vector.py` 为共享箭头 glyph 工具，Isosurface / Volume 复用。
+- 全局 colorbar：`fv/render/colorbar.py` 持有进程级 `ColorbarRegistry` LUT。
+
+### 10.3 测试（tests/test_gui.py，新增 12 项）
+
+- 对话框：tab 结构 + `apply_to` 回写（含无 / 有 field_file 两种情况）。
+- 渲染管线：isosurface（FLD contour/line/vector + 显式 iso 值）、point（FPH
+  probe + FLD nearest-node）、streamline（FPH vtkStreamTracer + FLD Euler）、
+  volume（FPH Transparent）、colorbar（`build_lut` + `colorbar_actor`）。

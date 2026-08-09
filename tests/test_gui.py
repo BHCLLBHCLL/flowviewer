@@ -908,3 +908,198 @@ def test_particle_render_pipeline_scene():
     s.build(ff, main)
     names = s.actor_names()
     assert any(n.startswith("particle:") for n in names)
+
+
+@pytest.mark.skipif(not _HAS_QT, reason="PyQt5 unavailable")
+def test_new_object_dialogs_tabs_and_apply(qapp):
+    """Isosurface/Point/Streamline/Volume/Colorbar dialog tabs + apply_to."""
+    from fv.gui.object_dialogs2 import (
+        ColorbarDialog, IsosurfaceDialog, PointDialog, StreamlineDialog,
+        VolumeDialog,
+    )
+    from fv.model.objects import (
+        ColorbarObject, IsosurfaceObject, PointObject, StreamlineObject,
+        VolumeObject,
+    )
+    iso = IsosurfaceObject(index=1)
+    d = IsosurfaceDialog(iso)
+    assert [d.tabs.tabText(i) for i in range(d.tabs.count())] == \
+        ["Contour", "Vector"]
+    d.apply_to(iso)
+    assert iso.show_contour is True
+
+    pt = PointObject(index=1)
+    d = PointDialog(pt)
+    assert [d.tabs.tabText(i) for i in range(d.tabs.count())] == \
+        ["Coordinate", "Probe"]
+    d.apply_to(pt)
+
+    sl = StreamlineObject(index=1)
+    d = StreamlineDialog(sl)
+    assert [d.tabs.tabText(i) for i in range(d.tabs.count())] == \
+        ["Seed", "Direction", "Display"]
+    d.apply_to(sl)
+
+    vol = VolumeObject(index=1)
+    d = VolumeDialog(vol)
+    assert [d.tabs.tabText(i) for i in range(d.tabs.count())] == \
+        ["Scalar", "Vector"]
+    d.apply_to(vol)
+
+    cb = ColorbarObject()
+    d = ColorbarDialog(cb)
+    assert d.tabs.count() == 1
+    d.apply_to(cb)
+    assert cb.gradation == 256
+
+
+@pytest.mark.skipif(not _HAS_QT, reason="PyQt5 unavailable")
+def test_new_object_dialogs_with_field_file(qapp):
+    """Dialogs populate variable combos from a real field file."""
+    from fv.gui.object_dialogs2 import (
+        IsosurfaceDialog, PointDialog, StreamlineDialog,
+    )
+    from fv.model.dataset import load_file
+    from fv.model.objects import (
+        IsosurfaceObject, PointObject, StreamlineObject,
+    )
+    ff = load_file(FPH)
+    d = IsosurfaceDialog(IsosurfaceObject(index=1), field_file=ff)
+    assert d.var.count() >= 1
+    d = PointDialog(PointObject(index=1), field_file=ff)
+    assert d.scalar_var.count() >= 1
+    d = StreamlineDialog(StreamlineObject(index=1), field_file=ff)
+    assert d.vector.count() >= 1
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
+def test_isosurface_render_pipeline_fld():
+    import vtk
+    from fv.model.dataset import load_file
+    from fv.model.objects import IsosurfaceObject
+    from fv.render import isosurface as iso_render
+    ff = load_file(FLD)
+    obj = IsosurfaceObject(index=1)
+    obj.contour_var = "TEMP"
+    obj.contour_number = 4
+    obj.contour_line = True
+    obj.show_vector = True
+    obj.vector_var = "VECT"
+    out = iso_render.build_isosurface_actors(ff, obj)
+    assert "contour" in out and out["contour"] is not None
+    m = out["contour"].GetMapper()
+    assert m.GetScalarMode() in (vtk.VTK_SCALAR_MODE_USE_POINT_DATA,
+                                 vtk.VTK_SCALAR_MODE_USE_CELL_DATA)
+    assert "contour_line" in out
+    assert "vector" in out
+    # explicit values path
+    obj2 = IsosurfaceObject(index=1)
+    obj2.contour_var = "TEMP"
+    obj2.contour_auto = False
+    obj2.contour_values = [40.0, 60.0]
+    out2 = iso_render.build_isosurface_actors(ff, obj2)
+    assert out2.get("contour") is not None
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_point_render_pipeline_fph():
+    from fv.model.dataset import load_file
+    from fv.model.objects import PointObject
+    from fv.render import point as pt_render
+    ff = load_file(FPH)
+    obj = PointObject(index=1, position=(0.02, 0.02, 0.02))
+    obj.probe_scalar = True
+    obj.probe_scalar_var = "PRES"
+    obj.probe_vector = True
+    obj.probe_vector_var = "VEL"
+    obj.probe_show_values = True
+    out = pt_render.build_point_actors(ff, obj)
+    assert "point" in out and out["point"] is not None
+    assert "label" in out  # value label shown
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
+def test_point_probe_fld_nearest_node():
+    from fv.model.dataset import load_file
+    from fv.model.objects import PointObject
+    from fv.render import point as pt_render
+    ff = load_file(FLD)
+    obj = PointObject(index=1)
+    obj.position = (0.045, 0.01, 0.006)
+    obj.probe_scalar = True
+    obj.probe_scalar_var = "TEMP"
+    obj.probe_vector = True
+    obj.probe_vector_var = "VECT"
+    out = pt_render.build_point_actors(ff, obj)
+    assert "point" in out
+    assert "label" in out
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_streamline_render_pipeline_fph():
+    from fv.model.dataset import load_file
+    from fv.model.objects import StreamlineObject
+    from fv.render import streamline as sl_render
+    ff = load_file(FPH)
+    obj = StreamlineObject(index=1)
+    obj.vector_var = "VEL"
+    obj.seed_axis = "Z"
+    obj.seed_coordinate = 0.0
+    obj.seed_density_u = 4
+    obj.seed_density_v = 4
+    obj.length = 0.05
+    obj.draw_type = "Line"
+    obj.color_var = "PRES"
+    out = sl_render.build_streamline_actors(ff, obj)
+    assert out.get("streamline") is not None
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
+def test_streamline_render_pipeline_fld():
+    """FLD node-centred streamlines (numerical Euler tracer)."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import StreamlineObject
+    from fv.render import streamline as sl_render
+    ff = load_file(FLD)
+    obj = StreamlineObject(index=1)
+    obj.vector_var = "VECT"
+    obj.seed_axis = "X"
+    obj.seed_coordinate = 0.045
+    obj.seed_density_u = 4
+    obj.seed_density_v = 4
+    obj.length = 0.1
+    out = sl_render.build_streamline_actors(ff, obj)
+    assert out.get("streamline") is not None
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_volume_render_pipeline_fph():
+    from fv.model.dataset import load_file
+    from fv.model.objects import VolumeObject
+    from fv.render import volume as vol_render
+    ff = load_file(FPH)
+    obj = VolumeObject(index=1)
+    obj.show_scalar = True
+    obj.scalar_var = "PRES"
+    obj.draw_type = "Transparent"
+    out = vol_render.build_volume_actors(ff, obj)
+    assert out.get("scalar") is not None
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+def test_colorbar_actor_and_lut():
+    from fv.model.objects import ColorbarObject
+    from fv.render.colorbar import (
+        ColorbarRegistry, build_lut, colorbar_actor,
+    )
+    cb = ColorbarObject()
+    lut = build_lut(16, "Gray")
+    assert lut.GetNumberOfTableValues() == 16
+    sb = colorbar_actor(cb, range_=(0.0, 300.0))
+    assert sb is not None
+    assert sb.GetLookupTable() is ColorbarRegistry.lut()

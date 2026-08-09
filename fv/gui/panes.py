@@ -336,10 +336,19 @@ class PropertyHost(QWidget if _HAS_QT else object):
         if not _HAS_QT:
             return
         from .object_dialogs import ParticleDialog, PlaneDialog, SurfaceDialog
+        from .object_dialogs2 import (
+            ColorbarDialog, IsosurfaceDialog, PointDialog, StreamlineDialog,
+            VolumeDialog,
+        )
         cls = {
             "surface": SurfaceDialog,
             "plane": PlaneDialog,
             "particle": ParticleDialog,
+            "isosurface": IsosurfaceDialog,
+            "point": PointDialog,
+            "streamline": StreamlineDialog,
+            "volume": VolumeDialog,
+            "colorbar": ColorbarDialog,
         }.get(kind)
         if cls is None:
             return
