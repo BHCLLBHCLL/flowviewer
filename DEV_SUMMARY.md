@@ -60,6 +60,21 @@
 - `Scene.build`：网格线框（FPH 边界面 / FLD hex 边）+ Surface（共享边界线框层）+ Plane（半透明切面矩形，颜色/透明度/边色）+ Particle（占位层）。
 - 分层 actor 表 `_layer_actors`，`set_layer_visible` 支持 eye 显隐；overlay 显示 File / Cycle / Time。
 - `enable_3d=False` 时不建 VTK actor，只记录层名。
+- `Scene.apply_to_object`（增量更新）：`remove_object_actors` 移除某对象全部 actor（renderer + 层表 + `_actor_object` 所有权）后经 `_dispatch_object` 单对象重建，`main._on_property_applied` 走此路径避免全量 rebuild。
+
+### 2.6 载入性能优化（2026-08-09）
+
+目标：`tr03_9.fph`（63,697 单元 / 221,786 顶点）载入 2.07s → **0.88s（提升 57%）**，全量回归通过。
+
+| 优化点 | 原实现 | 优化后 | 收益 |
+|---|---|---|---|
+| Section 偏移索引缓存（`core.py`） | `section_end` 对每个节调 31 次 `find_section`，每次全文件 `bytes.find`（354 次全扫） | 首次调用建 `{节名→偏移}` 索引并缓存（含 data 强引用防 id 复用），后续 O(1) 查表 | 消除重复全文件扫描（~20% 耗时） |
+| LS_Nodes 描述符扫描（`mesh_gph.py`） | `ls_nodes_descriptor_elem_bytes` + `ls_nodes_vertex_count_from_descriptors` 各自 Python 逐 4 字节扫描述区，共 133 万次 `read_i32_be` | 合并为单函数 `ls_nodes_descriptors`，整段 `np.frombuffer(>i4)` + 向量化 `==12` 过滤（`head/tc/dim0/dim1` 一次性筛选） | 消除 ~67 万次逐字 Python 读取（~45% 耗时） |
+
+关键经验：
+- CRDL 描述区可整体视为大端 int32 数组向量化，`[12, tc, dim0, dim1]` 描述符与 `[12, byte_count]` 数据头靠 `tc ∈ {4,8}` + dim 范围过滤区分，语义与原逐字判定一致。
+- `bytes.find` 全文件扫描是隐性 O(N×M)（节数 × 边界名），建立一次性偏移索引是 CRDL 类容器的通用加速手段。
+- 剩余热点（`_group_faces_by_cell_id` mergesort、`_renumber_by_first_use`）为 numpy 固有成本，进一步收益有限。
 
 ---
 
@@ -74,7 +89,7 @@
 
 ### 3.2 测试
 
-- `pytest tests/`：**24 passed**（crdl / mesh_gph / mesh_fld / gui）。
+- `pytest tests/`：**84 passed**（`test_gui.py` 66 + `test_scene_snapshot.py` 5 + crdl/mesh_fld/mesh_gph 13，2026-08-09 实测）。
 - 对话框专项断言（`tests/test_gui.py` 新增）：
   - 三对话框 tab 标题序列与手册一致；
   - Surface Region 搜索筛选（`search="Rotate"` → 93/104 隐藏，可见项均含 "rotate"）；
@@ -99,15 +114,12 @@
 
 ## 4. 未解决的问题
 
-1. **对象配置尚未接入渲染**：Surface/Plane/Particle 对话框产出的 `contour_var / vector_var / display_mats / display_volume_regions / trim_*` 等只写回模型，`scene.build` 仍只消费 `axis / coordinate / color / show_mesh`。切面云图（Contour）、矢量箭头（Vector）、MAT/区域显隐筛选、Trim 裁切均待接线（对应 DEV_PLAN P2）。
-2. **Plane 对话框 Trim 页 "Trimmed by" 为空**：对话框只接收 `field_file`，拿不到其他对象列表；需在 `main.py` 调用处传入 `main_object.children`。
-3. **Particle 渲染为占位**：`_add_particle_placeholder` 仅记录层名，未生成粒子 glyph（对应 P2 之外的粒子/Pathline 向导）。
+1. **Cycle / 时间线变量注册（P3.5）**：FileSet 序列扫描、cycle 切换、Play/Pause/Loop 已接入，但 Variable Registration（算术表达式注册变量）对话框仍缺。
+2. **Unit / Camera 设置对话框**：工具栏 Option→Unit、Option→Camera 仍为 NYI。
+3. **CGNS / XDMF / EMT 等格式加载器**：loader 注册表已诚实区分可加载（fld/ifld/fph/gph）与探测未实现（cgns 等）；完整 CGNS HDF5 读取未实现。
 4. **FPH 无材料数据**：`tr03_9.fph` 的 `material` 为 None，MAT tab 在 FPH 下显示空树；MAT 筛选仅对 FLD 有效。
-5. **Cycle / 时间线切换未实现**：`_on_timeline_step` 只更新 Cycle 标签，未做场量切换与增量重建（DEV_PLAN P3）。
-6. **增量更新缺失**：改配置后 `_on_object_activated` 走全量 `scene.build` + `fit`，无增量 mapper 更新路径（DEV_PLAN 设计决策 4）。
-7. **EMT 别名未接入**：MAT tab 手册支持 EMT 文件加载后显示别名，当前仅显示数字。
-8. **iFLD 局部读取 / Trimming / Remote Open**：DEV_PLAN 明确 P4 探索项，未做。
-9. **真实 GL 渲染未自动化验证**：无头 CI 用 `enable_3d=False` 降级路径，`scene_snapshot` 静帧测试未建立。
+5. **iFLD 局部读取 / Trimming / Remote Open**：DEV_PLAN 明确 P4 探索项，未做。
+6. **真实 GL 渲染静态自动化范围有限**：`tests/test_scene_snapshot.py` 已建（offscreen 快照 PNG + 增量更新），但 CI 默认 `enable_3d=False` 降级路径为主。
 
 ---
 
