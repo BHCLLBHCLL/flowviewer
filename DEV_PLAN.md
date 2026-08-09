@@ -431,6 +431,11 @@ Turbo/Blade-to-Blade、Volume renderer、UV、Pathfull、3D-ROM、VBS 宏等（�
 → 目标：Create 菜单/工具栏真实创建对象并挂到 Main 子树；树激活/显隐/图标
 覆盖全部 8 种 kind；`_on_object_activated` 放开。
 
+**✅ 已完成（2026-08-09，commit c7da33b）**：`main._create_object(kind)` 创建并
+挂树 + `ObjectTree._add_object_item/add_object` + `_icon_for_kind` 全 kind 图标 +
+`_RENDERABLE_KINDS` 放开激活/显隐映射；Create 菜单/工具栏接线（未实现 kind
+Cylinder/Circle/Vector/Light/Text/Graph 仍保留 `_nyi`）。验证：`test_create_object_menu_wiring`。
+
 ### B. 全局 Colorbar 未接线
 
 | 缺口 | 证据 |
