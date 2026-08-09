@@ -445,33 +445,27 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
     # ── actions ───────────────────────────────────────────────────────────
 
     def on_open_dialog(self) -> None:
-        from .dialogs import OpenDialog
+        """File → Open…: standard Windows file dialog (native Explorer)."""
+        from PyQt5.QtWidgets import QFileDialog
+        from .dialogs import FILE_TYPE_FILTERS, _filter_label
+
         start = None
         if self.dataset is not None and getattr(self.dataset, "path", None):
             start = str(Path(self.dataset.path).parent)
-        dlg = OpenDialog(self, start_dir=start)
-        if dlg.exec_() != QtWidgets.QDialog.Accepted:
-            return
-        path = dlg.selected_path()
+        filters = ";".join(
+            _filter_label(name, exts) for name, exts in FILE_TYPE_FILTERS)
+        filters += ";;All files (*)"
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open Field File", start or "", filters)
         if not path:
             return
-        opts = dlg.open_options()
-        flags = opts.summary_lines()
-        self.message_win.log(
-            f"Open [{opts.filter_name}]: {path}"
-            + (f"  ({', '.join(flags)})" if flags else ""))
-        if opts.magic_open or opts.trimming_open or opts.remote_open:
-            self.message_win.log(
-                "Magic / Trimming / Remote open reserved for later "
-                "(options recorded, not applied)", "WARN")
-        if not dlg.is_loadable(path):
-            from ..model import loaders
-            detail = loaders.describe(path)
-            self.message_win.log(detail, "WARN")
+        from ..model import loaders
+        if not loaders.can_load(path):
+            self.message_win.log(loaders.describe(path), "WARN")
             self.status.showMessage(
                 f"Open: {Path(path).name} — not yet supported", 6000)
             return
-        self.open_file(path, options=opts)
+        self.open_file(path)
 
     def open_file(self, filepath: str, options=None) -> None:
         from ..model.dataset import load_file
