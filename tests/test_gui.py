@@ -623,6 +623,59 @@ def test_plane_contour_extras():
 
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_plane_volume_region_filter():
+    """Volume Region filtering on FPH (P3.8): disjoint region cuts."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import PlaneObject
+    from fv.render import plane as rp
+    ff = load_file(FPH)
+    obj = PlaneObject(index=1, axis="Z", coordinate=0.0)
+    obj.show_contour = True
+    obj.contour_var = "PRES"
+    full = rp.build_plane_actors(ff, obj)["contour"].GetMapper() \
+        .GetInput().GetNumberOfPoints()
+    # Case[2] and Rotate[2] partition the cut (disjoint, roughly additive)
+    c = PlaneObject(index=1, axis="Z", coordinate=0.0,
+                    display_volume_regions=["Case[2]"])
+    c.show_contour = True
+    c.contour_var = "PRES"
+    r = PlaneObject(index=1, axis="Z", coordinate=0.0,
+                    display_volume_regions=["Rotate[2]"])
+    r.show_contour = True
+    r.contour_var = "PRES"
+    np_ = rp.build_plane_actors(ff, c)["contour"].GetMapper() \
+        .GetInput().GetNumberOfPoints()
+    nr = rp.build_plane_actors(ff, r)["contour"].GetMapper() \
+        .GetInput().GetNumberOfPoints()
+    assert 0 < np_ < full and 0 < nr < full
+    assert abs((np_ + nr) - full) <= full * 0.02
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
+def test_plane_material_filter():
+    """MAT filtering on FLD (P3.8): subset of the full cut."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import PlaneObject
+    from fv.render import plane as rp
+    ff = load_file(FLD)
+    obj = PlaneObject(index=1, axis="Z", coordinate=0.006,
+                      point=(0.0, 0.0, 0.006))
+    obj.show_contour = True
+    obj.contour_var = "PRES"
+    full = rp.build_plane_actors(ff, obj)["contour"].GetMapper() \
+        .GetInput().GetNumberOfPoints()
+    m1 = PlaneObject(index=1, axis="Z", coordinate=0.006,
+                     point=(0.0, 0.0, 0.006), display_mats=[1])
+    m1.show_contour = True
+    m1.contour_var = "PRES"
+    n1 = rp.build_plane_actors(ff, m1)["contour"].GetMapper() \
+        .GetInput().GetNumberOfPoints()
+    assert 0 < n1 < full
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
 def test_plane_render_pipeline_fld():
     import vtk

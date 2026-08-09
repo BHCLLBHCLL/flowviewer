@@ -26,7 +26,8 @@ from ..render.plane import attach_vector
 
 
 def build_oilflow_actor(ff: FieldFile, obj, ugrid=None,
-                        cell_centered: bool = True) -> Optional["vtk.vtkActor"]:
+                        cell_centered: bool = True,
+                        rows=None) -> Optional["vtk.vtkActor"]:
     """Oil Flow actor: streamlines traced from cut-plane seed points.
 
     ``obj.oilflow_display`` gates the actor; ``obj.oilflow_var`` names the
@@ -41,11 +42,11 @@ def build_oilflow_actor(ff: FieldFile, obj, ugrid=None,
         return None
     if ugrid is None:
         from ..render.plane import build_ugrid
-        ugrid, cell_centered = build_ugrid(ff)
+        ugrid, cell_centered = build_ugrid(ff, cell_mask=None)
     if ugrid is None:
         return None
 
-    vec = attach_vector(ugrid, ff, base, cell_centered)
+    vec = attach_vector(ugrid, ff, base, cell_centered, rows=rows)
     if vec is None:
         return None
 

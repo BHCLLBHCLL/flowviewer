@@ -58,6 +58,8 @@ class FieldFile:
     surface_regions: list = field(default_factory=list)
     volume_regions: list = field(default_factory=list)
     parts: list = field(default_factory=list)
+    cvol_id: Optional[np.ndarray] = None
+    parts_with_cvol: list = field(default_factory=list)
     variables: dict = field(default_factory=dict)
     file_size: int = 0
     cycle: Optional[int] = None
@@ -126,6 +128,8 @@ def load_file(filepath: str) -> FieldFile:
     ff.surface_regions = mesh["surface_regions"]
     ff.volume_regions = mesh["volume_regions"]
     ff.parts = mesh["parts"]
+    ff.cvol_id = mesh.get("cvol_id")
+    ff.parts_with_cvol = mesh.get("parts_with_cvol") or []
     ff.file_size = mesh["file_size"]
 
     with open_buffer(str(path)) as data:

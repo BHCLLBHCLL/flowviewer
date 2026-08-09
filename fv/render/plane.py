@@ -35,7 +35,85 @@ except Exception:  # pragma: no cover - headless / no vtk
 # Grid construction
 # ---------------------------------------------------------------------------
 
-def build_ugrid(ff: FieldFile):
+def cell_filter_mask(ff: FieldFile, obj) -> Optional[np.ndarray]:
+    """Boolean mask over cells for MAT / Volume Region filtering (P3.8).
+
+    - FLD: ``display_mats`` selects cells whose material id (``ff.material``,
+      1-based) is in the set. Empty list → all cells (None).
+    - FPH: ``display_volume_regions`` selects cells whose volume-region /
+      part classification matches (via ``classify_volume_region_cells``).
+      Empty list → all cells (None).
+
+    Returns ``None`` when no filter applies so callers can keep the full
+    grid unchanged.
+    """
+    mats = getattr(obj, "display_mats", None) or []
+    regions = getattr(obj, "display_volume_regions", None) or []
+    if not mats and not regions:
+        return None
+
+    if ff.kind == "fph":
+        if not regions:
+            return None
+        from ..crdl.mesh_gph import classify_volume_region_cells
+        cvol = ff.cvol_id
+        parts = ff.parts_with_cvol or []
+        n = ff.n_cells
+        if cvol is None or len(cvol) != n or not parts:
+            return None
+        keep = np.zeros(n, dtype=bool)
+        for name in regions:
+            keep |= classify_volume_region_cells(name, parts, cvol, n)
+        return keep
+
+    # FLD material filter
+    mat = ff.material
+    if mat is None or len(mat) != ff.n_cells:
+        return None
+    want = {int(m) for m in mats}
+    return np.isin(np.asarray(mat, dtype=np.int64), list(want))
+
+
+def filter_ugrid_cells(ugrid, mask: Optional[np.ndarray]):
+    """Return a copy of ``ugrid`` keeping only cells where ``mask`` is True.
+
+    ``vtkThreshold`` renumbers the points; attached CellData/PointData arrays
+    are preserved for the surviving cells.
+    """
+    if mask is None or mask.all():
+        return ugrid
+    fa = _vns.numpy_to_vtk(np.ascontiguousarray(mask, dtype=np.float64),
+                           deep=True)
+    fa.SetName("__keep__")
+    ugrid.GetCellData().AddArray(fa)
+    th = vtk.vtkThreshold()
+    th.SetInputData(ugrid)
+    th.SetInputArrayToProcess(
+        0, 0, 0, vtk.vtkDataObject.FIELD_ASSOCIATION_CELLS, "__keep__")
+    th.SetLowerThreshold(0.5)
+    th.SetUpperThreshold(1.5)
+    th.Update()
+    return th.GetOutput()
+
+
+def _masked_cell_rows(ff: FieldFile, mask: Optional[np.ndarray]):
+    """Indices of cells to keep (all when ``mask`` is None/empty)."""
+    if mask is None or mask.all():
+        return None
+    return np.flatnonzero(mask)
+
+
+def _slice_field_array(arr: Optional[np.ndarray],
+                       rows: Optional[np.ndarray]):
+    """Subset a per-cell field array to the kept-cell rows."""
+    if arr is None:
+        return None
+    if rows is None:
+        return arr
+    return np.ascontiguousarray(np.asarray(arr)[rows], dtype=np.float64)
+
+
+def build_ugrid(ff: FieldFile, cell_mask: Optional[np.ndarray] = None):
     """Return ``(ugrid, cell_centered: bool)`` for cutting.
 
     FPH: cell-centred fields → build cells from ``LS_Links`` owner/neighbour
@@ -44,15 +122,20 @@ def build_ugrid(ff: FieldFile):
 
     FLD: hexahedra from ``LS_Elements``; node fields → PointData
     (``cell_centered=False``).
+
+    ``cell_mask`` (optional, from :func:`cell_filter_mask`) keeps only the
+    surviving cells (MAT / Volume Region filtering). FLD node-centred arrays
+    stay full-length; FPH cell-centred arrays are subset to the kept rows.
     """
     if not _HAS_VTK:
         return None, True
+    rows = _masked_cell_rows(ff, cell_mask)
     if ff.kind == "fph":
-        return _build_fph_ugrid(ff), True
-    return _build_fld_ugrid(ff), False
+        return _build_fph_ugrid(ff, rows), True
+    return _build_fld_ugrid(ff, rows), False
 
 
-def _build_fph_ugrid(ff: FieldFile):
+def _build_fph_ugrid(ff: FieldFile, rows=None):
     ld = ff.link_data
     if ld is None or ff.vertices is None:
         return None
@@ -68,7 +151,11 @@ def _build_fph_ugrid(ff: FieldFile):
     cells = vtk.vtkCellArray()
     face_nodes = np.asarray(ld["face_nodes"], dtype=np.int64)
     face_offsets = np.asarray(ld["face_offsets"], dtype=np.int64)
-    for c in range(n_cells):
+    if rows is not None:
+        keep = rows
+    else:
+        keep = range(n_cells)
+    for c in keep:
         pf = cell_owner_faces[c]
         ids = []
         for fi in pf:
@@ -84,7 +171,7 @@ def _build_fph_ugrid(ff: FieldFile):
     return ug
 
 
-def _build_fld_ugrid(ff: FieldFile):
+def _build_fld_ugrid(ff: FieldFile, rows=None):
     if ff.vertices is None or ff.cell_conn is None:
         return None
     verts = np.asarray(ff.vertices, dtype=np.float64)
@@ -94,7 +181,11 @@ def _build_fld_ugrid(ff: FieldFile):
     ug = vtk.vtkUnstructuredGrid()
     ug.SetPoints(points)
     cells = vtk.vtkCellArray()
-    for row in conn:
+    if rows is not None:
+        sel = conn[rows]
+    else:
+        sel = conn
+    for row in sel:
         h = vtk.vtkHexahedron()
         for k in range(8):
             h.GetPointIds().SetId(k, int(row[k]))
@@ -110,14 +201,20 @@ def _cell_centers(ugrid):
     return cc.GetOutput()
 
 
-def attach_scalar(ugrid, ff: FieldFile, var_name: str, cell_centered: bool):
-    """Attach the variable array to the grid. Returns vtkDataArray or None."""
+def attach_scalar(ugrid, ff: FieldFile, var_name: str, cell_centered: bool,
+                  rows=None):
+    """Attach the variable array to the grid. Returns vtkDataArray or None.
+
+    ``rows`` (optional kept-cell indices) subsets cell-centred arrays so they
+    match a MAT / Volume Region filtered grid.
+    """
     if var_name is None or var_name == "":
         return None
     arr = ff.variable_array(var_name)
     if arr is None:
         return None
-    fa = _vns.numpy_to_vtk(np.ascontiguousarray(arr, dtype=np.float64),
+    data = arr if rows is None or not cell_centered else np.asarray(arr)[rows]
+    fa = _vns.numpy_to_vtk(np.ascontiguousarray(data, dtype=np.float64),
                            deep=True)
     fa.SetName(var_name)
     if cell_centered:
@@ -127,7 +224,8 @@ def attach_scalar(ugrid, ff: FieldFile, var_name: str, cell_centered: bool):
     return fa
 
 
-def attach_vector(ugrid, ff: FieldFile, base: str, cell_centered: bool):
+def attach_vector(ugrid, ff: FieldFile, base: str, cell_centered: bool,
+                  rows=None):
     """Attach a vector field (``base``X/Y/Z) to the grid."""
     for suff in ("X", "Y", "Z"):
         arr = ff.variable_array(f"{base}{suff}")
@@ -136,6 +234,10 @@ def attach_vector(ugrid, ff: FieldFile, base: str, cell_centered: bool):
     vx = np.asarray(ff.variable_array(f"{base}X"), dtype=np.float64)
     vy = np.asarray(ff.variable_array(f"{base}Y"), dtype=np.float64)
     vz = np.asarray(ff.variable_array(f"{base}Z"), dtype=np.float64)
+    if cell_centered and rows is not None:
+        vx = vx[rows]
+        vy = vy[rows]
+        vz = vz[rows]
     vec = np.column_stack((vx, vy, vz))
     fa = _vns.numpy_to_vtk(np.ascontiguousarray(vec, dtype=np.float64),
                            deep=True)
@@ -356,7 +458,7 @@ def _glyph_actor(pts_pd, obj, scale: float,
 
 
 def vector_actor(ugrid, ff: FieldFile, obj,
-                 cell_centered: bool) -> Optional["vtk.vtkActor"]:
+                 cell_centered: bool, rows=None) -> Optional["vtk.vtkActor"]:
     """Vector arrows on the cut plane (Uniform/Center/Nodes/Actual).
 
     Cell-centred vector fields are first converted to point data
@@ -371,7 +473,7 @@ def vector_actor(ugrid, ff: FieldFile, obj,
     base = obj.vector_var
     if not base:
         return None
-    vec = attach_vector(ugrid, ff, base, cell_centered)
+    vec = attach_vector(ugrid, ff, base, cell_centered, rows=rows)
     if vec is None:
         return None
 
@@ -998,15 +1100,17 @@ def build_plane_actors(ff: FieldFile, obj, ugrid=None,
     out: dict = {}
     if not _HAS_VTK:
         return out
+    mask = cell_filter_mask(ff, obj)
+    rows = _masked_cell_rows(ff, mask)
     if ugrid is None:
-        ugrid, cell_centered = build_ugrid(ff)
+        ugrid, cell_centered = build_ugrid(ff, cell_mask=mask)
     if ugrid is None:
         return out
 
     # Attach contour scalar before cutting so vtkCutter propagates it.
     if (getattr(obj, "show_contour", False) and getattr(obj, "contour_var", "")
             and obj.contour_var in ff.variables):
-        attach_scalar(ugrid, ff, obj.contour_var, cell_centered)
+        attach_scalar(ugrid, ff, obj.contour_var, cell_centered, rows=rows)
 
     # Cut once
     cut = cut_grid(ugrid, obj)
@@ -1037,7 +1141,7 @@ def build_plane_actors(ff: FieldFile, obj, ugrid=None,
 
     # Vector
     if getattr(obj, "show_vector", False) and getattr(obj, "vector_var", ""):
-        actor = vector_actor(ugrid, ff, obj, cell_centered)
+        actor = vector_actor(ugrid, ff, obj, cell_centered, rows=rows)
         if actor is not None:
             out["vector"] = actor
 
@@ -1061,7 +1165,7 @@ def build_plane_actors(ff: FieldFile, obj, ugrid=None,
     if getattr(obj, "oilflow_display", False):
         from .oilflow import build_oilflow_actor
         o = build_oilflow_actor(ff, obj, ugrid=ugrid,
-                                cell_centered=cell_centered)
+                                cell_centered=cell_centered, rows=rows)
         if o is not None:
             out["oilflow"] = o
 
