@@ -342,6 +342,8 @@ Turbo/Blade-to-Blade、Volume renderer、UV、Pathfull、3D-ROM、VBS 宏等（�
 
 ### 8.2 修改提升计划（按优先级）
 
+> 状态（2026-08-09）：P1（1–3）、P2（4–7）、P3（8–11）**已全部完成**并提交。
+
 **P1 — 修复错位 / 断链（低风险、立即见效）**
 1. **Trim tab 属性错位**：`trim_cut` 改读 `trim_objects` 语义；或把 `trim_xmin/…` 加回 `PlaneObject` 且 Trim tab 提供坐标输入，二选一并补测试。
 2. **Vector Integration 接线**：`_on_integrate` 中 `int_vector` 勾选时 attach vector（复用 CellData→PointData→probe 流程）传给 `integrate_cut`。
