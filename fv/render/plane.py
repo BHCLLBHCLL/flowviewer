@@ -391,6 +391,117 @@ def _data_range(pd, name: str) -> tuple[float, float]:
 
 
 # ---------------------------------------------------------------------------
+# Colorbar / Texture / Font (P3.9)
+# ---------------------------------------------------------------------------
+
+def colorbar_actor(mapper, obj, title: str = "") -> Optional["vtk.vtkScalarBarActor"]:
+    """Global-style ``vtkScalarBarActor`` for a plane's contour/vector map.
+
+    The plane's Others tab names a colorbar via ``colorbar_contour`` /
+    ``colorbar_vector``; when set, the matching mapper's lookup table is
+    shown. Title text and label font honour the Font tab.
+    """
+    if not _HAS_VTK:
+        return None
+    lut = mapper.GetLookupTable()
+    if lut is None:
+        return None
+    sb = vtk.vtkScalarBarActor()
+    sb.SetLookupTable(lut)
+    sb.SetNumberOfLabels(7)
+    sb.SetMaximumNumberOfColors(256)
+    sb.SetOrientationToHorizontal()
+    sb.SetPosition(0.12, 0.03)
+    sb.SetWidth(0.55)
+    sb.SetHeight(0.06)
+    if title:
+        sb.SetTitle(title)
+    fp = sb.GetLabelTextProperty()
+    fp.SetFontFamilyToArial()
+    fp.SetFontSize(max(8, int(getattr(obj, "font_size", 9) or 9)))
+    fp.SetColor(0.0, 0.0, 0.0)
+    tp = sb.GetTitleTextProperty()
+    tp.SetFontFamilyToArial()
+    tp.SetFontSize(max(8, int(getattr(obj, "font_size", 9) or 9)) + 2)
+    tp.SetColor(0.0, 0.0, 0.0)
+    return sb
+
+
+def texture_actor(cut, obj) -> Optional["vtk.vtkActor"]:
+    """Apply ``texture_file`` (BMP/PNG/JPG) onto the cut plane (P3.9).
+
+    ``vtkTextureMapToPlane`` generates UVs from the cut's own coordinates,
+    scaled/rotated by the Texture tab. Returns ``None`` when disabled or the
+    image can't be loaded.
+    """
+    if not _HAS_VTK:
+        return None
+    if not getattr(obj, "texture_enabled", False):
+        return None
+    path = getattr(obj, "texture_file", "") or ""
+    if not path:
+        return None
+    import os
+    reader = None
+    ext = os.path.splitext(path)[1].lower()
+    if ext == ".bmp":
+        reader = vtk.vtkBMPReader()
+    elif ext in (".png",):
+        reader = vtk.vtkPNGReader()
+    elif ext in (".jpg", ".jpeg"):
+        reader = vtk.vtkJPEGReader()
+    else:
+        return None
+    reader.SetFileName(path)
+    try:
+        reader.Update()
+    except Exception:
+        return None
+    tex = vtk.vtkTexture()
+    tex.SetInputConnection(reader.GetOutputPort())
+    tex.InterpolateOn()
+    tex.RepeatOff()
+
+    tmap = vtk.vtkTextureMapToPlane()
+    tmap.SetInputData(cut)
+    scale = float(getattr(obj, "texture_scale", 1.0) or 1.0)
+    ang = float(getattr(obj, "texture_angle", 0.0) or 0.0)
+    if scale != 1.0 or ang != 0.0:
+        tr = vtk.vtkTransformTextureCoords()
+        tr.SetInputConnection(tmap.GetOutputPort())
+        tr.SetScale(1.0 / scale, 1.0 / scale, 1.0)
+        if ang:
+            import math
+            tr.SetOrigin(0.5, 0.5, 0.0)
+            tr.SetPosition(math.radians(ang), 0.0, 0.0)
+        mapper = vtk.vtkPolyDataMapper()
+        mapper.SetInputConnection(tr.GetOutputPort())
+    else:
+        mapper = vtk.vtkPolyDataMapper()
+        mapper.SetInputConnection(tmap.GetOutputPort())
+    actor = vtk.vtkActor()
+    actor.SetMapper(mapper)
+    actor.SetTexture(tex)
+    return actor
+
+
+def _apply_font(actor, obj) -> None:
+    """Apply Font tab to 2D text actors (contour value / pick numbers)."""
+    if not _HAS_VTK or actor is None:
+        return
+    size = max(8, int(getattr(obj, "font_size", 9) or 9))
+    tp = None
+    if isinstance(actor, vtk.vtkActor2D):
+        m = actor.GetMapper()
+        if m is not None and hasattr(m, "GetLabelTextProperty"):
+            tp = m.GetLabelTextProperty()
+    if tp is None:
+        return
+    tp.SetFontSize(size)
+    tp.SetFontFamilyToArial()
+
+
+# ---------------------------------------------------------------------------
 # Vector
 # ---------------------------------------------------------------------------
 
@@ -1136,8 +1247,29 @@ def build_plane_actors(ff: FieldFile, obj, ugrid=None,
             out["contour_line"] = contour_line_actor(
                 cut, obj.contour_var, obj)
         if getattr(obj, "contour_value", False):
-            out["contour_value"] = contour_value_actor(
-                cut, obj.contour_var, obj)
+            cv = contour_value_actor(cut, obj.contour_var, obj)
+            if cv is not None:
+                _apply_font(cv, obj)
+                out["contour_value"] = cv
+
+    # Colorbar (Others tab) for contour / vector
+    cb_var = getattr(obj, "colorbar_contour", "") or ""
+    if cb_var and cb_var != "(auto)" and "contour" in out:
+        cb = colorbar_actor(out["contour"].GetMapper(), obj, title=cb_var)
+        if cb is not None:
+            out["colorbar"] = cb
+    if not out.get("colorbar"):
+        cbv = getattr(obj, "colorbar_vector", "") or ""
+        if cbv and cbv != "(auto)" and "vector" in out:
+            cb = colorbar_actor(out["vector"].GetMapper(), obj, title=cbv)
+            if cb is not None:
+                out["colorbar"] = cb
+
+    # Texture (Texture tab) over the cut plane
+    if getattr(obj, "texture_enabled", False):
+        tx = texture_actor(cut, obj)
+        if tx is not None:
+            out["texture"] = tx
 
     # Vector
     if getattr(obj, "show_vector", False) and getattr(obj, "vector_var", ""):

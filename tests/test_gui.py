@@ -595,6 +595,48 @@ def test_plane_vector_extras():
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_plane_colorbar_texture():
+    """Colorbar actor + texture mapping (P3.9)."""
+    import struct
+    from pathlib import Path as _Path
+    from fv.model.dataset import load_file
+    from fv.model.objects import PlaneObject
+    from fv.render import plane as rp
+    ff = load_file(FPH)
+    obj = PlaneObject(index=1, axis="Z", coordinate=0.0)
+    obj.show_contour = True
+    obj.contour_var = "PRES"
+    obj.colorbar_contour = "PRES"
+    out = rp.build_plane_actors(ff, obj)
+    assert "colorbar" in out
+    cb = out["colorbar"]
+    assert cb.GetLookupTable() is not None
+    # texture over a small temp BMP
+    tmp = _Path(r"C:\Users\sdcll\AppData\Local\Temp\opencode\flowviewer_p39.bmp")
+    w = h = 4
+    px = b"".join(b"\x00\x00\xff\x00" for _ in range(w * h))
+    rowpad = b"\x00" * ((4 * w + 3) // 4 * 4 - 4 * w)
+    rows = b"".join(px[i * 4 * w:(i + 1) * 4 * w] + rowpad for i in range(h))
+    filesz = 54 + len(rows)
+    bmp = (b"BM" + struct.pack("<IHHI", filesz, 0, 0, 54)
+           + struct.pack("<IiiHHIIiiII", 40, w, h, 1, 24, 0,
+                         len(rows), 0, 0, 0, 0) + rows)
+    tmp.write_bytes(bmp)
+    try:
+        obj2 = PlaneObject(index=1, axis="Z", coordinate=0.0)
+        obj2.texture_enabled = True
+        obj2.texture_file = str(tmp)
+        obj2.texture_scale = 2.0
+        obj2.texture_angle = 30.0
+        out2 = rp.build_plane_actors(ff, obj2)
+        assert "texture" in out2
+        assert out2["texture"].GetTexture() is not None
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_plane_contour_extras():
     """Contour mono/luster/water/value flags take effect (P2.6)."""
     from fv.model.dataset import load_file
