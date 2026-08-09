@@ -351,6 +351,30 @@ def test_automove_math_fph():
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_plane_pick():
+    """Pick probing returns scalar/vector at a mesh vertex (P3.11)."""
+    import numpy as np
+    from fv.model.dataset import load_file
+    from fv.model.objects import PlaneObject
+    from fv.render import plane as rp
+    ff = load_file(FPH)
+    ug, cc = rp.build_ugrid(ff)
+    v = np.asarray(ff.vertices)
+    obj = PlaneObject(index=1)
+    obj.pick_scalar = True
+    obj.pick_scalar_var = "PRES"
+    res = rp.pick_point(ff, obj, tuple(v[0]), ugrid=ug, cell_centered=cc)
+    assert "scalar" in res
+    name, val = res["scalar"]
+    assert name == "PRES" and val != 0.0
+    # no flags -> only point
+    res2 = rp.pick_point(ff, PlaneObject(index=1), tuple(v[0]),
+                         ugrid=ug, cell_centered=cc)
+    assert "scalar" not in res2 and "vector" not in res2
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_plane_automove_animation():
     """Scene.animate advances automove planes and rebuilds their cut (P3.10)."""
     from fv.model.dataset import load_file

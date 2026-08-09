@@ -34,6 +34,8 @@ class Scene:
         self._bounds: Optional[tuple] = None
         self._field_file = None
         self._main = None
+        self._actor_object: dict = {}          # vtkActor/Prop → (kind, obj)
+        self._pick_callback = None
         if self.enable_3d:
             self.renderer = vtk.vtkRenderer()
             # Light scPOST Draw Window (near-white)
@@ -64,6 +66,10 @@ class Scene:
             self.renderer.AddActor(actor)
         self._layer_actors.setdefault(layer, []).append(actor)
 
+    def register_actor_object(self, actor, kind: str, obj) -> None:
+        """Associate an actor with its source object (for pick resolution)."""
+        self._actor_object[actor] = (kind, obj)
+
     def actor_names(self) -> list[str]:
         return [name for name, actors in self._layer_actors.items() if actors]
 
@@ -78,6 +84,23 @@ class Scene:
     def fit(self) -> None:
         if self.enable_3d and self.renderer:
             self.renderer.ResetCamera()
+
+    def pick_actor(self, x: int, y: int):
+        """Return ``(world_point, (kind, obj) or None)`` at display (x, y).
+
+        Uses ``vtkPropPicker`` so only visible props are picked; the result
+        object is resolved from :meth:`register_actor_object`. Returns
+        ``(None, None)`` when nothing is picked.
+        """
+        if not self.enable_3d or self.renderer is None:
+            return None, None
+        picker = vtk.vtkPropPicker()
+        picker.Pick(x, y, 0, self.renderer)
+        prop = picker.GetViewProp()
+        owner = self._actor_object.get(prop) if prop is not None else None
+        if owner is None:
+            return None, None
+        return tuple(float(v) for v in picker.GetPickPosition()), owner
 
     # ── Automove animation driver (P3.10) ────────────────────────────────
 
@@ -302,6 +325,8 @@ class Scene:
         actors = plane_render.build_plane_actors(ff, obj)
         for key, actor in actors.items():
             self.add_actor(f"plane:{key}", actor)
+            if not isinstance(actor, str):
+                self.register_actor_object(actor, "plane", obj)
         if "contour" not in actors and self._bounds is not None:
             lo, hi = self._bounds
             axis = (obj.axis or "Z").upper()

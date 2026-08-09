@@ -666,6 +666,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         iren = self.vtk_widget.GetRenderWindow().GetInteractor()
         self._set_trackball_style(iren)
         iren.AddObserver("MouseMoveEvent", self._on_vtk_mouse, 1.0)
+        iren.AddObserver("LeftButtonPressEvent", self._on_vtk_pick, 1.0)
         iren.Initialize()
         self._iren_ready = True
         self._set_orientation_marker(True)
@@ -699,6 +700,33 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             p = picker.GetPickPosition()
             self._coord_label.setText(
                 f"( {p[0]:.4g}, {p[1]:.4g}, {p[2]:.4g} )")
+
+    def _on_vtk_pick(self, obj, event) -> None:
+        """Left-click pick: probe scalar/vector on the picked plane (P3.11)."""
+        if not self._enable_3d or self.renderer is None:
+            return
+        if self.dataset is None or self.main_object is None:
+            return
+        x, y = obj.GetEventPosition()
+        point, owner = self.scene.pick_actor(x, y)
+        if point is None or owner is None:
+            return
+        kind, plane = owner
+        if kind != "plane":
+            return
+        if not (getattr(plane, "pick_scalar", True)
+                or getattr(plane, "pick_vector", False)):
+            return
+        from ..render.plane import pick_point
+        res = pick_point(self.dataset, plane, point)
+        lines = [f"Pick at ({point[0]:.4g}, {point[1]:.4g}, {point[2]:.4g})"]
+        if "scalar" in res:
+            name, val = res["scalar"]
+            lines.append(f"  {name} = {val:.6g}")
+        if "vector" in res:
+            name, (vx, vy, vz) = res["vector"]
+            lines.append(f"  {name} = ({vx:.6g}, {vy:.6g}, {vz:.6g})")
+        self.message_win.log("\n".join(lines))
 
 
 def run_gui(filepath: Optional[str] = None) -> int:

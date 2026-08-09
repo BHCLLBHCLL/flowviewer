@@ -1028,6 +1028,73 @@ def _point_axis(i: int, v: float):
 
 
 # ---------------------------------------------------------------------------
+# Pick (scPOST Pick tab: probe scalar/vector at a world point)
+# ---------------------------------------------------------------------------
+
+def pick_point(ff: FieldFile, obj, point, *, ugrid=None,
+               cell_centered: Optional[bool] = None) -> dict:
+    """Probe scalar / vector fields at a world-space ``point`` (P3.11).
+
+    Follows the Pick tab flags: ``pick_scalar_var`` and ``pick_vector_var``
+    name the fields to report. Returns a dict like ``{"scalar": (name, value),
+    "vector": (base, (x, y, z))}`` — keys omitted when disabled/unknown.
+    """
+    out: dict = {"point": tuple(float(v) for v in point)}
+    if not _HAS_VTK:
+        return out
+    scalar_var = getattr(obj, "pick_scalar_var", "") or ""
+    vector_var = getattr(obj, "pick_vector_var", "") or ""
+    if not scalar_var and not vector_var:
+        return out
+    if ugrid is None:
+        mask = cell_filter_mask(ff, obj)
+        rows = _masked_cell_rows(ff, mask)
+        ugrid, cell_centered = build_ugrid(ff, cell_mask=mask)
+    if ugrid is None:
+        return out
+    if cell_centered is None:
+        cell_centered = (ff.kind == "fph")
+    mask = cell_filter_mask(ff, obj)
+    rows = _masked_cell_rows(ff, mask)
+
+    if scalar_var and getattr(obj, "pick_scalar", True):
+        attach_scalar(ugrid, ff, scalar_var, cell_centered, rows=rows)
+    if vector_var and getattr(obj, "pick_vector", False):
+        attach_vector(ugrid, ff, vector_var, cell_centered, rows=rows)
+
+    # Convert cell-centred fields to point data so the probe can interpolate.
+    work = ugrid
+    if cell_centered:
+        c2p = vtk.vtkCellDataToPointData()
+        c2p.SetInputData(ugrid)
+        c2p.PassCellDataOn()
+        c2p.Update()
+        work = c2p.GetOutput()
+
+    pts = vtk.vtkPoints()
+    pts.InsertNextPoint(*point)
+    pt_pd = vtk.vtkPolyData()
+    pt_pd.SetPoints(pts)
+    probe = vtk.vtkProbeFilter()
+    probe.SetInputData(pt_pd)
+    probe.SetSourceData(work)
+    probe.Update()
+    pout = probe.GetOutput()
+
+    if scalar_var:
+        arr = pout.GetPointData().GetArray(scalar_var)
+        if arr is not None:
+            out["scalar"] = (scalar_var, float(arr.GetTuple1(0)))
+    if vector_var:
+        arr = pout.GetPointData().GetArray(vector_var)
+        if arr is None:
+            arr = pout.GetPointData().GetVectors(vector_var)
+        if arr is not None:
+            out["vector"] = (vector_var, tuple(float(v) for v in arr.GetTuple3(0)))
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Automove (scPOST CutPlaneAutoMove@pst)
 # ---------------------------------------------------------------------------
 
