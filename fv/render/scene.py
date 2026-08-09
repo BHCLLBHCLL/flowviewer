@@ -79,6 +79,30 @@ class Scene:
         """Associate an actor with its source object (for pick resolution)."""
         self._actor_object[actor] = (kind, obj)
 
+    def remove_object_actors(self, obj) -> None:
+        """Remove every actor owned by *obj* (renderer + layer registry).
+
+        Works for both real (3D) and headless (placeholder-string) layers so
+        :meth:`apply_to_object` can do a single-object incremental rebuild.
+        """
+        owned = [a for a, (k, o) in self._actor_object.items() if o is obj]
+        for a in owned:
+            if self.enable_3d and not isinstance(a, str):
+                if getattr(a, "IsA", None) and a.IsA("vtkActor2D"):
+                    try:
+                        self.renderer.RemoveActor2D(a)
+                    except Exception:  # pragma: no cover
+                        pass
+                else:
+                    self.renderer.RemoveActor(a)
+            self._actor_object.pop(a, None)
+        for layer, actors in list(self._layer_actors.items()):
+            kept = [a for a in actors if a not in owned]
+            if len(kept) != len(actors):
+                self._layer_actors[layer] = kept
+            if not kept:
+                self._layer_actors.pop(layer, None)
+
     def build_global_colorbar(self, colorbar_obj, range_=None) -> None:
         """Add the global ``vtkScalarBarActor`` (P2.3) to the scene."""
         if not self.enable_3d or self.renderer is None:
@@ -238,26 +262,44 @@ class Scene:
         for obj in children:
             if not obj.visible:
                 continue
-            if obj.kind == "surface":
-                self._add_surface_actors(ff, obj)
-            elif obj.kind == "plane":
-                self._add_plane_actors(ff, obj)
-            elif obj.kind == "particle":
-                self._add_particle_actors(ff, obj)
-            elif obj.kind == "isosurface":
-                self._add_isosurface_actors(ff, obj)
-            elif obj.kind == "point":
-                self._add_point_actors(ff, obj)
-            elif obj.kind == "streamline":
-                self._add_streamline_actors(ff, obj)
-            elif obj.kind == "volume":
-                self._add_volume_actors(ff, obj)
-            elif obj.kind == "colorbar":
-                mode = getattr(obj, "range_mode", "Auto") or "Auto"
-                rng = (obj.min, obj.max) if str(mode).lower() == "fix" else None
-                self.build_global_colorbar(obj, range_=rng)
+            self._dispatch_object(ff, obj)
         self._field_file = ff
         self._main = main
+
+    def _dispatch_object(self, ff: FieldFile, obj) -> None:
+        """Build the actors for one child object (dispatch switch)."""
+        if obj.kind == "surface":
+            self._add_surface_actors(ff, obj)
+        elif obj.kind == "plane":
+            self._add_plane_actors(ff, obj)
+        elif obj.kind == "particle":
+            self._add_particle_actors(ff, obj)
+        elif obj.kind == "isosurface":
+            self._add_isosurface_actors(ff, obj)
+        elif obj.kind == "point":
+            self._add_point_actors(ff, obj)
+        elif obj.kind == "streamline":
+            self._add_streamline_actors(ff, obj)
+        elif obj.kind == "volume":
+            self._add_volume_actors(ff, obj)
+        elif obj.kind == "colorbar":
+            mode = getattr(obj, "range_mode", "Auto") or "Auto"
+            rng = (obj.min, obj.max) if str(mode).lower() == "fix" else None
+            self.build_global_colorbar(obj, range_=rng)
+
+    def apply_to_object(self, ff: FieldFile, obj) -> None:
+        """Incrementally rebuild a single object without a full scene rebuild.
+
+        Removes *obj*'s existing actors then re-dispatchs its pipeline; the
+        grid/overlay and sibling objects stay untouched.  Falls back to a full
+        rebuild if the object was never rendered.
+        """
+        if self._field_file is None or self._main is None:
+            self.build(ff, main=getattr(ff, "_main", None))
+            return
+        self.remove_object_actors(obj)
+        if getattr(obj, "visible", True):
+            self._dispatch_object(ff, obj)
 
     def _polydata_boundary(self, ff: FieldFile):
         ld = ff.link_data

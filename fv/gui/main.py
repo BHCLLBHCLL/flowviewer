@@ -792,12 +792,18 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.property_host.setVisible(True)
 
     def _on_property_applied(self, obj) -> None:
-        """Apply from tiled settings pane → rebuild scene."""
+        """Apply from tiled settings pane → rebuild the affected object.
+
+        Uses the incremental ``Scene.apply_to_object`` path when the scene is
+        already built so sibling actors / camera stay untouched (I-gap).
+        """
         if self.dataset is None or self.main_object is None:
             return
-        self.scene.build(self.dataset, main=self.main_object)
+        if self.scene._field_file is not None:
+            self.scene.apply_to_object(self.dataset, obj)
+        else:
+            self.scene.build(self.dataset, main=self.main_object)
         if self._enable_3d:
-            self.scene.fit()
             self._refresh_gl()
         label = getattr(obj, "label", str(obj))
         self.message_win.log(f"Applied settings: {label}")

@@ -35,7 +35,8 @@ def _suffix(p: Path) -> str:
 def probe_format(path: str) -> str:
     """Return a short diagnostic tag: 'fld' | 'fph' | 'cgns' | 'other'."""
     p = Path(path)
-    if _suffix(p) == "cgns":
+    suf = _suffix(p)
+    if suf == "cgns":
         try:
             import h5py
             if h5py.is_hdf5(str(p)):
@@ -43,12 +44,10 @@ def probe_format(path: str) -> str:
             return "cgns-adf"
         except ImportError:  # pragma: no cover - h5py absent
             return "cgns"
-    if _suffix(p) == "fph":
-        return "fph"
-    if _suffix(p) in ("fld", "ifld"):
+    if suf in ("fph", "gph", "emt"):
+        return "fph"      # EMT is a Cradle binary result, fph-family
+    if suf in ("fld", "ifld"):
         return "fld"
-    if _suffix(p) == "gph":
-        return "fph"
     return "other"
 
 
