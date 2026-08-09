@@ -1198,3 +1198,47 @@ def test_timeline_cycle_switch(qapp, tmp_path):
     # Member for step 2 is flow_2.fph; its data now backs the scene
     assert w.dataset.path.lower().endswith("flow_2.fph")
     w._on_timeline_pause()
+
+
+def test_sta_save_load_roundtrip(tmp_path):
+    """Save Status → JSON .sta; load_status rebuilds the child objects."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import MainObject
+    from fv.render.export import load_status, save_status
+    ff = load_file(FPH)
+    main = MainObject.from_field_file(ff, magic=True)
+    # Tweak a setting to prove fidelity
+    plane = next(o for o in main.children if o.kind == "plane")
+    plane.coordinate = 2.5
+    path = tmp_path / "state.sta"
+    assert save_status(main, str(path)) is True
+    restored = load_status(str(path))
+    assert restored is not None
+    assert len(restored) == len(main.children)
+    plane2 = next(o for o in restored if o.kind == "plane")
+    assert plane2.coordinate == 2.5
+    assert plane2.label == "Plane (1)"
+
+
+def test_snapshot_png_headless_returns_false(tmp_path):
+    """Headless scene has no render window → snapshot_png returns False."""
+    from fv.model.dataset import load_file
+    from fv.render.export import snapshot_png
+    from fv.render.scene import Scene
+    ff = load_file(FPH)
+    sc = Scene(enable_3d=False)
+    sc.build(ff)
+    assert snapshot_png(sc, str(tmp_path / "x.png")) is False
+
+
+def test_export_handlers_wired(qapp):
+    """File menu exposes Save Status / Print / Export PNG (D-gap)."""
+    w = _make(qapp, FPH)
+    file_menu = w.menuBar().actions()[0].menu()
+    labels = [a.text() for a in file_menu.actions()]
+    assert "Save Status" in labels
+    assert "Print" in labels
+    assert "Export PNG…" in labels
+    # Direct method presence & graceful headless behaviour
+    w.on_export_png()
+    w.on_print()

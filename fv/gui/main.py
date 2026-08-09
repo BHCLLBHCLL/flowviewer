@@ -255,8 +255,9 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         # File
         m = mb.addMenu("File")
         add(m, "Open…", self.on_open_dialog, QKeySequence.Open)
-        add(m, "Save Status")
-        add(m, "Print")
+        add(m, "Save Status", self.on_save_status)
+        add(m, "Print", self.on_print)
+        add(m, "Export PNG…", self.on_export_png)
         m.addSeparator()
         add(m, "Exit", self.close)
 
@@ -348,9 +349,8 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.tb_file = tb("File")
         act(self.tb_file, "Open", "open", "Open Field File", self.on_open_dialog)
         act(self.tb_file, "Save", "save", "Save Status",
-            lambda: self._nyi("Save Status"))
-        act(self.tb_file, "Print", "print", "Print",
-            lambda: self._nyi("Print"))
+            self.on_save_status)
+        act(self.tb_file, "Print", "print", "Print", self.on_print)
         self.addToolBar(self.tb_file)
 
         self.tb_create = tb("Create")
@@ -558,6 +558,55 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.setWindowTitle("flowviewer")
         self.message_win.log("Closed current files")
         self._refresh_gl()
+
+    def on_save_status(self) -> None:
+        """File → Save Status: persist the object tree to a JSON ``.sta``."""
+        if self.main_object is None:
+            self.message_win.log("Save Status: no file loaded", "WARN")
+            return
+        from PyQt5.QtWidgets import QFileDialog
+        default = (f"{Path(self.dataset.path).stem}.sta"
+                   if self.dataset else "flowviewer.sta")
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save Status", default, "Status files (*.sta)")
+        if not path:
+            return
+        from ..render.export import save_status
+        ok = save_status(self.main_object, path)
+        self.message_win.log(
+            f"Save Status {'OK' if ok else 'failed'}: {path}",
+            "" if ok else "ERROR")
+        if ok:
+            self.status.showMessage(f"Saved status → {Path(path).name}", 5000)
+
+    def on_print(self) -> None:
+        """File → Print: send the rendered scene to the printer."""
+        from ..render.export import print_scene
+        ok = print_scene(self.scene, parent=self)
+        self.message_win.log(
+            "Print: sent to printer" if ok else "Print: nothing to print",
+            "" if ok else "WARN")
+
+    def on_export_png(self) -> None:
+        """File → Export PNG…: render the current scene to an image file."""
+        if not (self._enable_3d and self.renderer is not None):
+            self.message_win.log(
+                "Export PNG: no render window (headless)", "WARN")
+            return
+        from PyQt5.QtWidgets import QFileDialog
+        default = (f"{Path(self.dataset.path).stem}.png"
+                   if self.dataset else "export.png")
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export PNG", default, "PNG image (*.png)")
+        if not path:
+            return
+        from ..render.export import snapshot_png
+        ok = snapshot_png(self.renderer, path)
+        self.message_win.log(
+            f"Export PNG {'OK' if ok else 'failed'}: {path}",
+            "" if ok else "ERROR")
+        if ok:
+            self.status.showMessage(f"Exported → {Path(path).name}", 5000)
 
     def on_fit(self) -> None:
         self.scene.fit()
