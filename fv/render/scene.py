@@ -32,6 +32,8 @@ class Scene:
         self._overlay = None
         self._overlay_text = ""
         self._bounds: Optional[tuple] = None
+        self._field_file = None
+        self._main = None
         if self.enable_3d:
             self.renderer = vtk.vtkRenderer()
             # Light scPOST Draw Window (near-white)
@@ -76,6 +78,47 @@ class Scene:
     def fit(self) -> None:
         if self.enable_3d and self.renderer:
             self.renderer.ResetCamera()
+
+    # ── Automove animation driver (P3.10) ────────────────────────────────
+
+    def _remove_layer_prefix(self, prefix: str) -> None:
+        """Remove actors whose layer key starts with ``prefix``."""
+        stale = [k for k in self._layer_actors if k.startswith(prefix)]
+        for k in stale:
+            for a in self._layer_actors.pop(k, []):
+                if self.enable_3d and not isinstance(a, str):
+                    try:
+                        self.renderer.RemoveActor(a)
+                    except Exception:
+                        pass
+
+    def animate(self, t: float, *, fps: int = 0) -> None:
+        """Advance every automove-enabled Plane to animation time ``t``.
+
+        ``t`` is a frame index (0-based); ``fps`` (if > 0) divides it to a
+        normalised [0, 1] time via :func:`fv.render.plane.automove_coordinate`
+        (which also honours ``automove_loop`` and frame counts). Each moving
+        plane's ``point``/``normal`` is updated and its cut-plane actors are
+        rebuilt in place.
+        """
+        if not _HAS_VTK or self._field_file is None:
+            return
+        if self._main is None:
+            return
+        planes = [o for o in getattr(self._main, "children", [])
+                  if getattr(o, "kind", "") == "plane"
+                  and getattr(o, "automove_enabled", False)]
+        if not planes:
+            return
+        from .plane import automove_coordinate, build_plane_actors
+        for obj in planes:
+            point, normal = automove_coordinate(obj, t, frames=fps)
+            obj.point = tuple(point)
+            obj.normal = tuple(normal)
+            self._remove_layer_prefix("plane:")
+            actors = build_plane_actors(self._field_file, obj)
+            for key, actor in actors.items():
+                self.add_actor(f"plane:{key}", actor)
 
     # ── overlay (File / Cycle / Time) ─────────────────────────────────────
 
@@ -125,6 +168,8 @@ class Scene:
             if getattr(ff, "has_particles", False) or (
                     main is not None and getattr(main, "has_particles", False)):
                 self._layer_actors["particle"] = ["particle_1"]
+            self._field_file = ff
+            self._main = main
             return
 
         if ff.kind == "fph":
@@ -144,6 +189,8 @@ class Scene:
                 self._add_plane_actors(ff, obj)
             elif obj.kind == "particle" and obj.visible:
                 self._add_particle_actors(ff, obj)
+        self._field_file = ff
+        self._main = main
 
     def _polydata_boundary(self, ff: FieldFile):
         ld = ff.link_data

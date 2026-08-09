@@ -603,7 +603,16 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
     def _on_timeline_step(self, step: int) -> None:
         self._cycle_label.setText(f"Cycle {step}")
-        # Cycle switching arrives in a later milestone
+        # Automove planes animate with the timeline slider (P3.10)
+        if self.dataset is None or self.main_object is None:
+            return
+        has_auto = any(
+            getattr(o, "automove_enabled", False)
+            for o in getattr(self.main_object, "children", []))
+        if has_auto:
+            self.scene.animate(step)
+            if self._enable_3d:
+                self._refresh_gl()
 
     def _set_mouse_mode(self, mode: str) -> None:
         self._mouse_mode = mode
