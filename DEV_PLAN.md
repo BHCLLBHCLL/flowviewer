@@ -521,6 +521,13 @@ Show/Redraw/Option 均已接线。Unit/Camera 对话框仍 NYI。
 → 目标：`main.py` 传 `main.children` 填充 Trimmed-by；Run 按钮接
 `_run_special`；Usage 按钮驱动视图旋转；pin 维持面板。
 
+**✅ 已完成（2026-08-09，commit ec4c849）**：PropertyHost 传 `siblings` 填充
+Trim "Trimmed by"（Plane/Surface/Particle 共用）；Particle "Run checked
+functions" 接 `_run_special`（apply+emit）；Plane Usage Guide 各键即时持久化
+`usage_{key}`；pin 状态生效——未 pin 面板 Apply 后自动收起。添加
+`usage_buttons` 便于测试/状态读取。验证：`test_trim_objects_populated`、
+`test_pin_transient_panel`、`test_particle_run_special`、`test_usage_click_persists`。
+
 ### G. 文件格式夸大
 
 | 缺口 | 证据 |
