@@ -469,6 +469,14 @@ headless 分支 kind 列表加入 colorbar（`_layer_actors["colorbar"]`）。
 → 目标：`FileSet` 序列扫描 + cycle 切换加载场量；Play/Pause/Step 驱动；
 Variable Registration 对话框。
 
+**✅ 已完成（2026-08-09，commit db17223）**：新增 `fv/model/fileset.py`
+（`scan_sequence` 按同 stem+扩展名整合兄弟文件，按 cycle 排序，`refresh_meta`
+惰性读 Cycle/Time）；`open_file` 构建 FileSet 并把 `timeline.set_range` 扩展到
+序列范围；`_on_timeline_step` 在 Cycle/Time 模式下加载该 step 成员场数据并重建
+场景；Play/Pause 用 QTimer 驱动文件集播放（Loop 复选生效）。
+验证：`test_fileset_scan_sequence`、`test_fileset_scans_real_v3_sequence`、
+`test_timeline_cycle_switch`。Variable Registration（P3.5）仍缺。
+
 ### D. 导出 / 文件功能（DEV_PLAN P4.1）
 
 | 缺口 | 证据 |
