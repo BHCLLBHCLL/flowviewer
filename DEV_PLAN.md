@@ -487,6 +487,13 @@ Variable Registration 对话框。
 
 → 目标：`export.py` 提供截图 PNG；STA 写入/读取；Print（QPrinter）。
 
+**✅ 已完成（2026-08-09，commit d8b6bea）**：新增 `fv/render/export.py`：
+`snapshot_png`(vtkWindowToImageFilter/JPEG) 、`save_status`/`load_status`
+(JSON `.sta` 全 dataclass 字段往返) 、`print_scene`(QPrinter，缺打印支持时回退
+PNG)。File 菜单与工具栏 Save/Print 接线，新增 File→Export PNG…。
+验证：`test_sta_save_load_roundtrip`、`test_snapshot_png_headless_returns_false`、
+`test_export_handlers_wired`。
+
 ### E. 菜单 / 视图 stub（24 项）
 
 View→Iso Metric/Compare（`main.py:246-247`）、Display→Redraw(菜单)/Show All/
