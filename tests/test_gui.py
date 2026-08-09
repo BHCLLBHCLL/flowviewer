@@ -1151,3 +1151,50 @@ def test_scene_build_colorbar_headless():
     sc = Scene(enable_3d=False)
     sc.build(ff, main=main)
     assert "colorbar" in sc.actor_names()
+
+
+def test_fileset_scan_sequence(tmp_path):
+    """Same-stem sibling files become ordered FileSet members."""
+    from fv.model.fileset import scan_sequence
+    from pathlib import Path as P
+    base = P(tmp_path)
+    for cyc in (1, 9, 5):
+        (base / f"run_{cyc}.fph").write_bytes(b"\0")
+    fs = scan_sequence(str(base / "run_1.fph"))
+    assert [m.cycle for m in fs.members] == [1, 5, 9]
+    assert fs.min_cycle() == 1
+    assert fs.max_cycle() == 9
+    # find() walks at-or-after the requested cycle
+    assert fs.find(6).cycle == 9
+
+
+def test_fileset_scans_real_v3_sequence():
+    """Real laptop_thermal_steady_scaled_v3 sequence exposes 3 steps."""
+    from fv.model.fileset import scan_sequence
+    v3 = r"D:\training\cgns\examples\laptop_thermal_steady_scaled_v3_10.fph"
+    if not Path(v3).exists():
+        pytest.skip("sequence samples not present")
+    fs = scan_sequence(v3)
+    assert [m.cycle for m in fs.members] == [10, 100, 200]
+    assert len(fs) == 3
+
+
+def test_timeline_cycle_switch(qapp, tmp_path):
+    """Timeline step loads the sequence member's field data."""
+    import shutil
+    from pathlib import Path as P
+    base = P(tmp_path)
+    # Two copies of the same field file keyed by trailing cycle
+    for cyc in (1, 2):
+        dst = base / f"flow_{cyc}.fph"
+        shutil.copyfile(FPH, dst)
+    w = _make(qapp, str(base / "flow_1.fph"))
+    assert w.fileset is not None
+    assert w.fileset.max_cycle() == 2
+    w.timeline._mode_group.button(1).setChecked(True)  # Cycle mode
+    assert w.timeline.mode() == "Cycle"
+    w.timeline.set_step(2)
+    w._on_timeline_step(2)
+    # Member for step 2 is flow_2.fph; its data now backs the scene
+    assert w.dataset.path.lower().endswith("flow_2.fph")
+    w._on_timeline_pause()

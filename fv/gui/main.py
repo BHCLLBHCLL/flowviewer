@@ -93,6 +93,9 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.datasets: list = []
         self.dataset = None
         self.main_object = None
+        self.fileset = None
+        self._play_timer = None
+        self._playing = False
         self._iren_ready = False
         self._orientation = None
         self._mouse_mode = "trackball"
@@ -188,8 +191,8 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.timeline.mode_changed.connect(
             lambda m: self.message_win.log(f"Timeline mode: {m}"))
         self.timeline.step_changed.connect(self._on_timeline_step)
-        self.timeline.play_requested.connect(
-            lambda: self._nyi("Timeline Play"))
+        self.timeline.play_requested.connect(self._on_timeline_play)
+        self.timeline.pause_requested.connect(self._on_timeline_pause)
         self.timeline_pane = PaneFrame("Timeline Window", self.timeline)
 
         bottom = QSplitter(Qt.Horizontal, self)
@@ -498,7 +501,24 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 self.object_tree.setCurrentItem(item)
                 self.object_tree.blockSignals(False)
         cyc = ff.cycle if ff.cycle is not None else 0
-        self.timeline.set_range(cyc, cyc)
+        self.fileset = None
+        if options is None or not getattr(options, "single_file", False):
+            from ..model.fileset import scan_sequence
+            try:
+                self.fileset = scan_sequence(str(Path(filepath)))
+            except Exception:  # noqa: BLE001
+                self.fileset = None
+        if self.fileset and len(self.fileset) > 1:
+            lo, hi = self.fileset.min_cycle(), self.fileset.max_cycle()
+            if lo is not None and hi is not None:
+                self.timeline.set_range(lo, hi)
+                self.message_win.log(
+                    f"FileSet: {len(self.fileset)} steps "
+                    f"({Path(filepath).name} in sequence)")
+                if not (lo <= cyc <= hi):
+                    cyc = lo
+        else:
+            self.timeline.set_range(cyc, cyc)
         self.timeline.set_step(cyc)
         self._cycle_label.setText(f"Cycle {cyc}")
         if ff.time is not None:
@@ -528,6 +548,8 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.datasets.clear()
         self.dataset = None
         self.main_object = None
+        self.fileset = None
+        self._on_timeline_pause()
         self.scene.reset()
         self.object_tree.build_startup_tree()
         self.property_host.clear()
@@ -679,9 +701,34 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
     def _on_timeline_step(self, step: int) -> None:
         self._cycle_label.setText(f"Cycle {step}")
-        # Automove planes animate with the timeline slider (P3.10)
         if self.dataset is None or self.main_object is None:
             return
+        # Cycle / Time mode → load the corresponding sequence member's data
+        if self.fileset and self.timeline.mode() in ("Cycle", "Time"):
+            member = self.fileset.find(int(step))
+            loaded = None
+            if member is not None:
+                from ..model.dataset import load_file
+                try:
+                    loaded = load_file(member.path)
+                except Exception as exc:  # noqa: BLE001
+                    self.message_win.log(
+                        f"Cycle load failed: {member.path}: {exc}", "ERROR")
+            if loaded is not None and loaded is not self.dataset:
+                self.dataset = loaded
+                self.scene.build(loaded, main=self.main_object)
+                if self._enable_3d:
+                    self.scene.fit()
+                    self._refresh_gl()
+                self.timeline.edit_time.setText(
+                    f"{loaded.time:.6g}" if loaded.time is not None else "")
+                msg = (f"{loaded.kind.upper()}: {loaded.n_cells:,} cells, "
+                       f"{loaded.n_vertices:,} vertices, "
+                       f"{len(loaded.variables)} variables"
+                       f" | Cycle={loaded.cycle} Time={loaded.time}")
+                self.status.showMessage(msg)
+                self.message_win.log(msg)
+        # Automove planes animate with the timeline slider (P3.10)
         has_auto = any(
             getattr(o, "automove_enabled", False)
             for o in getattr(self.main_object, "children", []))
@@ -689,6 +736,39 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self.scene.animate(step)
             if self._enable_3d:
                 self._refresh_gl()
+
+    def _on_timeline_play(self) -> None:
+        """Play steps forward through the FileSet cycle range."""
+        if self.fileset is None or not self.fileset or QtCore is None:
+            return
+        self._playing = True
+        if self._play_timer is None:
+            self._play_timer = QtCore.QTimer(self)
+            self._play_timer.setInterval(250)
+            self._play_timer.timeout.connect(self._play_tick)
+        self._play_timer.start()
+
+    def _play_tick(self) -> None:
+        if not self._playing:
+            return
+        if self.fileset is None or not self.fileset:
+            self._on_timeline_pause()
+            return
+        step = self.timeline.current_step() + 1
+        hi = self.fileset.max_cycle() or 0
+        if step > hi:
+            if self.timeline.chk_loop.isChecked():
+                step = self.fileset.min_cycle() or 0
+            else:
+                self._on_timeline_pause()
+                return
+        self.timeline.set_step(step)
+        self._on_timeline_step(step)
+
+    def _on_timeline_pause(self) -> None:
+        self._playing = False
+        if self._play_timer is not None:
+            self._play_timer.stop()
 
     def _set_mouse_mode(self, mode: str) -> None:
         self._mouse_mode = mode
