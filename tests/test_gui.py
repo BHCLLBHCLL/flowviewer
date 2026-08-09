@@ -88,7 +88,7 @@ def test_window_without_file(qapp):
 def test_open_dialog_chrome(qapp):
     from fv.gui.dialogs import (
         FILE_TYPE_FILTERS, DialogHeader, OpenDialog, OpenOptions,
-        _filter_label, filter_extensions,
+        _filter_label, filter_extensions, qt_file_filters,
     )
     dlg = OpenDialog()
     assert dlg.windowTitle() == "Open"
@@ -112,6 +112,10 @@ def test_open_dialog_chrome(qapp):
     assert filter_extensions(0) == frozenset(
         ("fld", "ifld", "fph", "gph", "cgns", "xmf", "xdmf"))
     assert _filter_label("Status files", ("sta",)) == "Status files (*.sta)"
+    # Native QFileDialog filters must use ;; between groups (else *.fph hidden)
+    all_f, sel = qt_file_filters(0)
+    assert ";;" in all_f and "*.fph" in sel
+    assert all_f.count(";;") == len(FILE_TYPE_FILTERS)  # + All files
     hdr = DialogHeader("Open", "open")
     assert hdr.caption_label.text() == "Open"
 
@@ -158,17 +162,23 @@ def test_surface_plane_dialogs(qapp):
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_tiled_property_host(qapp):
     """Settings open under the tree (not as a modal popup)."""
+    from fv.gui.panes import DrawSplitter
     w = _make(qapp, FPH)
     assert hasattr(w, "property_host")
+    assert isinstance(w._left_splitter, DrawSplitter)
+    handle = w._left_splitter.handle(1)
+    assert handle is not None and hasattr(handle, "btn_draw")
     # Auto-shows Surface (1) after open
     assert w.property_host.current_object is not None
     assert w.property_host.current_object.label == "Surface (1)"
     assert w.property_host.current_panel is not None
+    # Per-panel Apply removed — Draw grip commits settings
+    assert not hasattr(w.property_host.current_panel, "_btn_apply")
     # Switch to Plane via activation
     w._on_object_activated("plane", "Plane (1)")
     assert w.property_host.current_object.label == "Plane (1)"
-    # Apply rebuilds without modal exec_
-    w.property_host._on_apply()
+    # Draw button path rebuilds without modal exec_
+    w._on_draw_clicked()
     assert "plane" in w.scene.actor_names()
     # Hide clears the host
     w.property_host._on_hide()
@@ -186,17 +196,17 @@ def test_trim_objects_populated(qapp):
 
 
 def test_pin_transient_panel(qapp):
-    """Unpinned panels close on Apply; pinned panels persist (F-gap)."""
+    """Unpinned panels close on Draw; pinned panels persist (F-gap)."""
     w = _make(qapp, FPH)
     w._on_object_activated("plane", "Plane (1)")
     panel = w.property_host.current_panel
     panel._btn_pin.setChecked(False)
-    w.property_host._on_apply()
+    w._on_draw_clicked()
     assert w.property_host.current_panel is None
     # Pinned panel stays open
     w._on_object_activated("plane", "Plane (1)")
     w.property_host.current_panel._btn_pin.setChecked(True)
-    w.property_host._on_apply()
+    w._on_draw_clicked()
     assert w.property_host.current_panel is not None
 
 

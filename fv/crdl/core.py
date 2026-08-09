@@ -76,11 +76,36 @@ def find_section(data, name: str) -> int:
     return -1
 
 
+# ── section-offset index ───────────────────────────────────────────────────
+#
+# ``section_end`` used to re-scan the whole file for every boundary name on
+# every call (≈31 × bytes.find per section).  Building the index once per
+# buffer turns that into a single pass over the boundary list.
+
+_section_index_cache: dict = {}          # id(data) → (len(data), {name: offset})
+
+
+def _section_offsets(data) -> dict:
+    """``{boundary_name: first_offset}`` for *data*, built once per buffer."""
+    key = id(data)
+    entry = _section_index_cache.get(key)
+    if entry is not None and entry[0] == len(data):
+        return entry[1]
+    offsets: dict = {}
+    for name in SECTION_BOUNDARY_NAMES:
+        off = find_section(data, name)
+        if off >= 0:
+            offsets[name] = off
+    if len(_section_index_cache) > 64:   # bound the cache footprint
+        _section_index_cache.clear()
+    _section_index_cache[key] = (len(data), offsets)
+    return offsets
+
+
 def section_end(data, sec_start: int) -> int:
     """End offset of the section (start of next known section or EOF)."""
     best = len(data)
-    for name in SECTION_BOUNDARY_NAMES:
-        off = find_section(data, name)
+    for off in _section_offsets(data).values():
         if off > sec_start and off < best:
             best = off
     return best

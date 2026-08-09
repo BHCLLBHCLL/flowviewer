@@ -193,13 +193,8 @@ class ObjectSettingsPanel(QWidget if _HAS_QT else object):
         body_lay.setSpacing(4)
         self.tabs = QTabWidget(body)
         body_lay.addWidget(self.tabs, 1)
-        brow = QHBoxLayout()
-        brow.addStretch(1)
-        self._btn_apply = QPushButton("Apply", body)
-        self._btn_apply.setDefault(True)
-        self._btn_apply.clicked.connect(self._on_apply)
-        brow.addWidget(self._btn_apply)
-        body_lay.addLayout(brow)
+        # Apply removed — scPOST uses the Draw (mallet) button on the
+        # Control Window splitter grip to commit settings + redraw.
         self._root.addWidget(body, 1)
 
     def set_title(self, title: str) -> None:

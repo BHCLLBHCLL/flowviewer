@@ -127,6 +127,39 @@ def ls_nodes_vertex_count_from_descriptors(data, sec_start: int, sec_end: int) -
     return best if best > 0 else None
 
 
+def ls_nodes_descriptors(data, sec_start: int, sec_end: int
+                         ) -> tuple[Optional[int], Optional[int]]:
+    """Single-pass scan of the LS_Nodes descriptor region.
+
+    Returns ``(elem_bytes, vertex_count)``.  A data block starts with the
+    ``[12, byte_count]`` header, so a ``12`` at the descriptor slot followed
+    by ``type_code in {4,8}`` marks a real ``[12, tc, dim0, dim1]``
+    descriptor.  The whole region is read once as a big-endian int32 array
+    and scanned with numpy, which is far faster than per-word Python reads.
+    """
+    lo = sec_start + 40
+    n = len(data)
+    count = (min(sec_end, n) - lo) // 4
+    if count <= 0:
+        return None, None
+    arr = np.frombuffer(data, dtype=">i4", count=count, offset=lo)
+    # Positions where a descriptor [12, tc, dim0, dim1] could start.
+    head = np.flatnonzero(arr[:-3] == 12)
+    if head.size == 0:
+        return None, None
+    tc = arr[head + 1]
+    dim0 = arr[head + 2]
+    dim1 = arr[head + 3]
+    ok = (np.isin(tc, (4, 8))) & (dim0 > 1) & (dim1 > 0) & (dim1 < 10_000_000)
+    if not ok.any():
+        return None, None
+    t4 = int(np.count_nonzero(ok & (tc == 4)))
+    t8 = int(np.count_nonzero(ok & (tc == 8)))
+    best = int(dim0[ok].max())
+    elem = 8 if t8 > t4 else (4 if t4 > t8 else None)
+    return elem, best if best > 0 else None
+
+
 def parse_ls_nodes_xyz(data) -> tuple[Optional[np.ndarray], int]:
     """Parse LS_Nodes → ``(xyz float64 N×3, n_vertices)``.
 
@@ -150,8 +183,7 @@ def parse_ls_nodes_xyz(data) -> tuple[Optional[np.ndarray], int]:
         return None, 0
 
     bc = trio[0][1]
-    elem_hint = ls_nodes_descriptor_elem_bytes(data, sec_start, sec_end)
-    n_desc = ls_nodes_vertex_count_from_descriptors(data, sec_start, sec_end)
+    elem_hint, n_desc = ls_nodes_descriptors(data, sec_start, sec_end)
 
     def _ranked_score(sample_axes: list[np.ndarray], elem_bytes: int) -> float:
         s = _score_coord_axes(sample_axes)

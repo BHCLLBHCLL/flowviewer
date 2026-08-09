@@ -9,8 +9,9 @@ try:
     from PyQt5.QtCore import Qt, pyqtSignal
     from PyQt5.QtWidgets import (
         QButtonGroup, QCheckBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
-        QPlainTextEdit, QPushButton, QRadioButton, QSlider, QStackedWidget,
-        QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+        QPlainTextEdit, QPushButton, QRadioButton, QSlider, QSplitter,
+        QSplitterHandle, QStackedWidget, QTreeWidget, QTreeWidgetItem,
+        QVBoxLayout, QWidget,
     )
     _HAS_QT = True
 except Exception:  # pragma: no cover - headless
@@ -21,6 +22,8 @@ except Exception:  # pragma: no cover - headless
     QWidget = object  # type: ignore
     QPlainTextEdit = object  # type: ignore
     QTreeWidget = object  # type: ignore
+    QSplitter = object  # type: ignore
+    QSplitterHandle = object  # type: ignore
 
 
 class PaneFrame(QFrame if _HAS_QT else object):
@@ -315,13 +318,94 @@ class ObjectTree(QTreeWidget if _HAS_QT else object):
             self.object_activated.emit(kind, name)
 
 
+class DrawSplitterHandle(QSplitterHandle if _HAS_QT else object):
+    """scPOST grip bar with Draw (mallet) button on the left.
+
+    Clicking Draw commits the current settings pane and redraws the
+    Draw Window — replacing per-panel Apply buttons.
+    """
+
+    def __init__(self, orientation, parent):
+        super().__init__(orientation, parent)
+        if not _HAS_QT:
+            return
+        from .icons import AppIcons
+        self.setObjectName("DrawSplitterHandle")
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(2, 0, 4, 0)
+        lay.setSpacing(4)
+        self.btn_draw = QPushButton(self)
+        self.btn_draw.setObjectName("DrawButton")
+        self.btn_draw.setIcon(AppIcons.get("draw", 16))
+        self.btn_draw.setIconSize(self.btn_draw.iconSize())
+        try:
+            from PyQt5.QtCore import QSize
+            self.btn_draw.setIconSize(QSize(16, 16))
+        except Exception:
+            pass
+        self.btn_draw.setFixedSize(22, 18)
+        self.btn_draw.setToolTip("Draw: apply settings and redraw (scPOST)")
+        self.btn_draw.setCursor(Qt.PointingHandCursor)
+        self.btn_draw.setStyleSheet(
+            "QPushButton#DrawButton {"
+            "  border: 1px solid #9a9a9a; border-radius: 2px;"
+            "  background: #f0f0f0; padding: 0;"
+            "}"
+            "QPushButton#DrawButton:hover { background: #e3f2fd;"
+            "  border-color: #90caf9; }"
+            "QPushButton#DrawButton:pressed { background: #bbdefb; }"
+        )
+        self.btn_draw.clicked.connect(self._emit_draw)
+        lay.addWidget(self.btn_draw, 0, Qt.AlignLeft | Qt.AlignVCenter)
+        # Grip hint (double embossed line feel)
+        grip = QLabel("══", self)
+        grip.setStyleSheet("color:#9a9a9a; font-size:9px;")
+        lay.addWidget(grip, 0, Qt.AlignVCenter)
+        lay.addStretch(1)
+        self.setStyleSheet(
+            "#DrawSplitterHandle { background: #d8d8d8;"
+            "  border-top: 1px solid #9a9a9a;"
+            "  border-bottom: 1px solid #9a9a9a; }"
+        )
+
+    def _emit_draw(self) -> None:
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "draw_requested"):
+            parent.draw_requested.emit()
+
+    def sizeHint(self):
+        from PyQt5.QtCore import QSize
+        if self.orientation() == Qt.Horizontal:
+            return QSize(6, 22)
+        return QSize(22, 22)
+
+
+class DrawSplitter(QSplitter if _HAS_QT else object):
+    """Vertical splitter whose handle carries the scPOST Draw button."""
+
+    draw_requested = pyqtSignal() if _HAS_QT else None
+
+    def __init__(self, orientation=None, parent=None):
+        if not _HAS_QT:
+            super().__init__()
+            return
+        if orientation is None:
+            orientation = Qt.Vertical
+        super().__init__(orientation, parent)
+        self.setHandleWidth(22)
+        self.setChildrenCollapsible(False)
+
+    def createHandle(self):  # noqa: N802 — Qt API
+        return DrawSplitterHandle(self.orientation(), self)
+
+
 class PropertyHost(QWidget if _HAS_QT else object):
     """Lower half of Control Window — hosts tiled Surface/Plane/Particle sheets.
 
     Replaces modal popups: selecting a tree object fills this pane.
     """
 
-    applied = pyqtSignal(object) if _HAS_QT else None  # post-object after Apply
+    applied = pyqtSignal(object) if _HAS_QT else None  # after Draw / apply
     hidden = pyqtSignal() if _HAS_QT else None
 
     def __init__(self, parent=None):
@@ -408,17 +492,26 @@ class PropertyHost(QWidget if _HAS_QT else object):
         self._stack.addWidget(panel)
         self._stack.setCurrentWidget(panel)
 
-    def _on_apply(self) -> None:
+    def apply_now(self) -> bool:
+        """Commit current panel → object and emit ``applied`` (Draw button).
+
+        Returns True if a panel was applied.  Unpinned panels close after
+        Draw so the Draw Window stays readable (scPOST pin behaviour).
+        """
         if self._panel is None or self._obj is None:
-            return
+            return False
         if hasattr(self._panel, "apply_to"):
             self._panel.apply_to(self._obj)
         if self.applied is not None:
             self.applied.emit(self._obj)
-        # Unpinned (transient) panels close after Apply so the Draw Window
-        # stays readable; pinned panels keep the settings open (F-gap).
-        if not self._panel.is_pinned():
+        panel = self._panel
+        if panel is not None and not panel.is_pinned():
             self._on_hide()
+        return True
+
+    def _on_apply(self) -> None:
+        """Legacy slot (panel apply_requested); prefer ``apply_now`` / Draw."""
+        self.apply_now()
 
     def _on_hide(self) -> None:
         self.clear()

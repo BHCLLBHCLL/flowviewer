@@ -53,7 +53,7 @@ LOADABLE_EXTENSIONS = frozenset({"fld", "ifld", "fph", "gph"})
 
 
 def _filter_label(name: str, exts: tuple[str, ...]) -> str:
-    """scPOST-style: ``Field files (*.fld; *.iFLD; …)``."""
+    """scPOST-style display label: ``Field files (*.fld; *.iFLD; …)``."""
     parts = []
     for e in exts:
         if e == "ifld":
@@ -61,6 +61,31 @@ def _filter_label(name: str, exts: tuple[str, ...]) -> str:
         else:
             parts.append(f"*.{e}")
     return f"{name} ({'; '.join(parts)})"
+
+
+def _qt_name_filter(name: str, exts: tuple[str, ...]) -> str:
+    """QFileDialog name-filter entry (space-separated patterns)."""
+    parts = []
+    for e in exts:
+        if e == "ifld":
+            parts.append("*.iFLD")
+            parts.append("*.ifld")
+        else:
+            parts.append(f"*.{e}")
+    return f"{name} ({' '.join(parts)})"
+
+
+def qt_file_filters(selected_index: int = 0) -> tuple[str, str]:
+    """Return ``(all_filters, selected_filter)`` for ``QFileDialog``.
+
+    Qt separates filter *groups* with ``;;``.  Joining groups with a single
+    ``;`` (as in an earlier bug) collapses everything into one broken filter
+    so ``*.fph`` never matches in the native Browse / Open dialog.
+    """
+    parts = [_qt_name_filter(n, e) for n, e in FILE_TYPE_FILTERS]
+    parts.append("All files (*)")
+    idx = min(max(0, int(selected_index)), len(parts) - 1)
+    return ";;".join(parts), parts[idx]
 
 
 def filter_extensions(index: int) -> frozenset[str]:
@@ -427,10 +452,35 @@ class OpenDialog(QDialog if _HAS_QT else object):
     # ── directory / filter ────────────────────────────────────────────────
 
     def browse(self) -> None:
+        """Open a file picker (shows *.fph etc.) — not a directory-only dialog.
+
+        Selecting a file updates Look-in + the list and pre-selects that file.
+        """
         start = str(self._dirpath) if self._dirpath else str(Path.cwd())
-        d = QFileDialog.getExistingDirectory(self, "Look in", start)
-        if d:
-            self.load_directory(d)
+        filters, selected = qt_file_filters(self._type_combo.currentIndex())
+        path, chosen = QFileDialog.getOpenFileName(
+            self, "Open Field File", start, filters, selected)
+        if not path:
+            return
+        p = Path(path)
+        # Sync "Files of type" when the user changed the native filter
+        if chosen:
+            for i in range(self._type_combo.count()):
+                if self._type_combo.itemText(i).split(" (")[0] == chosen.split(" (")[0]:
+                    self._type_combo.blockSignals(True)
+                    self._type_combo.setCurrentIndex(i)
+                    self._type_combo.blockSignals(False)
+                    break
+        self.load_directory(str(p.parent))
+        for i, entry in enumerate(self._dirs):
+            if entry.resolve() == p.resolve() or entry.name.lower() == p.name.lower():
+                self._list.setCurrentRow(i)
+                break
+        else:
+            self._current = p
+            self._name_edit.setText(p.name)
+            self._info.setText(file_in_summary(p))
+
 
     def _on_dir_entered(self) -> None:
         text = self._dir_edit.text().strip().strip('"')

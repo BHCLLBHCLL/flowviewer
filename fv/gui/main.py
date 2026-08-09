@@ -151,7 +151,8 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
     def _build_central(self) -> None:
         from .panes import (
-            MessageWindow, ObjectTree, PaneFrame, PropertyHost, TimelineWindow,
+            DrawSplitter, MessageWindow, ObjectTree, PaneFrame, PropertyHost,
+            TimelineWindow,
         )
 
         self.object_tree = ObjectTree(self)
@@ -159,15 +160,16 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.object_tree.item_activated_name.connect(self._on_tree_activated)
         self.object_tree.object_activated.connect(self._on_object_activated)
 
-        # scPOST Control Window: tree (upper) + tiled settings (lower)
+        # scPOST Control Window: tree (upper) + Draw grip + tiled settings
         self.property_host = PropertyHost(self)
         self.property_host.applied.connect(self._on_property_applied)
-        left_split = QSplitter(Qt.Vertical, self)
+        left_split = DrawSplitter(Qt.Vertical, self)
         left_split.addWidget(PaneFrame("Control Window", self.object_tree))
         left_split.addWidget(self.property_host)
         left_split.setStretchFactor(0, 3)
         left_split.setStretchFactor(1, 2)
         left_split.setSizes([320, 280])
+        left_split.draw_requested.connect(self._on_draw_clicked)
         self._left_splitter = left_split
         left = left_split
 
@@ -445,18 +447,16 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
     # ── actions ───────────────────────────────────────────────────────────
 
     def on_open_dialog(self) -> None:
-        """File → Open…: standard Windows file dialog (native Explorer)."""
+        """File → Open…: native Explorer dialog with correct Qt filters."""
         from PyQt5.QtWidgets import QFileDialog
-        from .dialogs import FILE_TYPE_FILTERS, _filter_label
+        from .dialogs import qt_file_filters
 
-        start = None
+        start = str(Path.cwd())
         if self.dataset is not None and getattr(self.dataset, "path", None):
             start = str(Path(self.dataset.path).parent)
-        filters = ";".join(
-            _filter_label(name, exts) for name, exts in FILE_TYPE_FILTERS)
-        filters += ";;All files (*)"
+        filters, selected = qt_file_filters(0)  # Field files (*.fld *.fph …)
         path, _ = QFileDialog.getOpenFileName(
-            self, "Open Field File", start or "", filters)
+            self, "Open Field File", start, filters, selected)
         if not path:
             return
         from ..model import loaders
@@ -785,8 +785,22 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         # Ensure the lower pane is visible after hide
         self.property_host.setVisible(True)
 
+    def _on_draw_clicked(self) -> None:
+        """scPOST Draw (mallet) on the Control Window splitter grip.
+
+        Commits the current settings pane and redraws the Draw Window —
+        replaces per-panel Apply buttons.
+        """
+        if self.property_host.current_panel is None:
+            # No settings pane — just refresh the current scene
+            self._refresh_gl()
+            self.status.showMessage("Draw", 2000)
+            return
+        if not self.property_host.apply_now():
+            self._refresh_gl()
+
     def _on_property_applied(self, obj) -> None:
-        """Apply from tiled settings pane → rebuild the affected object.
+        """After Draw / apply_now → rebuild the affected object.
 
         Uses the incremental ``Scene.apply_to_object`` path when the scene is
         already built so sibling actors / camera stay untouched (I-gap).
@@ -800,7 +814,8 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if self._enable_3d:
             self._refresh_gl()
         label = getattr(obj, "label", str(obj))
-        self.message_win.log(f"Applied settings: {label}")
+        self.message_win.log(f"Draw: applied {label}")
+        self.status.showMessage(f"Draw: {label}", 3000)
 
     def _create_object(self, kind: Optional[str]) -> None:
         """Create menu / toolbar: instantiate an object under the Main node."""

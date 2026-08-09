@@ -154,6 +154,24 @@ class AppIcons:
                                  -r.width() * 0.05, -r.height() * 0.05))
 
     @classmethod
+    def _draw_draw(cls, p, r, _s):
+        """scPOST redraw mallet on the settings splitter grip."""
+        # Handle (yellow)
+        p.setPen(cls._pen("#f9a825", 1.2))
+        p.setBrush(QBrush(QColor("#ffeb3b")))
+        handle = QRectF(r.left() + r.width() * 0.08,
+                        r.top() + r.height() * 0.12,
+                        r.width() * 0.55, r.height() * 0.38)
+        p.drawRoundedRect(handle, 2, 2)
+        # Shaft (blue-grey)
+        p.setPen(cls._pen("#1565c0", 1.4))
+        p.setBrush(QBrush(QColor("#42a5f5")))
+        shaft = QRectF(r.center().x() - r.width() * 0.08,
+                       r.top() + r.height() * 0.4,
+                       r.width() * 0.16, r.height() * 0.52)
+        p.drawRoundedRect(shaft, 1, 1)
+
+    @classmethod
     def _draw_contour(cls, p, r, _s):
         p.setPen(cls._pen("#1565c0", 1.2))
         p.setBrush(QBrush(QColor("#bbdefb")))
