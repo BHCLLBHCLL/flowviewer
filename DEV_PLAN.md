@@ -539,6 +539,13 @@ functions" 接 `_run_special`（apply+emit）；Plane Usage Guide 各键即时�
 → 目标：加载器注册表（fld/fph/gph 实现 + cgns 探测接入），或从过滤列表
 删除未实现后缀以避免误导。
 
+**✅ 已完成（2026-08-09，commit fe663c5）**：新增 `fv/model/loaders.py`
+（`LOADERS` 注册表 + `probe_format`/`describe`，h5py 探测 CGNS/HDF5）；
+`dataset._register_loaders()` 注册 fld/ifld/fph/gph；`OpenDialog.is_loadable`
+改查注册表；`main` 打开未支持格式提示具体原因（"CGNS file detected …"）。
+验证：`test_loader_registry_registered`、`test_cgns_detection_probe`、
+`test_open_dialog_is_loadable_honest`。
+
 ### H. 规划模块缺失（DEV_PLAN §3.1 列出但未建）
 
 `fv/render/scalar.py`、`probe.py`、`export.py`、`fv/gui/controls.py`、
