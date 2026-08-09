@@ -199,22 +199,7 @@ class ObjectTree(QTreeWidget if _HAS_QT else object):
         self._object_kinds[main.display_name] = "main"
 
         for obj in main.children:
-            label = obj.label
-            it = QTreeWidgetItem([label, ""])
-            it.setFlags(it.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
-            it.setCheckState(0, Qt.Checked if obj.visible else Qt.Unchecked)
-            icon_name = {
-                "surface": "surface",
-                "plane": "plane_xy",
-                "particle": "point",
-            }.get(obj.kind, "project")
-            try:
-                it.setIcon(0, AppIcons.get(icon_name, 16))
-            except Exception:
-                pass
-            file_item.addChild(it)
-            self._items[label] = it
-            self._object_kinds[label] = obj.kind
+            self._add_object_item(file_item, obj)
 
         file_item.setExpanded(True)
 
@@ -231,6 +216,51 @@ class ObjectTree(QTreeWidget if _HAS_QT else object):
         self._object_kinds["Light (1)"] = "light"
         glob.setExpanded(True)
         self.blockSignals(False)
+
+    @staticmethod
+    def _icon_for_kind(kind: str) -> str:
+        return {
+            "surface": "surface",
+            "plane": "plane_xy",
+            "particle": "point",
+            "isosurface": "isosurface",
+            "streamline": "streamline",
+            "volume": "volume",
+            "vector": "vector",
+            "colorbar": "colorbar",
+            "point": "point",
+        }.get(kind, "project")
+
+    def _add_object_item(self, parent, obj) -> "QTreeWidgetItem":
+        """Insert one object row under *parent*, recording kind / visibility."""
+        label = obj.label
+        it = QTreeWidgetItem([label, ""])
+        it.setFlags(it.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+        it.setCheckState(0, Qt.Checked if obj.visible else Qt.Unchecked)
+        try:
+            it.setIcon(0, AppIcons.get(self._icon_for_kind(obj.kind), 16))
+        except Exception:
+            pass
+        parent.addChild(it)
+        self._items[label] = it
+        self._object_kinds[label] = obj.kind
+        return it
+
+    def add_object(self, obj) -> "QTreeWidgetItem":
+        """Append an object created at runtime under the current Main node."""
+        if not _HAS_QT:
+            return None
+        file_item = self._items.get("__main__")
+        if file_item is None:
+            return None
+        self.blockSignals(True)
+        try:
+            it = self._add_object_item(file_item, obj)
+            file_item.setExpanded(True)
+            self.setCurrentItem(it)
+        finally:
+            self.blockSignals(False)
+        return it
 
     def clear_and_rebuild(self, root_items: list[tuple]) -> None:
         """Legacy rebuild helper (kept for tests / non-Main listings)."""
@@ -271,14 +301,17 @@ class ObjectTree(QTreeWidget if _HAS_QT else object):
         if kind and self.object_activated is not None:
             self.object_activated.emit(kind, name)
 
+    _RENDERABLE_KINDS = ("surface", "plane", "particle", "isosurface",
+                         "streamline", "volume", "colorbar", "point")
+
     def _on_selection_changed(self) -> None:
-        """Single-click Surface/Plane/Particle → show tiled settings (scPOST)."""
+        """Single-click a renderable object → show tiled settings (scPOST)."""
         items = self.selectedItems() if _HAS_QT else []
         if not items:
             return
         name = items[0].text(0)
         kind = self._object_kinds.get(name, "")
-        if kind in ("surface", "plane", "particle") and self.object_activated:
+        if kind in self._RENDERABLE_KINDS and self.object_activated:
             self.object_activated.emit(kind, name)
 
 

@@ -175,6 +175,24 @@ def test_tiled_property_host(qapp):
     assert w.property_host.current_panel is None
 
 
+def test_create_object_menu_wiring(qapp):
+    """Create menu/toolbar actually instantiates objects (A-gap fix)."""
+    w = _make(qapp, FPH)
+    kinds_before = {o.kind for o in w.main_object.children}
+    w._create_object("isosurface")
+    assert any(o.kind == "isosurface" for o in w.main_object.children)
+    assert w.property_host.current_object is not None
+    assert w.property_host.current_object.kind == "isosurface"
+    assert w.property_host.current_panel is not None
+    # No duplicate label
+    w._create_object("isosurface")
+    labels = {o.label for o in w.main_object.children}
+    assert "Isosurface (2)" in labels
+    # Stub kinds fall back to _nyi (no crash)
+    w._create_object("vector")
+    assert any(o.kind == "vector" for o in w.main_object.children) is False
+
+
 def test_surface_dialog_all_tabs_and_filter(qapp):
     from fv.model.dataset import load_file
     from fv.model.objects import SurfaceObject

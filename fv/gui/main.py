@@ -29,6 +29,43 @@ except Exception:  # pragma: no cover - headless
     QApplication = None
 
 
+_RENDERABLE_KINDS = ("surface", "plane", "particle", "isosurface",
+                     "streamline", "volume", "colorbar", "point")
+
+# Create-menu entry: (label, object kind). Non-core kinds map to interop
+# objects that reuse a render pipeline (vector → isosurface vector tab).
+_CREATE_MENU = (
+    ("Surface", "surface"),
+    ("Plane", "plane"),
+    ("Cylinder", None),
+    ("Circle", None),
+    ("Point", "point"),
+    ("Volume", "volume"),
+    ("Isosurface", "isosurface"),
+    ("Streamline", "streamline"),
+    ("Vector", None),
+    ("Colorbar", "colorbar"),
+    ("Light", "light"),
+    ("Text", None),
+    ("Graph", None),
+)
+
+_CREATE_DISPLAY = {
+    "Iso": "isosurface",
+    "Stream": "streamline",
+    "Volume": "volume",
+    "Vector": None,
+    "Colorbar": "colorbar",
+    "Point": "point",
+    "Surface": "surface",
+    "Plane": "plane",
+}
+
+
+def _kind_for_text(text: str) -> Optional[str]:
+    return _CREATE_DISPLAY.get(text)
+
+
 class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
     """scPOST-style main window.
 
@@ -220,14 +257,10 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         m.addSeparator()
         add(m, "Exit", self.close)
 
-        # Create (scPOST Create menu — stubs)
+        # Create (scPOST Create menu)
         m = mb.addMenu("Create")
-        for name in (
-            "Surface", "Plane", "Cylinder", "Circle", "Point",
-            "Volume", "Isosurface", "Streamline", "Vector",
-            "Colorbar", "Light", "Text", "Graph",
-        ):
-            add(m, name, lambda _=False, n=name: self._nyi(f"Create {n}"))
+        for name, _kind in _CREATE_MENU:
+            add(m, name, lambda _=False, k=_kind: self._create_object(k))
 
         # Display
         m = mb.addMenu("Display")
@@ -329,7 +362,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             ("Point", "point"),
         ):
             act(self.tb_create, text, icon, f"Create {text}",
-                lambda _=False, n=text: self._nyi(f"Create {n}"))
+                lambda _=False, n=text: self._create_object(_kind_for_text(n)))
         self.addToolBar(self.tb_create)
 
         self.tb_display = tb("Display")
@@ -551,6 +584,11 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 "surface": "surface",
                 "plane": "plane",
                 "particle": "particle",
+                "isosurface": "isosurface",
+                "streamline": "streamline",
+                "volume": "volume",
+                "colorbar": "colorbar",
+                "point": "point",
                 "main": "grid",
             }.get(kind, "")
             if layer:
@@ -577,10 +615,10 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self._nyi("Draw Window settings")
 
     def _on_object_activated(self, kind: str, label: str) -> None:
-        """Select / double-click Surface/Plane/Particle → tiled settings pane."""
+        """Select / double-click a renderable object → tiled settings pane."""
         if self.main_object is None or self.dataset is None:
             return
-        if kind not in ("surface", "plane", "particle"):
+        if kind not in _RENDERABLE_KINDS:
             return
         obj = next((o for o in self.main_object.children
                     if o.label == label), None)
@@ -600,6 +638,44 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self._refresh_gl()
         label = getattr(obj, "label", str(obj))
         self.message_win.log(f"Applied settings: {label}")
+
+    def _create_object(self, kind: Optional[str]) -> None:
+        """Create menu / toolbar: instantiate an object under the Main node."""
+        if kind is None:
+            self._nyi("Create (kind not implemented)")
+            return
+        if self.dataset is None or self.main_object is None:
+            self.message_win.log(
+                "Create: open a field file first (File → Open)", "WARN")
+            return
+        from ..model import objects as objmod
+        makers = {
+            "surface": objmod.SurfaceObject,
+            "plane": objmod.PlaneObject,
+            "point": objmod.PointObject,
+            "volume": objmod.VolumeObject,
+            "isosurface": objmod.IsosurfaceObject,
+            "streamline": objmod.StreamlineObject,
+            "colorbar": objmod.ColorbarObject,
+        }
+        maker = makers.get(kind)
+        if maker is None:
+            self._nyi(f"Create {kind}")
+            return
+        used = {o.label for o in self.main_object.children}
+        index = 1
+        while f"{kind.capitalize()} ({index})" in used:
+            index += 1
+        obj = maker(index=index)
+        self.main_object.children.append(obj)
+        self.scene.build(self.dataset, main=self.main_object)
+        if self._enable_3d:
+            self.scene.fit()
+            self._refresh_gl()
+        self.object_tree.load_main(self.main_object)
+        self.property_host.show_object(kind, obj, field_file=self.dataset)
+        self.property_host.setVisible(True)
+        self.message_win.log(f"Created {getattr(obj, 'label', kind)}")
 
     def _on_timeline_step(self, step: int) -> None:
         self._cycle_label.setText(f"Cycle {step}")
