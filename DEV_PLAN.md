@@ -408,3 +408,115 @@ Turbo/Blade-to-Blade、Volume renderer、UV、Pathfull、3D-ROM、VBS 宏等（�
 - 渲染管线：isosurface（FLD contour/line/vector + 显式 iso 值）、point（FPH
   probe + FLD nearest-node）、streamline（FPH vtkStreamTracer + FLD Euler）、
   volume（FPH Transparent）、colorbar（`build_lut` + `colorbar_actor`）。
+
+---
+
+## 11. 全面审查（2026-08-09）——未完成功能清单 A–J
+
+> 对 `fv/`（model / render / gui / crdl）与 `tests/` 的完整代码审查 + 与
+> DEV_PLAN §2/§3/§4 规划的逐项核对。结论：**渲染管线已基本齐备，主要缺口
+> 在「对象 → UI 贯通」与「时间序列 / 导出」层**。以下按实现优先级 A→J 排列，
+> 每项含证据行号；A–J 为工作项，J 为基准记录。
+
+### A. 核心对象未贯通 UI（最高优先级）
+
+| 缺口 | 证据 |
+|---|---|
+| Create 菜单 13 项 + 工具栏 8 项全为 `_nyi` stub | `main.py:223-230`、`main.py:320-332` |
+| `MainObject.from_field_file` 只生成 Surface/Plane/Particle | `objects.py:447-468` |
+| 树节点只渲染 3 种 kind | `panes.py:201-217` |
+| `_on_object_activated` 仅接受 surface/plane/particle | `main.py:583`、`panes.py:281` |
+| `_on_tree_visibility` 层映射不含新 kind | `main.py:550-555`、`panes.py:206-210` |
+
+→ 目标：Create 菜单/工具栏真实创建对象并挂到 Main 子树；树激活/显隐/图标
+覆盖全部 8 种 kind；`_on_object_activated` 放开。
+
+### B. 全局 Colorbar 未接线
+
+| 缺口 | 证据 |
+|---|---|
+| `Scene.build` 无 `colorbar` 分支 | `scene.py:202-255` |
+| `Scene.build_global_colorbar` 定义但从未被调用 | `scene.py:82-96` |
+| `LightObject` 无渲染/无对话框/无实例化 | `objects.py:395-397`、`panes.py:222`（假节点） |
+
+→ 目标：`build()` 内 colorbar 分支调用 `build_global_colorbar`；Light 从
+对象模型移除或提供最小实现。
+
+### C. 时间 / 序列（DEV_PLAN P3.1–3.4）
+
+| 缺口 | 证据 |
+|---|---|
+| 无 `FileSet` / `load_sequence` / 序列扫描 | 全仓库 0 命中（P3.1） |
+| Timeline Play 为 stub；Pause 信号未连接 | `main.py:154`、`panes.py:544-547` |
+| `Sync`/`Loop`/`edit_ver`/`edit_scale` 控件未接线 | `panes.py:413-465` |
+| `timeline.set_range(cyc, cyc)` 滑块单值禁用 | `main.py:468` |
+| `_on_timeline_step` 不切换 cycle 场数据 | `main.py:604-615` |
+| Variable Registration（P3.5 算术表达式）全缺 | 菜单/对话框/模型均无 |
+
+→ 目标：`FileSet` 序列扫描 + cycle 切换加载场量；Play/Pause/Step 驱动；
+Variable Registration 对话框。
+
+### D. 导出 / 文件功能（DEV_PLAN P4.1）
+
+| 缺口 | 证据 |
+|---|---|
+| Save Status (STA) 菜单/工具栏为 stub | `main.py:218`、`main.py:314` |
+| Print 菜单/工具栏为 stub | `main.py:219`、`main.py:316` |
+| 无 PNG/截图导出（无 `vtkWindowToImageFilter`） | — |
+
+→ 目标：`export.py` 提供截图 PNG；STA 写入/读取；Print（QPrinter）。
+
+### E. 菜单 / 视图 stub（24 项）
+
+View→Iso Metric/Compare（`main.py:246-247`）、Display→Redraw(菜单)/Show All/
+Hide All（`main.py:234-236`）、Option→Mouse 1/2-Button/Environment/Diagnostics
+（`main.py:265-271`）、工具栏 Save/Print/Contour/Show/Camera/Unit/Option
+（`main.py:314-380`）、Select 鼠标模式仅日志（`main.py:638`）。
+
+→ 目标：Iso 等轴视图、Show/Hide All 场景显隐、Environment/Unit 对话框。
+
+### F. 已知 inert 控件
+
+| 控件 | 证据 |
+|---|---|
+| Trim "Trimmed by" 恒空（`_trim_objects` 无赋值） | `object_dialogs.py:1103-1109` |
+| Particle "Run checked functions" 无 clicked 连接 | `object_dialogs.py:1967` |
+| Plane Usage Guide 按钮空实现 | `object_dialogs.py:720` |
+| `ObjectSettingsPanel._btn_pin` pin 状态无效果 | `object_dialogs.py:171` |
+
+→ 目标：`main.py` 传 `main.children` 填充 Trimmed-by；Run 按钮接
+`_run_special`；Usage 按钮驱动视图旋转；pin 维持面板。
+
+### G. 文件格式夸大
+
+| 缺口 | 证据 |
+|---|---|
+| 过滤器广告 CGNS/XDMF/Adams/Nastran/Marc | `dialogs.py:30-48` |
+| 实际只加载 fld/ifld/fph/gph | `dialogs.py:52`、`main.py:425` |
+| Magic/Trimming/Remote open、加速选项仅记日志 | `main.py:421`、`main.py:484-489` |
+
+→ 目标：加载器注册表（fld/fph/gph 实现 + cgns 探测接入），或从过滤列表
+删除未实现后缀以避免误导。
+
+### H. 规划模块缺失（DEV_PLAN §3.1 列出但未建）
+
+`fv/render/scalar.py`、`probe.py`、`export.py`、`fv/gui/controls.py`、
+`options.py`、`tasks.py`（后台 QThread worker）均不存在。
+
+→ 目标：按需创建 `options.py`（QSettings 持久化）、`tasks.py`（加载 worker）、
+`export.py`（截图/打印）。
+
+### I. 已记录但未解决（DEV_SUMMARY §4 延续）
+
+增量 mapper 更新（改配置走全量 rebuild）、cycle 切换增量、EMT 别名、iFLD
+局部读取、GL 静帧自动化（`test_scene_snapshot.py` 不存在）。
+
+→ 目标：`test_scene_snapshot.py`；`Scene.apply_to_object` 增量更新路径。
+
+### J. 已实现基准（供对照，无需开发）
+
+- 解析：FPH/GPH/FLD（`fv/crdl/`）。
+- 渲染：Surface 8-tab / Plane 16-tab / Particle 7-tab 对话框与管线、Oil Flow、
+  Trim/Clip/Automove/Pick/OilFlow/Texture/Font、新 5 对象渲染管线、轴。
+- 平铺设置面板 + PropertyHost 8 kind 映射。
+- 测试：`tests/test_gui.py` 44 项通过。
