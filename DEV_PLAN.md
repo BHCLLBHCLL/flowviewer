@@ -438,6 +438,14 @@ Cylinder/Circle/Vector/Light/Text/Graph 仍保留 `_nyi`）。验证：`test_cre
 
 ### B. 全局 Colorbar 未接线
 
+→ 目标：`Scene.build` 遇到 kind=colorbar 子对象时渲染全局 `vtkScalarBarActor`
+（含 headless 层）并应用 Fix 范围。
+
+**✅ 已完成（2026-08-09，commit 6dc2c7a）**：`scene.build` 3D 分支新增
+`elif obj.kind == "colorbar"` → `build_global_colorbar(obj, range_=Fix?obj.min/max:None)`；
+headless 分支 kind 列表加入 colorbar（`_layer_actors["colorbar"]`）。
+验证：`test_scene_build_renders_colorbar`（3D）与 `test_scene_build_colorbar_headless`。
+
 | 缺口 | 证据 |
 |---|---|
 | `Scene.build` 无 `colorbar` 分支 | `scene.py:202-255` |
