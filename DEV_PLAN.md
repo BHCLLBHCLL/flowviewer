@@ -554,6 +554,14 @@ functions" 接 `_run_special`（apply+emit）；Plane Usage Guide 各键即时�
 → 目标：按需创建 `options.py`（QSettings 持久化）、`tasks.py`（加载 worker）、
 `export.py`（截图/打印）。
 
+**✅ 已完成（2026-08-09，commit 97176d4）**：`export.py` 见 §11D。
+新增 `fv/gui/options.py`（`Options`：QSettings 持久化 + 内存回退，带类型
+coerce 处理 Windows 布尔字符串化；`load_window`/`save_window` 几何还原），
+`fv/gui/tasks.py`（`LoadWorker` QThread + 同步回退，`launch_load`）；
+`FlowViewer` 构造 `self.options`、构造后 `load_window`、`closeEvent` 保存。
+验证：`test_options_qsettings_headless`、`test_tasks_load_worker_sync`、
+`test_options_wired_into_window`。
+
 ### I. 已记录但未解决（DEV_SUMMARY §4 延续）
 
 增量 mapper 更新（改配置走全量 rebuild）、cycle 切换增量、EMT 别名、iFLD
