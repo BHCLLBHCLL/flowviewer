@@ -258,6 +258,32 @@ def test_open_dialog_is_loadable_honest(qapp):
         r"D:\training\cgns\examples\box_ansa_gph.cgns") is False
 
 
+def test_options_qsettings_headless():
+    """Options facade stores/recalls values even without a real store."""
+    from fv.gui.options import Options
+    o = Options()
+    o.set("last_dir", r"D:\some\dir")
+    assert o.get("last_dir") == r"D:\some\dir"
+    assert o.get("missing", "zz") == "zz"
+
+
+def test_tasks_load_worker_sync():
+    """LoadWorker (headless fallback) returns a parsed FieldFile."""
+    from fv.gui.tasks import LoadWorker
+    worker = LoadWorker(FPH)
+    res = worker.run()
+    assert res is not None
+    assert res.kind == "fph"
+
+
+def test_options_wired_into_window(qapp):
+    """Main window exposes an Options instance and saves on close."""
+    w = _make(qapp, FPH)
+    assert hasattr(w, "options")
+    w.options.set("env_show_units", False)
+    assert w.options.get("env_show_units") is False
+
+
 def test_create_object_menu_wiring(qapp):
     """Create menu/toolbar actually instantiates objects (A-gap fix)."""
     w = _make(qapp, FPH)

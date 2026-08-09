@@ -90,6 +90,9 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.setWindowTitle("flowviewer")
         self.resize(1600, 900)
         self._enable_3d = enable_3d
+        from .options import Options
+        self.options = Options()
+        self._enable_3d = enable_3d
         self.datasets: list = []
         self.dataset = None
         self.main_object = None
@@ -109,6 +112,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._build_menus()
         self._build_toolbars()
         self._build_statusbar()
+        self.options.load_window(self)
         if filepath:
             self.open_file(filepath)
         else:
@@ -949,6 +953,13 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         iren.SetInteractorStyle(self._trackball_style)
 
     # ── showEvent delayed interactor init ─────────────────────────────────
+
+    def closeEvent(self, event) -> None:  # noqa: N802
+        try:
+            if getattr(self, "options", None) is not None:
+                self.options.save_window(self)
+        finally:
+            super().closeEvent(event)
 
     def showEvent(self, event) -> None:  # noqa: N802
         super().showEvent(event)
