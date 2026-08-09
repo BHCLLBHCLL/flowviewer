@@ -227,6 +227,37 @@ def test_usage_click_persists(qapp):
     assert panel.plane.usage_hv is True
 
 
+def test_loader_registry_registered():
+    """Real parsers are advertised in the loader registry (G-gap)."""
+    from fv.model import loaders
+    assert "fld" in loaders.loaders()
+    assert "fph" in loaders.loaders()
+    assert "gph" in loaders.loaders()
+    assert "cgns" not in loaders.loaders()  # detected, not parsed
+    assert loaders.can_load(FPH) is True
+    assert loaders.can_load(r"D:\training\cgns\examples\box_ansa_gph.cgns") is False
+
+
+def test_cgns_detection_probe():
+    """CGNS files are flagged specifically, not as 'unknown' (G-gap)."""
+    from fv.model import loaders
+    cgns = r"D:\training\cgns\examples\box_ansa_gph.cgns"
+    if not Path(cgns).exists():
+        pytest.skip("no cgns sample")
+    assert loaders.probe_format(cgns).startswith("cgns")
+    desc = loaders.describe(cgns)
+    assert "not yet implemented" in desc or "no loader" in desc
+
+
+def test_open_dialog_is_loadable_honest(qapp):
+    """Open dialog only marks loadable formats as loadable (G-gap)."""
+    from fv.gui.dialogs import OpenDialog
+    dlg = OpenDialog()
+    assert dlg.is_loadable(FPH) is True
+    assert dlg.is_loadable(
+        r"D:\training\cgns\examples\box_ansa_gph.cgns") is False
+
+
 def test_create_object_menu_wiring(qapp):
     """Create menu/toolbar actually instantiates objects (A-gap fix)."""
     w = _make(qapp, FPH)

@@ -461,11 +461,11 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 "Magic / Trimming / Remote open reserved for later "
                 "(options recorded, not applied)", "WARN")
         if not dlg.is_loadable(path):
-            self.message_win.log(
-                f"Loader for '{Path(path).suffix}' is not implemented yet",
-                "WARN")
+            from ..model import loaders
+            detail = loaders.describe(path)
+            self.message_win.log(detail, "WARN")
             self.status.showMessage(
-                f"Open: {Path(path).name} — type not yet supported", 6000)
+                f"Open: {Path(path).name} — not yet supported", 6000)
             return
         self.open_file(path, options=opts)
 

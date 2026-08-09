@@ -88,36 +88,54 @@ def _looks_like_fld(filepath: str) -> bool:
         return find_section(data, "LS_Elements") >= 0 or find_section(data, "LS_MatOfElements") >= 0
 
 
+def _register_loaders() -> None:
+    """Advertise the real parsers in :mod:`fv.model.loaders` registry."""
+    try:
+        from . import loaders
+        loaders.register("fld", fld_only_load)
+        loaders.register("ifld", fld_only_load)
+        loaders.register("fph", load_file)
+        loaders.register("gph", load_file)
+    except Exception:  # pragma: no cover - registry is best-effort
+        pass
+
+
+def fld_only_load(filepath: str) -> FieldFile:
+    """Direct FLD loader (no magic detection), mirror of the 'fld' branch."""
+    path = Path(filepath)
+    mesh = mesh_fld.parse_fld(str(path))
+    ff = FieldFile(path=str(path), kind="fld")
+    ff.vertices = mesh["vertices"]
+    ff.n_vertices = mesh["n_vertices"]
+    ff.cell_conn = mesh["cell_conn"]
+    ff.material = mesh["material"]
+    ff.n_cells = mesh["n_cells"]
+    ff.faces = mesh["faces"]
+    ff.bc_plan = mesh["bc_plan"]
+    ff.volume_regions = mesh["volume_names"]
+    ff.file_size = mesh["file_size"]
+    for name, arr in mesh["fields"].items():
+        ff.variables[name] = VarInfo(
+            name=name,
+            kind=_field_kind(name),
+            location="node",
+            array=arr,
+        )
+    with open_buffer(str(path)) as data:
+        ff.cycle, ff.time = fld_fields.parse_cycle_meta(data)
+        ff.has_particles = fld_fields.has_particle_results(data)
+    if ff.cycle is None:
+        ff.cycle = _cycle_from_filename(path)
+    return ff
+
+
 def load_file(filepath: str) -> FieldFile:
     """Detect GPH/FPH vs FLD by section layout and parse into a FieldFile."""
     path = Path(filepath)
     is_fld = _looks_like_fld(str(path))
 
     if is_fld or path.suffix.lower() == ".fld":
-        mesh = mesh_fld.parse_fld(str(path))
-        ff = FieldFile(path=str(path), kind="fld")
-        ff.vertices = mesh["vertices"]
-        ff.n_vertices = mesh["n_vertices"]
-        ff.cell_conn = mesh["cell_conn"]
-        ff.material = mesh["material"]
-        ff.n_cells = mesh["n_cells"]
-        ff.faces = mesh["faces"]
-        ff.bc_plan = mesh["bc_plan"]
-        ff.volume_regions = mesh["volume_names"]
-        ff.file_size = mesh["file_size"]
-        for name, arr in mesh["fields"].items():
-            ff.variables[name] = VarInfo(
-                name=name,
-                kind=_field_kind(name),
-                location="node",
-                array=arr,
-            )
-        with open_buffer(str(path)) as data:
-            ff.cycle, ff.time = fld_fields.parse_cycle_meta(data)
-            ff.has_particles = fld_fields.has_particle_results(data)
-        if ff.cycle is None:
-            ff.cycle = _cycle_from_filename(path)
-        return ff
+        return fld_only_load(str(path))
 
     mesh = mesh_gph.parse_gph_mesh(str(path))
     ff = FieldFile(path=str(path), kind="fph")
@@ -163,3 +181,6 @@ def _field_kind(name: str) -> str:
                 "HVECX", "HVECY", "HVECZ"):
         return FIELD_KIND_VECTOR
     return FIELD_KIND_SCALAR
+
+
+_register_loaders()

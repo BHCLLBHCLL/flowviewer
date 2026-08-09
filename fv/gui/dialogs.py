@@ -421,7 +421,8 @@ class OpenDialog(QDialog if _HAS_QT else object):
 
     def is_loadable(self, path: Optional[str] = None) -> bool:
         p = Path(path or self.selected_path() or "")
-        return _suffix_key(p) in LOADABLE_EXTENSIONS
+        from ..model import loaders
+        return loaders.can_load(str(p))
 
     # ── directory / filter ────────────────────────────────────────────────
 
