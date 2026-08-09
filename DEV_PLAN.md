@@ -569,6 +569,13 @@ coerce 处理 Windows 布尔字符串化；`load_window`/`save_window` 几何还
 
 → 目标：`test_scene_snapshot.py`；`Scene.apply_to_object` 增量更新路径。
 
+**✅ 已完成（2026-08-09，commit b61d760 + c356bd2）**：`Scene` 新增
+`remove_object_actors` + `apply_to_object`（单对象增量重建，dispatch 提取为
+`_dispatch_object`），`main._on_property_applied` 改用增量路径；
+`loaders.probe_format` 将 `emt` 识别为 fph 家族别名；新增
+`tests/test_scene_snapshot.py`（offscreen 快照 PNG、增量更新、孤儿 actor 校验、
+EMT 别名、headless placeholder）。验证 5 项全过。
+
 ### J. 已实现基准（供对照，无需开发）
 
 - 解析：FPH/GPH/FLD（`fv/crdl/`）。
