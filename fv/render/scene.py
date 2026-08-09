@@ -213,7 +213,8 @@ class Scene:
             self._layer_actors["grid"] = ["wireframe"]
             self._layer_actors["surface"] = ["surface_1"]
             self._layer_actors["plane"] = ["plane_1"]
-            for kind in ("isosurface", "point", "streamline", "volume"):
+            for kind in ("isosurface", "point", "streamline", "volume",
+                         "colorbar"):
                 if any(o.kind == kind for o in
                        getattr(main, "children", []) or []):
                     self._layer_actors[kind] = [f"{kind}_1"]
@@ -251,6 +252,10 @@ class Scene:
                 self._add_streamline_actors(ff, obj)
             elif obj.kind == "volume":
                 self._add_volume_actors(ff, obj)
+            elif obj.kind == "colorbar":
+                mode = getattr(obj, "range_mode", "Auto") or "Auto"
+                rng = (obj.min, obj.max) if str(mode).lower() == "fix" else None
+                self.build_global_colorbar(obj, range_=rng)
         self._field_file = ff
         self._main = main
 

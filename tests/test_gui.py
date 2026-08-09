@@ -1121,3 +1121,33 @@ def test_colorbar_actor_and_lut():
     sb = colorbar_actor(cb, range_=(0.0, 300.0))
     assert sb is not None
     assert sb.GetLookupTable() is ColorbarRegistry.lut()
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+def test_scene_build_renders_colorbar():
+    """Global ColorbarObject appended under Main renders in Scene.build."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import ColorbarObject, MainObject
+    from fv.render.scene import Scene
+    ff = load_file(FPH)
+    main = MainObject.from_field_file(ff)
+    cb = ColorbarObject()
+    main.children.append(cb)
+    sc = Scene(enable_3d=True)
+    sc.build(ff, main=main)
+    assert "colorbar" in sc.actor_names()
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+def test_scene_build_colorbar_headless():
+    """Headless build reports a colorbar actor layer."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import ColorbarObject, MainObject
+    from fv.render.scene import Scene
+    ff = load_file(FPH)
+    main = MainObject.from_field_file(ff)
+    cb = ColorbarObject()
+    main.children.append(cb)
+    sc = Scene(enable_3d=False)
+    sc.build(ff, main=main)
+    assert "colorbar" in sc.actor_names()
