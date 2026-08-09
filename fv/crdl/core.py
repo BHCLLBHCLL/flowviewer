@@ -82,7 +82,7 @@ def find_section(data, name: str) -> int:
 # every call (≈31 × bytes.find per section).  Building the index once per
 # buffer turns that into a single pass over the boundary list.
 
-_section_index_cache: dict = {}          # id(data) → (len(data), {name: offset})
+_section_index_cache: dict = {}          # id(data) → (len(data), offsets, data)
 
 
 def _section_offsets(data) -> dict:
@@ -96,9 +96,7 @@ def _section_offsets(data) -> dict:
         off = find_section(data, name)
         if off >= 0:
             offsets[name] = off
-    if len(_section_index_cache) > 64:   # bound the cache footprint
-        _section_index_cache.clear()
-    _section_index_cache[key] = (len(data), offsets)
+    _section_index_cache[key] = (len(data), offsets, data)  # keep data alive
     return offsets
 
 
