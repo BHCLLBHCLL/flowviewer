@@ -364,7 +364,8 @@ class PropertyHost(QWidget if _HAS_QT else object):
         self._kind = ""
         self._stack.setCurrentWidget(self._empty)
 
-    def show_object(self, kind: str, obj, field_file=None) -> None:
+    def show_object(self, kind: str, obj, field_file=None,
+                    siblings=None) -> None:
         """Embed Surface/Plane/Particle settings panel for *obj*."""
         if not _HAS_QT:
             return
@@ -393,6 +394,14 @@ class PropertyHost(QWidget if _HAS_QT else object):
         panel = cls(obj, field_file=field_file, parent=self)
         panel.apply_requested.connect(self._on_apply)
         panel.close_requested.connect(self._on_hide)
+        # Trim "Trimmed by" needs the sibling objects (F-gap)
+        if siblings:
+            panel._trim_objects = list(siblings)
+        else:
+            panel._trim_objects = [o for o in
+                                   getattr(field_file, "_siblings", []) or []]
+            if not panel._trim_objects:
+                panel._trim_objects = []
         self._panel = panel
         self._obj = obj
         self._kind = kind
@@ -406,6 +415,10 @@ class PropertyHost(QWidget if _HAS_QT else object):
             self._panel.apply_to(self._obj)
         if self.applied is not None:
             self.applied.emit(self._obj)
+        # Unpinned (transient) panels close after Apply so the Draw Window
+        # stays readable; pinned panels keep the settings open (F-gap).
+        if not self._panel.is_pinned():
+            self._on_hide()
 
     def _on_hide(self) -> None:
         self.clear()

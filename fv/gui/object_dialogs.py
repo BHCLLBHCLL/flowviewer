@@ -678,6 +678,7 @@ class PlaneDialog(_PinnedDialog):
         self.usage_row = QWidget(coord)
         ul = QHBoxLayout(self.usage_row)
         ul.setContentsMargins(0, 0, 0, 0)
+        self.usage_buttons: dict[str, QPushButton] = {}
         for label, key in (("Horz/Vert", "hv"), ("Axis", "axis"),
                            ("Line/Paint", "lp"), ("Color", "color")):
             b = QPushButton(label, self.usage_row)
@@ -685,6 +686,7 @@ class PlaneDialog(_PinnedDialog):
             b.setChecked(getattr(self.plane, f"usage_{key}", False))
             b.clicked.connect(lambda _=False, k=key: self._usage_click(k))
             ul.addWidget(b)
+            self.usage_buttons[key] = b
         ul.addStretch(1)
         lay.addWidget(self.usage_row)
 
@@ -718,7 +720,12 @@ class PlaneDialog(_PinnedDialog):
         self.point_z.setValue(p[2])
 
     def _usage_click(self, key: str) -> None:
-        pass  # view-side toggle; persisted in apply_to
+        # Persist the toggled usage-guide flag onto the plane immediately so
+        # the state is visible without an explicit Apply.
+        btn = getattr(self, "usage_buttons", {}).get(key)
+        on = bool(btn is not None and btn.isChecked())
+        if hasattr(self, "plane"):
+            setattr(self.plane, f"usage_{key}", bool(on))
 
     def _on_usage(self, on: bool) -> None:
         self.usage_row.setVisible(on)
@@ -1915,7 +1922,9 @@ class ParticleDialog(_PinnedDialog):
         lay.addLayout(form)
         lay.addWidget(_hline(page))
         lay.addWidget(QLabel("Trimmed by:", page))
-        self.trim_tree = _CheckTree("Object", [], self.particle.trim_objects)
+        objects = [o.label for o in getattr(self, "_trim_objects", [])]
+        self.trim_tree = _CheckTree(
+            "Object", objects, list(self.particle.trim_objects))
         lay.addWidget(self.trim_tree, 1)
         return page
 
@@ -1965,9 +1974,20 @@ class ParticleDialog(_PinnedDialog):
             self.particle.special_variable_generalization)
         lay.addWidget(self.special_gen)
         run = QPushButton("Run checked functions", page)
+        run.clicked.connect(self._run_special)
         lay.addWidget(run)
         lay.addStretch(1)
         return page
+
+    def _run_special(self) -> None:
+        """Run checked Special functions (Cloth/String, generalization).
+
+        Applies the current settings to the object and triggers a rebuild of
+        the scene so the conversion can take effect.
+        """
+        if hasattr(self, "particle"):
+            self.apply_to(self.particle)
+        self.apply_requested.emit()
 
     def apply_to(self, particle) -> None:
         particle.show_scalar = self.scalar.is_checked()

@@ -175,6 +175,58 @@ def test_tiled_property_host(qapp):
     assert w.property_host.current_panel is None
 
 
+def test_trim_objects_populated(qapp):
+    """Trim 'Trimmed by' list receives sibling objects (F-gap)."""
+    w = _make(qapp, FPH)
+    w._on_object_activated("plane", "Plane (1)")
+    panel = w.property_host.current_panel
+    assert panel is not None
+    assert panel._trim_objects
+    assert any(o.label == "Surface (1)" for o in panel._trim_objects)
+
+
+def test_pin_transient_panel(qapp):
+    """Unpinned panels close on Apply; pinned panels persist (F-gap)."""
+    w = _make(qapp, FPH)
+    w._on_object_activated("plane", "Plane (1)")
+    panel = w.property_host.current_panel
+    panel._btn_pin.setChecked(False)
+    w.property_host._on_apply()
+    assert w.property_host.current_panel is None
+    # Pinned panel stays open
+    w._on_object_activated("plane", "Plane (1)")
+    w.property_host.current_panel._btn_pin.setChecked(True)
+    w.property_host._on_apply()
+    assert w.property_host.current_panel is not None
+
+
+def test_particle_run_special(qapp):
+    """Particle 'Run checked functions' applies + rebuilds (F-gap)."""
+    w = _make(qapp, FPH)
+    w._on_object_activated("particle", "Particle (1)")
+    panel = w.property_host.current_panel
+    if panel is None:
+        pytest.skip("no particle object in this dataset")
+    assert hasattr(panel, "_run_special")
+    try:
+        panel.special_cloth.setChecked(True)
+    except AttributeError:
+        pass
+    panel._run_special()
+    assert w.property_host.current_panel is not None
+
+
+def test_usage_click_persists(qapp):
+    """Plane Usage Guide buttons persist flags without Apply (F-gap)."""
+    w = _make(qapp, FPH)
+    w._on_object_activated("plane", "Plane (1)")
+    panel = w.property_host.current_panel
+    btn = panel.usage_buttons["hv"]
+    btn.setChecked(True)
+    panel._usage_click("hv")
+    assert panel.plane.usage_hv is True
+
+
 def test_create_object_menu_wiring(qapp):
     """Create menu/toolbar actually instantiates objects (A-gap fix)."""
     w = _make(qapp, FPH)

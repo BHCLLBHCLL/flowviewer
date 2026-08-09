@@ -781,7 +781,9 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
                     if o.label == label), None)
         if obj is None:
             return
-        self.property_host.show_object(kind, obj, field_file=self.dataset)
+        siblings = [o for o in self.main_object.children if o is not obj]
+        self.property_host.show_object(kind, obj, field_file=self.dataset,
+                                       siblings=siblings)
         # Ensure the lower pane is visible after hide
         self.property_host.setVisible(True)
 
@@ -830,7 +832,9 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self.scene.fit()
             self._refresh_gl()
         self.object_tree.load_main(self.main_object)
-        self.property_host.show_object(kind, obj, field_file=self.dataset)
+        siblings = [o for o in self.main_object.children if o is not obj]
+        self.property_host.show_object(kind, obj, field_file=self.dataset,
+                                       siblings=siblings)
         self.property_host.setVisible(True)
         self.message_win.log(f"Created {getattr(obj, 'label', kind)}")
 
