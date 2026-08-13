@@ -30,9 +30,10 @@ def build_volume_actors(ff: FieldFile, obj,
     out: dict = {}
     if not _HAS_VTK:
         return out
-    from .plane import build_ugrid
+    from .plane import build_ugrid, cell_filter_mask
+    mask = cell_filter_mask(ff, obj)
     if ugrid is None or cell_centered is None:
-        ugrid, cell_centered = build_ugrid(ff, cell_mask=None)
+        ugrid, cell_centered = build_ugrid(ff, cell_mask=mask)
     if ugrid is None:
         return out
 
@@ -89,31 +90,77 @@ def _attach_scalar(ugrid, ff, var, cell_centered):
     return attach_scalar(ugrid, ff, var, cell_centered)
 
 
-def _volume_actor(ugrid, var: str, obj) -> Optional["vtk.vtkActor"]:
+def _volume_actor(ugrid, var: str, obj) -> Optional[object]:
+    """Real volume rendering (P1.3): vtkSmartVolumeMapper + transfer
+    functions; falls back to a translucent vtkDataSetMapper when the
+    smart mapper is unavailable."""
     draw_type = (getattr(obj, "draw_type", "Solid") or "Solid")
-    mapper = vtk.vtkDataSetMapper()
-    mapper.SetInputData(ugrid)
-    mapper.SetScalarModeToUseCellData()
-    mapper.SelectColorArray(var)
-    mapper.SetScalarRange(_data_range(ugrid, var))
-
-    actor = vtk.vtkActor()
-    actor.SetMapper(mapper)
-    prop = actor.GetProperty()
-    if getattr(obj, "scalar_mono_color", False):
-        mapper.ScalarVisibilityOff()
-        try:
-            prop.SetColor(*obj.scalar_mono_rgb)
-        except (AttributeError, TypeError):
-            prop.SetColor(0.6, 0.7, 0.8)
     opacity = 1.0
     if draw_type in ("Transparent", "Sampled"):
         opacity = 0.35
     if getattr(obj, "transparent", False):
         opacity = min(opacity, 0.5)
     opacity = min(1.0, opacity * float(getattr(obj, "scalar_opacity", 1.0)
-                                       or 1.0))
-    prop.SetOpacity(opacity)
+                                    or 1.0))
+    if getattr(obj, "scalar_mono_color", False):
+        return _plain_volume_actor(ugrid, var, obj, opacity)
+    # vtkSmartVolumeMapper only accepts image/rectilinear grids; for
+    # unstructured volume cells (FLD hex / CGNS tet) use the ray-cast
+    # mapper; polyhedral FPH grids fall back to the translucent actor.
+    try:
+        if ugrid.GetNumberOfCells() > 0 and ugrid.GetCellType(0) in (
+                vtk.VTK_HEXAHEDRON, vtk.VTK_TETRA, vtk.VTK_WEDGE,
+                vtk.VTK_PYRAMID):
+            return _raycast_volume_actor(ugrid, var, obj, opacity)
+    except Exception:
+        pass
+    return _plain_volume_actor(ugrid, var, obj, opacity)
+
+
+def _raycast_volume_actor(ugrid, var: str, obj, opacity: float):
+    """Unstructured-grid ray-cast volume (P1.3)."""
+    lo, hi = _data_range(ugrid, var)
+    if not (hi > lo):
+        hi = lo + 1.0
+    ctf = vtk.vtkColorTransferFunction()
+    for t, rgb in ((0.0, (0.2, 0.2, 1.0)),
+                   (0.33, (0.2, 1.0, 0.2)),
+                   (0.66, (1.0, 1.0, 0.2)),
+                   (1.0, (1.0, 0.2, 0.2))):
+        ctf.AddRGBPoint(lo + t * (hi - lo), *rgb)
+    otf = vtk.vtkPiecewiseFunction()
+    otf.AddPoint(lo, opacity);
+    otf.AddPoint(hi, opacity)
+    smap = vtk.vtkUnstructuredGridVolumeRayCastMapper()
+    smap.SetInputData(ugrid)
+    vol = vtk.vtkVolume()
+    vol.SetMapper(smap)
+    prop = vol.GetProperty()
+    prop.SetColor(ctf)
+    prop.SetScalarOpacity(otf)
+    prop.ShadeOn()
+    prop.SetAmbient(0.25)
+    prop.SetDiffuse(0.8)
+    prop.SetSpecular(0.3)
+    return vol
+
+
+def _plain_volume_actor(ugrid, var: str, obj, opacity: float):
+    """Fallback: translucent vtkDataSetMapper volume (pre-P1.3)."""
+    mapper = vtk.vtkDataSetMapper()
+    mapper.SetInputData(ugrid)
+    mapper.SetScalarModeToUseCellData()
+    mapper.SelectColorArray(var)
+    mapper.SetScalarRange(_data_range(ugrid, var))
+    actor = vtk.vtkActor()
+    actor.SetMapper(mapper)
+    if getattr(obj, "scalar_mono_color", False):
+        mapper.ScalarVisibilityOff()
+        try:
+            actor.GetProperty().SetColor(*obj.scalar_mono_rgb)
+        except (AttributeError, TypeError):
+            actor.GetProperty().SetColor(0.6, 0.7, 0.8)
+    actor.GetProperty().SetOpacity(opacity)
     return actor
 
 

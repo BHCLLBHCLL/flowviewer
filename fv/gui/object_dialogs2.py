@@ -9,15 +9,16 @@ from __future__ import annotations
 
 try:
     from PyQt5.QtWidgets import (
-        QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QHBoxLayout,
-        QLabel, QLineEdit, QSpinBox, QVBoxLayout, QWidget,
+        QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout,
+        QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
+        QPushButton, QSpinBox, QVBoxLayout, QWidget,
     )
     _HAS_QT = True
 except Exception:  # pragma: no cover
     _HAS_QT = False
 
 from .object_dialogs import (
-    ObjectSettingsPanel, _ColorButton, _scalar_vars, _hline,
+    ObjectSettingsPanel, _ColorButton, _scalar_vars, _VarRow, _hline,
 )
 
 
@@ -499,3 +500,692 @@ class ColorbarDialog(ObjectSettingsPanel):
         obj.orientation = self.orientation.currentData() or "Horizontal"
 
 
+class LightDialog(ObjectSettingsPanel):
+    """Global Light — Brightness / Colour / Direction (P0.3)."""
+
+    def __init__(self, light, field_file=None, parent=None):
+        super().__init__(getattr(light, "label", "Light"), parent)
+        if not _HAS_QT:
+            self.light = light
+            return
+        self.light = light
+        page = QWidget(self)
+        form = QFormLayout()
+        self.enabled = QCheckBox("Light enabled", page)
+        self.enabled.setChecked(bool(getattr(light, "enabled", True)))
+        form.addRow("", self.enabled)
+        self.brightness = _dspin(getattr(light, "brightness", 1.0),
+                                0.0, 2.0, 2)
+        form.addRow("Brightness:", self.brightness)
+        self.color = _ColorButton(getattr(light, "color", (1.0, 1.0, 1.0)),
+                                  page)
+        form.addRow("Colour:", self.color)
+        px, py, pz = getattr(light, "position", (1.0, 1.0, 1.0))
+        self.pos_x = _dspin(px, -1e6, 1e6, 4)
+        self.pos_y = _dspin(py, -1e6, 1e6, 4)
+        self.pos_z = _dspin(pz, -1e6, 1e6, 4)
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Direction:", page))
+        row.addWidget(self.pos_x)
+        row.addWidget(self.pos_y)
+        row.addWidget(self.pos_z)
+        form.addRow(row)
+        lay = QVBoxLayout(page)
+        lay.addLayout(form)
+        lay.addStretch(1)
+        self.tabs.addTab(page, "Brightness")
+
+    def apply_to(self, obj) -> None:
+        if not _HAS_QT:
+            return
+        obj.enabled = self.enabled.isChecked()
+        obj.brightness = float(self.brightness.value())
+        obj.color = self.color.rgb()
+        obj.position = (float(self.pos_x.value()),
+                        float(self.pos_y.value()),
+                        float(self.pos_z.value()))
+
+
+class PathlineDialog(ObjectSettingsPanel):
+    """Pathline (PCL) — Seed / Direction / Display (P1.5)."""
+
+    def __init__(self, pl, field_file=None, parent=None):
+        super().__init__(getattr(pl, "label", "Pathline"), parent)
+        if not _HAS_QT:
+            self.pl = pl
+            return
+        self.pl = pl
+        self.field_file = field_file
+        self.vectors = _vector_bases(field_file)
+        self.tabs.addTab(self._build_seed(), "Seed")
+        self.tabs.addTab(self._build_direction(), "Direction")
+        self.tabs.addTab(self._build_display(), "Display")
+
+    def _build_seed(self) -> QWidget:
+        page = QWidget(self)
+        form = QFormLayout()
+        self.axis = QComboBox(page)
+        for a in ("X", "Y", "Z", "Arbitrary"):
+            self.axis.addItem(a, a)
+        self.axis.setCurrentIndex(max(0, self.axis.findData(
+            getattr(self.pl, "seed_axis", "Z"))))
+        form.addRow("Axis:", self.axis)
+        c = getattr(self.pl, "seed_coordinate", None)
+        self.coord = _dspin(0.0 if c is None else c, -1e9, 1e9, 6)
+        form.addRow("Coordinate:", self.coord)
+        self.du = QSpinBox(page);
+        self.du.setRange(1, 200);
+        self.du.setValue(int(getattr(self.pl, "density_u", 8)))
+        form.addRow("Density U:", self.du)
+        self.dv = QSpinBox(page);
+        self.dv.setRange(1, 200);
+        self.dv.setValue(int(getattr(self.pl, "density_v", 8)))
+        form.addRow("Density V:", self.dv)
+        lay = QVBoxLayout(page);
+        lay.addLayout(form);
+        lay.addStretch(1)
+        return page
+
+    def _build_direction(self) -> QWidget:
+        page = QWidget(self)
+        form = QFormLayout()
+        self.vector = _var_combo(self.vectors, self.pl.vector_var)
+        form.addRow("Vector field:", self.vector)
+        self.dir = QComboBox(page)
+        for d in ("Forward", "Backward"):
+            self.dir.addItem(d, d)
+        self.dir.setCurrentIndex(max(0, self.dir.findData(
+            self.pl.direction)))
+        form.addRow("Direction:", self.dir)
+        self.steps = QSpinBox(page);
+        self.steps.setRange(1, 1000);
+        self.steps.setValue(int(getattr(self.pl, "steps_per_cycle", 10)))
+        form.addRow("Steps per cycle:", self.steps)
+        lay = QVBoxLayout(page);
+        lay.addLayout(form);
+        lay.addStretch(1)
+        return page
+
+    def _build_display(self) -> QWidget:
+        page = QWidget(self)
+        form = QFormLayout()
+        self.draw = QComboBox(page)
+        for d in ("Line", "Triangle", "Tube"):
+            self.draw.addItem(d, d)
+        self.draw.setCurrentIndex(max(0, self.draw.findData(
+            self.pl.draw_type)))
+        form.addRow("Draw:", self.draw)
+        self.thick = _dspin(getattr(self.pl, "thickness", 1.0), 1.0, 20.0, 1)
+        form.addRow("Thickness:", self.thick)
+        self.color = _ColorButton(self.pl.mono_color, page)
+        form.addRow("Color:", self.color)
+        self.transp = QCheckBox("Transparent", page)
+        self.transp.setChecked(bool(self.pl.transparent))
+        lay = QVBoxLayout(page);
+        lay.addLayout(form);
+        lay.addWidget(self.transp);
+        lay.addStretch(1)
+        return page
+
+    def apply_to(self, obj) -> None:
+        if not _HAS_QT:
+            return
+        obj.seed_axis = self.axis.currentData() or "Z"
+        obj.seed_coordinate = float(self.coord.value())
+        obj.density_u = int(self.du.value())
+        obj.density_v = int(self.dv.value())
+        obj.vector_var = self.vector.currentData() or "VEL"
+        obj.direction = self.dir.currentData() or "Forward"
+        obj.steps_per_cycle = int(self.steps.value())
+        obj.draw_type = self.draw.currentData() or "Line"
+        obj.thickness = float(self.thick.value())
+        obj.mono_color = self.color.rgb()
+        obj.transparent = self.transp.isChecked()
+
+class CylinderDialog(ObjectSettingsPanel):
+    """Cylinder — Coordinate / Contour / Vector / Mesh (P2.1)."""
+
+    def __init__(self, obj, field_file=None, parent=None):
+        super().__init__(getattr(obj, "label", "Cylinder"), parent)
+        if not _HAS_QT:
+            self.obj = obj
+            return
+        self.obj = obj
+        self.field_file = field_file
+        self.scalars = _scalar_vars(field_file)
+        self.vectors = _vector_bases(field_file)
+        self.tabs.addTab(self._build_coord(), "Coordinate")
+        self.tabs.addTab(self._build_contour(), "Contour")
+        self.tabs.addTab(self._build_vector(), "Vector")
+        self.tabs.addTab(self._build_mesh(), "Mesh")
+
+    def _build_coord(self) -> QWidget:
+        page = QWidget(self)
+        form = QFormLayout()
+        self.axis = QComboBox(page)
+        for a in ("X", "Y", "Z"):
+            self.axis.addItem(a, a)
+        self.axis.setCurrentIndex(max(0, self.axis.findData(self.obj.axis)))
+        form.addRow("Axis:", self.axis)
+        cx, cy, cz = self.obj.center
+        self.cx = _dspin(cx, -1e9, 1e9, 6);
+        self.cy = _dspin(cy, -1e9, 1e9, 6);
+        self.cz = _dspin(cz, -1e9, 1e9, 6)
+        row = QHBoxLayout();
+        row.addWidget(self.cx); row.addWidget(self.cy); row.addWidget(self.cz)
+        form.addRow("Center X/Y/Z:", row)
+        self.radius = _dspin(self.obj.radius, 1e-6, 1e9, 6)
+        form.addRow("Radius:", self.radius)
+        self.height = _dspin(self.obj.height, 1e-6, 1e9, 6)
+        form.addRow("Half-height:", self.height)
+        lay = QVBoxLayout(page); lay.addLayout(form); lay.addStretch(1)
+        return page
+
+    def _build_contour(self) -> QWidget:
+        page = QWidget(self)
+        lay = QVBoxLayout(page)
+        self.contour = _VarRow("Display", self.scalars, self.obj.contour_var)
+        self.contour.check.setChecked(bool(self.obj.show_contour))
+        lay.addWidget(self.contour)
+        self.transp = QCheckBox("Transparent", page)
+        self.transp.setChecked(bool(self.obj.contour_transparent))
+        lay.addWidget(self.transp)
+        lay.addStretch(1)
+        return page
+
+    def _build_vector(self) -> QWidget:
+        page = QWidget(self)
+        lay = QVBoxLayout(page)
+        self.vector = _VarRow("Display", self.vectors, self.obj.vector_var)
+        self.vector.check.setChecked(bool(self.obj.show_vector))
+        lay.addWidget(self.vector)
+        form = QFormLayout()
+        self.scale = _dspin(self.obj.vector_scale_length, decimals=3)
+        form.addRow("Scale length:", self.scale)
+        lay.addLayout(form)
+        lay.addStretch(1)
+        return page
+
+    def _build_mesh(self) -> QWidget:
+        page = QWidget(self)
+        lay = QVBoxLayout(page)
+        self.mesh = QCheckBox("Display mesh", page)
+        self.mesh.setChecked(bool(self.obj.show_mesh))
+        lay.addWidget(self.mesh)
+        form = QFormLayout()
+        self.mcolor = _ColorButton(self.obj.mesh_color, page)
+        form.addRow("Color:", self.mcolor)
+        self.mthick = QSpinBox(page); self.mthick.setRange(1, 10)
+        self.mthick.setValue(int(self.obj.mesh_thickness))
+        form.addRow("Thickness:", self.mthick)
+        lay.addLayout(form)
+        lay.addStretch(1)
+        return page
+
+    def apply_to(self, obj) -> None:
+        if not _HAS_QT:
+            return
+        obj.axis = self.axis.currentData() or "Z"
+        obj.center = (float(self.cx.value()), float(self.cy.value()),
+                     float(self.cz.value()))
+        obj.radius = float(self.radius.value())
+        obj.height = float(self.height.value())
+        obj.show_contour = self.contour.check.isChecked()
+        obj.contour_var = self.contour.var_name()
+        obj.contour_transparent = self.transp.isChecked()
+        obj.show_vector = self.vector.check.isChecked()
+        obj.vector_var = self.vector.var_name()
+        obj.vector_scale_length = float(self.scale.value())
+        obj.show_mesh = self.mesh.isChecked()
+        obj.mesh_color = self.mcolor.rgb()
+        obj.mesh_thickness = int(self.mthick.value())
+
+
+class CircleDialog(ObjectSettingsPanel):
+    """Circle — Coordinate / Contour / Vector / Mesh (P2.1)."""
+
+    def __init__(self, obj, field_file=None, parent=None):
+        super().__init__(getattr(obj, "label", "Circle"), parent)
+        if not _HAS_QT:
+            self.obj = obj
+            return
+        self.obj = obj
+        self.field_file = field_file
+        self.scalars = _scalar_vars(field_file)
+        self.vectors = _vector_bases(field_file)
+        self.tabs.addTab(self._build_coord(), "Coordinate")
+        self.tabs.addTab(self._build_contour(), "Contour")
+        self.tabs.addTab(self._build_vector(), "Vector")
+        self.tabs.addTab(self._build_mesh(), "Mesh")
+
+    def _build_coord(self) -> QWidget:
+        page = QWidget(self)
+        form = QFormLayout()
+        self.axis = QComboBox(page)
+        for a in ("X", "Y", "Z"):
+            self.axis.addItem(a, a)
+        self.axis.setCurrentIndex(max(0, self.axis.findData(self.obj.axis)))
+        form.addRow("Axis:", self.axis)
+        self.coord = _dspin(self.obj.coordinate, -1e9, 1e9, 6)
+        form.addRow("Coordinate:", self.coord)
+        cx, cy, cz = self.obj.center
+        self.cx = _dspin(cx, -1e9, 1e9, 6);
+        self.cy = _dspin(cy, -1e9, 1e9, 6);
+        self.cz = _dspin(cz, -1e9, 1e9, 6)
+        row = QHBoxLayout();
+        row.addWidget(self.cx); row.addWidget(self.cy); row.addWidget(self.cz)
+        form.addRow("Center X/Y/Z:", row)
+        self.radius = _dspin(self.obj.radius, 1e-6, 1e9, 6)
+        form.addRow("Radius:", self.radius)
+        lay = QVBoxLayout(page); lay.addLayout(form); lay.addStretch(1)
+        return page
+
+    def _build_contour(self) -> QWidget:
+        page = QWidget(self)
+        lay = QVBoxLayout(page)
+        self.contour = _VarRow("Display", self.scalars, self.obj.contour_var)
+        self.contour.check.setChecked(bool(self.obj.show_contour))
+        lay.addWidget(self.contour)
+        lay.addStretch(1)
+        return page
+
+    def _build_vector(self) -> QWidget:
+        page = QWidget(self)
+        lay = QVBoxLayout(page)
+        self.vector = _VarRow("Display", self.vectors, self.obj.vector_var)
+        self.vector.check.setChecked(bool(self.obj.show_vector))
+        lay.addWidget(self.vector)
+        lay.addStretch(1)
+        return page
+
+    def _build_mesh(self) -> QWidget:
+        page = QWidget(self)
+        lay = QVBoxLayout(page)
+        self.mesh = QCheckBox("Display mesh", page)
+        self.mesh.setChecked(bool(self.obj.show_mesh))
+        lay.addWidget(self.mesh)
+        form = QFormLayout()
+        self.mcolor = _ColorButton(self.obj.mesh_color, page)
+        form.addRow("Color:", self.mcolor)
+        lay.addLayout(form)
+        lay.addStretch(1)
+        return page
+
+    def apply_to(self, obj) -> None:
+        if not _HAS_QT:
+            return
+        obj.axis = self.axis.currentData() or "Z"
+        obj.coordinate = float(self.coord.value())
+        obj.center = (float(self.cx.value()), float(self.cy.value()),
+                     float(self.cz.value()))
+        obj.radius = float(self.radius.value())
+        obj.show_contour = self.contour.check.isChecked()
+        obj.contour_var = self.contour.var_name()
+        obj.show_vector = self.vector.check.isChecked()
+        obj.vector_var = self.vector.var_name()
+        obj.show_mesh = self.mesh.isChecked()
+        obj.mesh_color = self.mcolor.rgb()
+
+class TextDialog(ObjectSettingsPanel):
+    """Text annotation — Content / Position / Font (P2.3)."""
+
+    def __init__(self, obj, field_file=None, parent=None):
+        super().__init__(getattr(obj, "label", "Text"), parent)
+        if not _HAS_QT:
+            self.obj = obj
+            return
+        self.obj = obj
+        page = QWidget(self)
+        form = QFormLayout()
+        self.text = QLineEdit(getattr(obj, "text", "Text"), page)
+        form.addRow("Text:", self.text)
+        px, py = getattr(obj, "position", (0.1, 0.85))
+        self.px = _dspin(px, 0.0, 1.0, 3);
+        self.py = _dspin(py, 0.0, 1.0, 3)
+        row = QHBoxLayout(); row.addWidget(self.px); row.addWidget(self.py)
+        form.addRow("Position X/Y:", row)
+        self.size = QSpinBox(page); self.size.setRange(6, 100)
+        self.size.setValue(int(getattr(obj, "font_size", 14)))
+        form.addRow("Font size:", self.size)
+        self.color = _ColorButton(getattr(obj, "color", (0.0, 0.0, 0.0)), page)
+        form.addRow("Color:", self.color)
+        self.bg = QCheckBox("White background", page)
+        self.bg.setChecked(bool(getattr(obj, "background", False)))
+        lay = QVBoxLayout(page); lay.addLayout(form); lay.addWidget(self.bg); lay.addStretch(1)
+        self.tabs.addTab(page, "Text")
+
+    def apply_to(self, obj) -> None:
+        if not _HAS_QT:
+            return
+        obj.text = self.text.text()
+        obj.position = (float(self.px.value()), float(self.py.value()))
+        obj.font_size = int(self.size.value())
+        obj.color = self.color.rgb()
+        obj.background = self.bg.isChecked()
+
+
+class BitmapDialog(ObjectSettingsPanel):
+    """Bitmap image — File / Position / Scale (P2.3)."""
+
+    def __init__(self, obj, field_file=None, parent=None):
+        super().__init__(getattr(obj, "label", "Bitmap"), parent)
+        if not _HAS_QT:
+            self.obj = obj
+            return
+        self.obj = obj
+        page = QWidget(self)
+        form = QFormLayout()
+        row = QHBoxLayout()
+        self.file = QLineEdit(getattr(obj, "file", ""), page)
+        btn = QPushButton("Browse…", page)
+        btn.clicked.connect(self._browse)
+        row.addWidget(self.file, 1); row.addWidget(btn)
+        form.addRow("Image file:", row)
+        px, py = getattr(obj, "position", (0.05, 0.05))
+        self.px = _dspin(px, 0.0, 1.0, 3);
+        self.py = _dspin(py, 0.0, 1.0, 3)
+        row2 = QHBoxLayout(); row2.addWidget(self.px); row2.addWidget(self.py)
+        form.addRow("Position X/Y:", row2)
+        self.scale = _dspin(getattr(obj, "scale", 1.0), 0.05, 10.0, 2)
+        form.addRow("Scale:", self.scale)
+        self.transp = QCheckBox("Transparent", page)
+        self.transp.setChecked(bool(getattr(obj, "transparent", False)))
+        lay = QVBoxLayout(page); lay.addLayout(form); lay.addWidget(self.transp); lay.addStretch(1)
+        self.tabs.addTab(page, "Bitmap")
+
+    def _browse(self) -> None:
+        from PyQt5.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open Image", "", "Images (*.png *.jpg *.jpeg *.bmp)")
+        if path:
+            self.file.setText(path)
+
+    def apply_to(self, obj) -> None:
+        if not _HAS_QT:
+            return
+        obj.file = self.file.text()
+        obj.position = (float(self.px.value()), float(self.py.value()))
+        obj.scale = float(self.scale.value())
+        obj.transparent = self.transp.isChecked()
+
+class InformationDialog(ObjectSettingsPanel):
+    """Information probe — coordinates + Query (P2.4)."""
+
+    def __init__(self, obj, field_file=None, parent=None):
+        super().__init__(getattr(obj, "label", "Information"), parent)
+        if not _HAS_QT:
+            self.obj = obj
+            return
+        self.obj = obj
+        self.field_file = field_file
+        page = QWidget(self)
+        form = QFormLayout()
+        px, py, pz = getattr(obj, "position", (0.0, 0.0, 0.0))
+        self.px = _dspin(px, -1e9, 1e9, 6);
+        self.py = _dspin(py, -1e9, 1e9, 6);
+        self.pz = _dspin(pz, -1e9, 1e9, 6)
+        row = QHBoxLayout(); row.addWidget(self.px); row.addWidget(self.py); row.addWidget(self.pz)
+        form.addRow("X/Y/Z:", row)
+        self.marker = QCheckBox("Show marker", page)
+        self.marker.setChecked(bool(getattr(obj, "show_marker", True)))
+        self.query = QPushButton("Query", page)
+        self.query.clicked.connect(self._on_query)
+        self.result = QLabel(" ", page)
+        self.result.setWordWrap(True);
+        self.result.setStyleSheet("color:#333; font-size:11px;")
+        lay = QVBoxLayout(page);
+        lay.addLayout(form); lay.addWidget(self.marker); lay.addWidget(self.query); lay.addWidget(self.result); lay.addStretch(1)
+        self.tabs.addTab(page, "Information")
+
+    def _on_query(self) -> None:
+        if self.field_file is None:
+            self.result.setText("No field file loaded");
+            return
+        from ..render.information import probe_values
+        pt = (float(self.px.value()), float(self.py.value()),
+              float(self.pz.value()))
+        vals = probe_values(self.field_file, pt)
+        if not vals:
+            self.result.setText("No variables at this point");
+            return
+        lines = [f"({pt[0]:.6g}, {pt[1]:.6g}, {pt[2]:.6g})"]
+        for name in sorted(vals):
+            v = vals[name]
+            if isinstance(v, tuple):
+                lines.append(f"{name}: ({', '.join(f'{x:.6g}' for x in v)})")
+            else:
+                lines.append(f"{name}: {v:.6g}")
+        self.result.setText("\n".join(lines))
+        parent = self.parent();
+        if parent is not None and hasattr(parent, "message_win"):
+            for ln in lines:
+                parent.message_win.log(ln)
+
+    def apply_to(self, obj) -> None:
+        if not _HAS_QT:
+            return
+        obj.position = (float(self.px.value()), float(self.py.value()),
+                       float(self.pz.value()))
+        obj.show_marker = self.marker.isChecked()
+
+class MirrorCopyDialog(ObjectSettingsPanel):
+    """Mirror Copy — Source / Plane / Color (P2.6)."""
+
+    def __init__(self, obj, field_file=None, parent=None, siblings=None):
+        super().__init__(getattr(obj, "label", "Mirror Copy"), parent)
+        if not _HAS_QT:
+            self.obj = obj
+            return
+        self.obj = obj
+        page = QWidget(self)
+        form = QFormLayout()
+        self.source = QComboBox(page)
+        for s in siblings or []:
+            if getattr(s, "kind", "") == "surface":
+                self.source.addItem(getattr(s, "label", ""), s.label)
+        idx = self.source.findData(getattr(obj, "source_label", ""))
+        if idx >= 0:
+            self.source.setCurrentIndex(idx)
+        form.addRow("Source surface:", self.source)
+        self.plane = QComboBox(page)
+        for pl in ("YZ", "ZX", "XY"):
+            self.plane.addItem(pl, pl)
+        self.plane.setCurrentIndex(max(0, self.plane.findData(
+            getattr(obj, "mirror_plane", "YZ"))))
+        form.addRow("Mirror plane:", self.plane)
+        self.color = _ColorButton(getattr(obj, "color", (0.4, 0.4, 0.4)), page)
+        form.addRow("Color:", self.color)
+        self.transp = QCheckBox("Transparent", page)
+        self.transp.setChecked(bool(getattr(obj, "transparent", False)))
+        lay = QVBoxLayout(page); lay.addLayout(form); lay.addWidget(self.transp); lay.addStretch(1)
+        self.tabs.addTab(page, "Mirror")
+
+    def apply_to(self, obj) -> None:
+        if not _HAS_QT:
+            return
+        obj.source_label = self.source.currentData() or ""
+        obj.mirror_plane = self.plane.currentData() or "YZ"
+        obj.color = self.color.rgb()
+        obj.transparent = self.transp.isChecked()
+
+class TimeSeriesDialog(ObjectSettingsPanel):
+    """Time Series — CSV import + table (P2.10)."""
+
+    def __init__(self, obj, field_file=None, parent=None):
+        super().__init__(getattr(obj, "label", "Time Series"), parent)
+        if not _HAS_QT:
+            self.obj = obj
+            return
+        self.obj = obj
+        page = QWidget(self)
+        form = QFormLayout()
+        row = QHBoxLayout()
+        self.file = QLineEdit(getattr(obj, "file", ""), page)
+        btn = QPushButton("Load…", page)
+        btn.clicked.connect(self._load)
+        row.addWidget(self.file, 1); row.addWidget(btn)
+        form.addRow("CSV file:", row)
+        lay = QVBoxLayout(page); lay.addLayout(form)
+        self.info = QLabel(" ", page)
+        self.info.setWordWrap(True);
+        self.info.setStyleSheet("color:#666; font-size:11px;")
+        lay.addWidget(self.info); lay.addStretch(1)
+        self.tabs.addTab(page, "Time Series")
+        self._refresh_info()
+
+    def _load(self) -> None:
+        from PyQt5.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open Time Series", "", "CSV (*.csv *.tm)")
+        if path:
+            self.file.setText(path);
+            self._refresh_info()
+
+    def _refresh_info(self) -> None:
+        path = self.file.text()
+        from pathlib import Path
+        if not path or not Path(path).exists():
+            self.info.setText("No file loaded");
+            return
+        from ..model.tsmm import parse_time_series
+        cyc, tim = parse_time_series(path)
+        self.info.setText(f"{len(cyc)} steps, cycle {cyc[0] if cyc else '-'} → "
+                         f"{cyc[-1] if cyc else '-'}")
+
+    def apply_to(self, obj) -> None:
+        if not _HAS_QT:
+            return
+        obj.file = self.file.text()
+        from pathlib import Path
+        if obj.file and Path(obj.file).exists():
+            from ..model.tsmm import parse_time_series
+            obj.cycles, obj.times = parse_time_series(obj.file)
+
+
+class MaxMinDialog(ObjectSettingsPanel):
+    """Max and Min — CSV import + table (P2.10)."""
+
+    def __init__(self, obj, field_file=None, parent=None):
+        super().__init__(getattr(obj, "label", "Max and Min"), parent)
+        if not _HAS_QT:
+            self.obj = obj
+            return
+        self.obj = obj
+        page = QWidget(self)
+        form = QFormLayout()
+        row = QHBoxLayout()
+        self.file = QLineEdit(getattr(obj, "file", ""), page)
+        btn = QPushButton("Load…", page)
+        btn.clicked.connect(self._load)
+        row.addWidget(self.file, 1); row.addWidget(btn)
+        form.addRow("CSV file:", row)
+        lay = QVBoxLayout(page); lay.addLayout(form)
+        self.info = QLabel(" ", page)
+        self.info.setWordWrap(True);
+        self.info.setStyleSheet("color:#666; font-size:11px;")
+        lay.addWidget(self.info); lay.addStretch(1)
+        self.tabs.addTab(page, "Max and Min")
+        self._refresh_info()
+
+    def _load(self) -> None:
+        from PyQt5.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open Max and Min", "", "CSV (*.csv *.ot)")
+        if path:
+            self.file.setText(path);
+            self._refresh_info()
+
+    def _refresh_info(self) -> None:
+        path = self.file.text()
+        from pathlib import Path
+        if not path or not Path(path).exists():
+            self.info.setText("No file loaded");
+            return
+        from ..model.tsmm import parse_max_min
+        vals = parse_max_min(path)
+        lines = [f"{n}: {v[0]:.6g} … {v[1]:.6g}" for n, v in
+                 sorted(vals.items())[:6]]
+        self.info.setText("\n".join(lines) or "No rows");
+
+    def apply_to(self, obj) -> None:
+        if not _HAS_QT:
+            return
+        obj.file = self.file.text()
+        from pathlib import Path
+        if obj.file and Path(obj.file).exists():
+            from ..model.tsmm import parse_max_min
+            obj.values = parse_max_min(obj.file)
+
+class GraphDialog(ObjectSettingsPanel):
+    """Graph — Variable / X mode / Plot (P2.2)."""
+
+    def __init__(self, obj, field_file=None, parent=None):
+        super().__init__(getattr(obj, "label", "Graph"), parent)
+        if not _HAS_QT:
+            self.obj = obj
+            return
+        self.obj = obj
+        self.field_file = field_file
+        page = QWidget(self)
+        form = QFormLayout()
+        self.var = _var_combo(_scalar_vars(field_file), obj.variable)
+        form.addRow("Variable:", self.var)
+        self.xmode = QComboBox(page)
+        for m in ("Index", "Cycle"):
+            self.xmode.addItem(m, m)
+        self.xmode.setCurrentIndex(max(0, self.xmode.findData(
+            getattr(obj, "x_mode", "Index"))))
+        form.addRow("X axis:", self.xmode)
+        self.title = QLineEdit(getattr(obj, "title_text", ""), page)
+        form.addRow("Title:", self.title)
+        self.plot = QPushButton("Plot", page)
+        self.plot.clicked.connect(self._on_plot)
+        self.info = QLabel(" ", page)
+        self.info.setStyleSheet("color:#666; font-size:11px;")
+        lay = QVBoxLayout(page)
+        lay.addLayout(form); lay.addWidget(self.plot); lay.addWidget(self.info); lay.addStretch(1)
+        self.tabs.addTab(page, "Graph")
+
+    def _on_plot(self) -> None:
+        self.apply_to(self.obj)
+        from ..render.graph import plot_graph
+        dlg = plot_graph(self.obj, parent=self, ff0=self.field_file)
+        if dlg is None:
+            self.info.setText("Graph unavailable (need >=2 cycles or matplotlib)");
+        else:
+            self.info.setText("Plotted");
+
+    def apply_to(self, obj) -> None:
+        if not _HAS_QT:
+            return
+        obj.variable = self.var.currentData() or ""
+        obj.x_mode = self.xmode.currentData() or "Index"
+        obj.title_text = self.title.text()
+
+class GroupingDialog(ObjectSettingsPanel):
+    """Grouping — member visibility (P2.5)."""
+
+    def __init__(self, obj, field_file=None, parent=None, siblings=None):
+        super().__init__(getattr(obj, "label", "Grouping"), parent)
+        if not _HAS_QT:
+            self.obj = obj
+            return
+        self.obj = obj
+        self.siblings = siblings or []
+        page = QWidget(self)
+        lay = QVBoxLayout(page)
+        lay.addWidget(QLabel("Members (checked objects toggle together):", page))
+        self.members = QListWidget(page)
+        self.members.setSelectionMode(QAbstractItemView.MultiSelection)
+        for s in self.siblings:
+            item = QListWidgetItem(getattr(s, "label", ""), self.members)
+            if getattr(s, "label", "") in getattr(obj, "member_labels", []):
+                item.setSelected(True)
+        lay.addWidget(self.members)
+        lay.addStretch(1)
+        self.tabs.addTab(page, "Grouping")
+
+    def apply_to(self, obj) -> None:
+        if not _HAS_QT:
+            return
+        obj.member_labels = [i.text() for i in self.members.selectedItems()]

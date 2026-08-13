@@ -1786,6 +1786,7 @@ class ParticleDialog(_PinnedDialog):
             return
         self.particle = particle
         self.field_file = field_file
+        self._pvars = self._particle_vars()
 
         self.tabs.addTab(self._build_scalar(), "Scalar")
         self.tabs.addTab(self._build_vector(), "Vector")
@@ -1795,12 +1796,24 @@ class ParticleDialog(_PinnedDialog):
         self.tabs.addTab(self._build_font(), "Font")
         self.tabs.addTab(self._build_special(), "Special")
 
+    def _particle_vars(self) -> list:
+        """Particle variable names available in the file (P0.4)."""
+        ff = self.field_file
+        if ff is None or not getattr(ff, "has_particles", False):
+            return []
+        out = list(getattr(ff, "particle_vars", []) or [])
+        if "VELP" not in out:
+            out.insert(0, "VELP")
+        return out
+
     def _build_scalar(self) -> QWidget:
         scalar = QWidget(self)
         lay = QVBoxLayout(scalar)
 
-        self.scalar = _VarRow("Display", _scalar_vars(self.field_file),
-                              getattr(self.particle, "scalar_var", ""))
+        self.scalar = _VarRow(
+            "Display",
+            _scalar_vars(self.field_file) + self._pvars,
+            getattr(self.particle, "scalar_var", ""))
         self.scalar.check.setChecked(bool(self.particle.show_scalar))
         lay.addWidget(self.scalar)
         self.show_scalar_value = QCheckBox("Show scalar variable", scalar)
@@ -1847,7 +1860,7 @@ class ParticleDialog(_PinnedDialog):
         page = QWidget(self)
         lay = QVBoxLayout(page)
         self.vector = _VarRow("Vectors on particle",
-                              _vector_vars(self.field_file),
+                              _vector_vars(self.field_file) + self._pvars,
                               getattr(self.particle, "vector_var", ""))
         self.vector.check.setChecked(bool(self.particle.show_vector))
         lay.addWidget(self.vector)

@@ -40,6 +40,8 @@ class SurfaceObject(PostObject):
     contour_paint_front: bool = True
     contour_paint_back: bool = True
     contour_transparent: bool = False
+    contour_luster: bool = False               # P1.4 specular highlight
+    contour_water: bool = False                # P1.4 wet look
     # Vector tab
     show_vector: bool = False
     vector_var: str = ""
@@ -50,6 +52,8 @@ class SurfaceObject(PostObject):
     mesh_back: bool = True
     mesh_thickness: int = 1
     mesh_transparent: bool = False
+    mesh_luster: bool = False                  # P1.4
+    mesh_water: bool = False                   # P1.4
     # Trim tab
     trim_xmin: bool = False
     trim_xmax: bool = False
@@ -393,9 +397,205 @@ class VolumeObject(PostObject):
 
 @dataclass
 class LightObject(PostObject):
+    """Global light (scPOST Light): brightness / colour / direction.
+
+    Rendered as the scene's first (key) light so the whole Draw Window is
+    lit consistently; enabled=False switches it off (P0.3).
+    """
+
     kind: str = "light"
     title: str = "Light"
+    enabled: bool = True
+    brightness: float = 1.0                 # 0.0 … 2.0 intensity
+    color: tuple = (1.0, 1.0, 1.0)          # RGB 0–1
+    position: tuple = (1.0, 1.0, 1.0)       # directional light vector
 
+
+
+
+
+
+
+
+
+
+@dataclass
+class GroupingObject(PostObject):
+    """Group visibility of member objects (scPOST Grouping, P2.5)."""
+
+    kind: str = "grouping"
+    title: str = "Grouping"
+    member_labels: list = field(default_factory=list)
+
+@dataclass
+class GraphObject(PostObject):
+    """1D graph over a variable (scPOST Graph, P2.2)."""
+
+    kind: str = "graph"
+    title: str = "Graph"
+    variable: str = ""
+    x_mode: str = "Index"                # Index | Cycle
+    files: list = field(default_factory=list)
+    title_text: str = ""
+
+@dataclass
+class TimeSeriesObject(PostObject):
+    """Cycle/time series imported from a CSV (scPOST Time Series, P2.10)."""
+
+    kind: str = "timeseries"
+    title: str = "Time Series"
+    file: str = ""
+    cycles: list = field(default_factory=list)
+    times: list = field(default_factory=list)
+
+
+@dataclass
+class MaxMinObject(PostObject):
+    """Max/Min values per variable (scPOST Max and Min, P2.10)."""
+
+    kind: str = "maxmin"
+    title: str = "Max and Min"
+    file: str = ""
+    values: dict = field(default_factory=dict)   # var -> (min, max)
+
+@dataclass
+class MirrorCopyObject(PostObject):
+    """Mirrored copy of a surface object (scPOST Mirror Copy, P2.6)."""
+
+    kind: str = "mirror"
+    title: str = "Mirror Copy"
+    source_label: str = ""
+    mirror_plane: str = "YZ"              # YZ | ZX | XY (normal axis X|Y|Z)
+    keep_original: bool = True
+    color: tuple = (0.4, 0.4, 0.4)
+    transparent: bool = False
+
+@dataclass
+class InformationObject(PostObject):
+    """Probe information at a point (scPOST Information, P2.4)."""
+
+    kind: str = "information"
+    title: str = "Information"
+    position: tuple = (0.0, 0.0, 0.0)
+    show_marker: bool = True
+    marker_color: tuple = (1.0, 0.0, 0.0)
+    font_name: str = "MS Gothic"
+    font_size: int = 9
+
+@dataclass
+class TextObject(PostObject):
+    """Draw Window text annotation (scPOST Text, P2.3)."""
+
+    kind: str = "text"
+    title: str = "Text"
+    text: str = "Text"
+    position: tuple = (0.1, 0.85)         # normalized display coords
+    font_name: str = "MS Gothic"
+    font_size: int = 14
+    color: tuple = (0.0, 0.0, 0.0)
+    background: bool = False
+
+
+@dataclass
+class BitmapObject(PostObject):
+    """Bitmap image pasted into the Draw Window (scPOST Bitmap, P2.3)."""
+
+    kind: str = "bitmap"
+    title: str = "Bitmap"
+    file: str = ""
+    position: tuple = (0.05, 0.05)        # normalized display coords
+    scale: float = 1.0
+    transparent: bool = False
+
+@dataclass
+class CylinderObject(PostObject):
+    """Cut-cylinder surface (scPOST Cylinder, P2.1)."""
+
+    kind: str = "cylinder"
+    title: str = "Cylinder"
+    axis: str = "Z"
+    center: tuple = (0.0, 0.0, 0.0)
+    radius: float = 0.1
+    height: float = 1.0                 # half-height clipped by two planes
+    show_contour: bool = True
+    contour_var: str = ""
+    contour_transparent: bool = False
+    contour_mono_color: bool = False
+    contour_mono_rgb: tuple = (0.6, 0.7, 0.8)
+    contour_luster: bool = False
+    contour_water: bool = False
+    contour_value: bool = False
+    contour_thickness: int = 1
+    show_vector: bool = False
+    vector_var: str = ""
+    vector_scale_length: float = 1.0
+    show_mesh: bool = True
+    mesh_color: tuple = (0.1, 0.1, 0.1)
+    mesh_thickness: int = 1
+    mesh_transparent: bool = False
+    display_mats: list = field(default_factory=list)
+    display_volume_regions: list = field(default_factory=list)
+    font_name: str = "MS Gothic"
+    font_size: int = 9
+    font_float: float = 100.0
+
+
+@dataclass
+class CircleObject(PostObject):
+    """Circle on a plane (scPOST Circle, P2.1)."""
+
+    kind: str = "circle"
+    title: str = "Circle"
+    axis: str = "Z"
+    coordinate: float = 0.0
+    center: tuple = (0.0, 0.0, 0.0)
+    radius: float = 0.1
+    show_contour: bool = True
+    contour_var: str = ""
+    contour_transparent: bool = False
+    contour_mono_color: bool = False
+    contour_mono_rgb: tuple = (0.6, 0.7, 0.8)
+    contour_luster: bool = False
+    contour_water: bool = False
+    contour_value: bool = False
+    contour_thickness: int = 1
+    show_vector: bool = False
+    vector_var: str = ""
+    vector_scale_length: float = 1.0
+    show_mesh: bool = True
+    mesh_color: tuple = (0.1, 0.1, 0.1)
+    mesh_thickness: int = 1
+    mesh_transparent: bool = False
+    display_mats: list = field(default_factory=list)
+    display_volume_regions: list = field(default_factory=list)
+    font_name: str = "MS Gothic"
+    font_size: int = 9
+    font_float: float = 100.0
+
+@dataclass
+class PathlineObject(PostObject):
+    """Particle pathlines across a cycle sequence (scPOST PCL, P1.5)."""
+
+    kind: str = "pathline"
+    title: str = "Pathline"
+    files: list = field(default_factory=list)   # cycle paths in time order
+    # Seed tab
+    seed_axis: str = "Z"
+    seed_coordinate: Optional[float] = None
+    density_u: int = 8
+    density_v: int = 8
+    # Direction tab
+    vector_var: str = "VEL"
+    direction: str = "Forward"                # Forward | Backward
+    steps_per_cycle: int = 10
+    # Display tab
+    draw_type: str = "Line"                   # Line | Triangle | Tube
+    thickness: float = 1.0
+    mono_color: tuple = (0.1, 0.1, 0.8)
+    transparent: bool = False
+    font_name: str = "MS Gothic"
+    font_size: int = 9
+    font_float: float = 100.0
 
 @dataclass
 class ColorbarObject(PostObject):

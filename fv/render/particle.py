@@ -1,8 +1,9 @@
 """Particle result rendering for scFLOW FPH files.
 
-``LS_ParticlesPosition`` carries one ``[12][200]`` (50 float32) block per
-coordinate (X, Y, Z); ``LS_ParticleV:VELP`` similarly carries velocity
-components. Positions/velocities are parsed in ``fv.crdl.fields.parse_particles``.
+'LS_ParticlesPosition' carries one [12][200] (50 float32) block per
+coordinate (X, Y, Z); 'LS_ParticleV:<var>' sections carry velocity/
+particle variables.  Parsed in 'fv.crdl.fields.parse_particles' and
+'fv.crdl.fields.parse_particle_variables'.
 """
 
 from typing import Optional
@@ -11,26 +12,39 @@ import numpy as np
 import vtk
 from vtk.util import numpy_support as _vns
 
-from ..crdl.fields import parse_particles
+from ..crdl.fields import parse_particles, parse_particle_variables
 from ..model.objects import ParticleObject
 
 
 def build_particle_actors(obj: ParticleObject,
                           ff) -> dict[str, vtk.vtkActor]:
-    """Build particle actors → ``{"particle": ..., "vector": ...}``.
+    """Build particle actors -> {'particle': ..., 'vector': ...}.
 
-    Reads positions/velocities directly from the FieldFile buffer (``ff.path``),
-    colouring the points by scalar attribute when requested.
+    Reads positions/velocities directly from the FieldFile buffer
+    (ff.path), colouring the points by scalar attribute when
+    requested.  The vector variable follows 'obj.vector_var' (default
+    VELP) and the scalar variable 'obj.scalar_var' selects a particle
+    variable magnitude / component when given (P0.4).
     """
     with open(ff.path, "rb") as fh:
         data = fh.read()
     parsed = parse_particles(data)
     if parsed is None:
         return {}
-    positions, velocities = parsed
+    positions, _ = parsed
 
     if positions.shape[0] == 0:
         return {}
+
+    pvars = parse_particle_variables(data)
+    # Vector selection: obj.vector_var, falling back to VELP
+    velocities = None
+    if obj.show_vector:
+        want = (obj.vector_var or "VELP").strip() or "VELP"
+        if want in pvars:
+            velocities = pvars[want]
+        elif "VELP" in pvars:
+            velocities = pvars["VELP"]
 
     points = vtk.vtkPoints()
     points.SetData(_vns.numpy_to_vtk(
@@ -47,7 +61,7 @@ def build_particle_actors(obj: ParticleObject,
     polydata.GetPointData().AddArray(id_arr)
 
     # Scalar attribute (per-particle value, if a field is available)
-    scalar_arr = _attach_scalar(data, positions)
+    scalar_arr = _attach_scalar(pvars, obj)
     if scalar_arr is not None:
         polydata.GetPointData().SetScalars(scalar_arr)
 
@@ -62,7 +76,7 @@ def build_particle_actors(obj: ParticleObject,
         actors["particle"] = actor
 
     # Vector glyphs
-    if obj.show_vector and velocities is not None:
+    if velocities is not None:
         vec = _vns.numpy_to_vtk(
             np.ascontiguousarray(velocities, dtype=np.float64), deep=True)
         vec.SetName("Velocity")
@@ -74,19 +88,37 @@ def build_particle_actors(obj: ParticleObject,
     return actors
 
 
-def _attach_scalar(data, positions: np.ndarray) -> Optional[vtk.vtkDataArray]:
-    """Best-effort per-particle scalar: velocity magnitude when a velocity
-    section exists, otherwise ``None`` (falls back to point id scalar)."""
-    parsed = parse_particles(data)
-    if parsed is None:
+def _attach_scalar(pvars: dict,
+                     obj: Optional[ParticleObject] = None
+                     ) -> Optional[vtk.vtkDataArray]:
+    """Per-particle scalar from 'obj.scalar_var' (P0.4).
+
+    - explicit variable: magnitude when the name is a particle vector
+      base (e.g. VELP), or the single component when it ends in X/Y/Z;
+    - no selection: VELP velocity magnitude;
+    - otherwise None (falls back to the point-id scalar).
+    """
+    if not pvars:
         return None
-    _, velocities = parsed
-    if velocities is not None and velocities.shape == positions.shape:
-        mag = np.linalg.norm(velocities, axis=1).astype(np.float64)
-        arr = _vns.numpy_to_vtk(mag, deep=True)
-        arr.SetName("VelocityMag")
-        return arr
-    return None
+    svar = (getattr(obj, "scalar_var", "") or "").strip()
+    arr = None
+    if svar:
+        if svar in pvars:
+            arr = np.linalg.norm(pvars[svar], axis=1)
+        else:
+            comps = [pvars.get(svar + c) for c in "XYZ"]
+            if comps[0] is not None:
+                arr = np.asarray(comps[0])[:, 0]
+    else:
+        base = pvars.get("VELP")
+        if base is not None:
+            arr = np.linalg.norm(base, axis=1)
+    if arr is None:
+        return None
+    out = _vns.numpy_to_vtk(np.ascontiguousarray(arr, dtype=np.float64),
+                           deep=True)
+    out.SetName("ParticleScalar")
+    return out
 
 
 def _points_actor(polydata, obj) -> Optional[vtk.vtkActor]:

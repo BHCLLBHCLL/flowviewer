@@ -112,20 +112,34 @@
 
 ---
 
-## 4. 未解决的问题
+## 4. 未解决的问题（P0 后更新：1/2/3/4/6 保持，5 保持；新增 7/8）
 
 1. **Cycle / 时间线变量注册（P3.5）**：FileSet 序列扫描、cycle 切换、Play/Pause/Loop 已接入，但 Variable Registration（算术表达式注册变量）对话框仍缺。
 2. **Unit / Camera 设置对话框**：工具栏 Option→Unit、Option→Camera 仍为 NYI。
 3. **CGNS / XDMF / EMT 等格式加载器**：loader 注册表已诚实区分可加载（fld/ifld/fph/gph）与探测未实现（cgns 等）；完整 CGNS HDF5 读取未实现。
-4. **FPH 无材料数据**：`tr03_9.fph` 的 `material` 为 None，MAT tab 在 FPH 下显示空树；MAT 筛选仅对 FLD 有效。
+4. **FPH 无材料数据**：tr03_9.fph 的 material 为 None，MAT tab 在 FPH 下显示空树；MAT 筛选仅对 FLD 有效（P0.5 后 Volume/Surface 的 Volume Region 过滤已生效）。
 5. **iFLD 局部读取 / Trimming / Remote Open**：DEV_PLAN 明确 P4 探索项，未做。
-6. **真实 GL 渲染静态自动化范围有限**：`tests/test_scene_snapshot.py` 已建（offscreen 快照 PNG + 增量更新），但 CI 默认 `enable_3d=False` 降级路径为主。
-
----
-
+6. **真实 GL 渲染静态自动化范围有限**：tests/test_scene_snapshot.py 已建（offscreen 快照 PNG + 增量更新），但 CI 默认 enable_3d=False 降级路径为主。
+7. **P0 遗留（2026-08-09）**：FLD Surface 的 MAT 过滤未实现（面与 cell 无直接映射，需 hex 面反向关联）；Particle Intersection/Trim/Cloth tab 仍为 UI-only；平面 vector_space_v/contour_color 等渲染补项仍缺。
+8. **P0 技术债**：tests/pytest_tmp 下 pytest 临时目录随会话保留；_section_index_cache 仍持有 buffer 强引用。
 ## 5. 下一步建议
 
 1. 将对象配置接入渲染（Surface Contour 云图 mapper、Plane 切面标量、MAT/区域显隐过滤、Trim）。
 2. `main.py` 传 `main_object.children` 给 PlaneDialog，填充 Trim "Trimmed by"。
 3. 建立 `scene_snapshot` 静帧测试覆盖有 GL 环境。
 4. 继续按 DEV_PLAN P3（cycle 序列 / 时间线）推进。
+
+---
+
+## 6. P0–P3 改进完成（2026-08-09）
+
+按 SCPOST_COMPARISON.md 计划完成：
+
+- **P0**：测试临时目录修复（pytest 0o700 ACL 根因）、Colorbar LUT 接线、LightObject 最小实现、Particle 变量选择、Surface/Volume 过滤、LoadWorker(QThreadPool) 异步加载。
+- **P1**：变量注册表达式引擎（varreg）、CGNS-HDF5 读取器 + EMT、真体渲染（UnstructuredGridVolumeRayCastMapper）、光照 Luster/Water、Pathline、Trim-by-object。
+- **P2**：Cylinder/Circle、Graph(matplotlib)、Text/Bitmap、Information、Grouping、Mirror Copy、拾取移动平面（scene 层）、Undo/Redo、Automove Custom Path、TimeSeries/MaxMin。
+- **P3**：STA 私有格式声明、STL/VRML/GLTF 导出、fv/api.py 脚本接口、Compare 统计降级、ugrid 缓存。
+
+测试从 84 项增至 121 项（+37），全量回归通过。
+
+**遗留**：2.7 交互器拖拽手柄、3.4 真并排视图、Particle Intersection/Cloth 渲染、FLD Surface MAT 过滤、动画帧 PNG 序列导出、Turbo/UFO/VR/COM 维持不做。

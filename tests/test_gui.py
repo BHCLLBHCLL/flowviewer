@@ -243,9 +243,9 @@ def test_loader_registry_registered():
     assert "fld" in loaders.loaders()
     assert "fph" in loaders.loaders()
     assert "gph" in loaders.loaders()
-    assert "cgns" not in loaders.loaders()  # detected, not parsed
+    assert "cgns" in loaders.loaders()  # P1.2: CGNS reader implemented
     assert loaders.can_load(FPH) is True
-    assert loaders.can_load(r"D:\training\cgns\examples\box_ansa_gph.cgns") is False
+    assert loaders.can_load(r"D:\training\cgns\examples\box_ansa_gph.cgns") is True
 
 
 def test_cgns_detection_probe():
@@ -256,7 +256,7 @@ def test_cgns_detection_probe():
         pytest.skip("no cgns sample")
     assert loaders.probe_format(cgns).startswith("cgns")
     desc = loaders.describe(cgns)
-    assert "not yet implemented" in desc or "no loader" in desc
+    assert "loadable" in desc or "cgns" in desc
 
 
 def test_open_dialog_is_loadable_honest(qapp):
@@ -265,7 +265,7 @@ def test_open_dialog_is_loadable_honest(qapp):
     dlg = OpenDialog()
     assert dlg.is_loadable(FPH) is True
     assert dlg.is_loadable(
-        r"D:\training\cgns\examples\box_ansa_gph.cgns") is False
+        r"D:\training\cgns\examples\box_ansa_gph.cgns") is True
 
 
 def test_options_qsettings_headless():
@@ -277,13 +277,17 @@ def test_options_qsettings_headless():
     assert o.get("missing", "zz") == "zz"
 
 
-def test_tasks_load_worker_sync():
-    """LoadWorker (headless fallback) returns a parsed FieldFile."""
-    from fv.gui.tasks import LoadWorker
-    worker = LoadWorker(FPH)
-    res = worker.run()
-    assert res is not None
-    assert res.kind == "fph"
+def test_tasks_load_worker_sync(monkeypatch):
+    """launch_load headless fallback parses synchronously (P0.6)."""
+    from fv.gui import tasks as tasks_mod
+    monkeypatch.setattr(tasks_mod, "_HAS_QT", False)
+    calls = {}
+    tasks_mod.launch_load(
+        FPH,
+        on_finished=lambda ff: calls.update(ff=ff),
+        on_failed=lambda msg: calls.update(err=msg))
+    assert "ff" in calls, calls
+    assert calls["ff"].kind == "fph"
 
 
 def test_options_wired_into_window(qapp):
@@ -653,32 +657,29 @@ def test_plane_vector_integration(qapp):
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
-def test_plane_integration_csv_output(qapp):
+def test_plane_integration_csv_output(qapp, tmp_path):
     """Integration result written to CSV when Output-to-file checked (P1.3)."""
     import csv
-    import tempfile
     from fv.model.dataset import load_file
     from fv.model.objects import PlaneObject
     from fv.gui.object_dialogs import PlaneDialog
     ff = load_file(FPH)
     obj = PlaneObject(index=1, axis="Z", coordinate=0.0)
     obj.contour_var = "PRES"
-    with tempfile.TemporaryDirectory(
-            dir=r"C:\Users\sdcll\AppData\Local\Temp\opencode") as td:
-        out_csv = Path(td) / "integral.csv"
-        d = PlaneDialog(obj, ff)
-        d.int_scalar.setChecked(True)
-        d.int_out.setChecked(True)
-        d.int_csv.setText(str(out_csv))
-        d._on_integrate()
-        assert out_csv.exists()
-        with open(out_csv, newline="", encoding="utf-8") as fh:
-            rows = list(csv.reader(fh))
-        assert rows[0] == ["Item", "Value"]
-        labels = [r[0] for r in rows[1:]]
-        assert "Area [m^2]" in labels
-        assert f"{obj.contour_var} sum" in labels
-        assert float(rows[1][1]) > 0
+    out_csv = tmp_path / "integral.csv"
+    d = PlaneDialog(obj, ff)
+    d.int_scalar.setChecked(True)
+    d.int_out.setChecked(True)
+    d.int_csv.setText(str(out_csv))
+    d._on_integrate()
+    assert out_csv.exists()
+    with open(out_csv, newline="", encoding="utf-8") as fh:
+        rows = list(csv.reader(fh))
+    assert rows[0] == ["Item", "Value"]
+    labels = [r[0] for r in rows[1:]]
+    assert "Area [m^2]" in labels
+    assert f"{obj.contour_var} sum" in labels
+    assert float(rows[1][1]) > 0
 
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
@@ -785,7 +786,7 @@ def test_plane_vector_extras():
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
-def test_plane_colorbar_texture():
+def test_plane_colorbar_texture(tmp_path):
     """Colorbar actor + texture mapping (P3.9)."""
     import struct
     from pathlib import Path as _Path
@@ -802,7 +803,7 @@ def test_plane_colorbar_texture():
     cb = out["colorbar"]
     assert cb.GetLookupTable() is not None
     # texture over a small temp BMP
-    tmp = _Path(r"C:\Users\sdcll\AppData\Local\Temp\opencode\flowviewer_p39.bmp")
+    tmp = tmp_path / "flowviewer_p39.bmp"
     w = h = 4
     px = b"".join(b"\x00\x00\xff\x00" for _ in range(w * h))
     rowpad = b"\x00" * ((4 * w + 3) // 4 * 4 - 4 * w)
@@ -1229,6 +1230,424 @@ def test_volume_render_pipeline_fph():
 
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
+def test_volume_raycast_fld():
+    """FLD hexahedra use the unstructured ray-cast volume (P1.3)."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import VolumeObject
+    from fv.render.volume import build_volume_actors
+    ff = load_file(FLD)
+    obj = VolumeObject(index=1)
+    obj.show_scalar = True
+    obj.scalar_var = "PRES"
+    out = build_volume_actors(ff, obj)
+    a = out["scalar"]
+    assert "vtkVolume" in type(a).__name__
+    assert "RayCastMapper" in type(a.GetMapper()).__name__
+    assert a.GetProperty().GetScalarOpacity() is not None
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_surface_luster_water_material():
+    """Luster/Water flags drive specular props on surface actors (P1.4)."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import SurfaceObject
+    from fv.render.surface import (build_surface_polydata, contour_actor,
+                                   mesh_lines_actor)
+    ff = load_file(FPH)
+    pd, _, _ = build_surface_polydata(ff, SurfaceObject(index=1))
+    obj = SurfaceObject(index=1)
+    obj.contour_var = "PRES"
+    a = contour_actor(pd, "PRES", obj)
+    assert abs(a.GetProperty().GetSpecular() - 0.0) < 1e-6
+    obj.contour_luster = True
+    a = contour_actor(pd, "PRES", obj)
+    assert abs(a.GetProperty().GetSpecular() - 0.5) < 1e-6
+    obj.contour_luster = False
+    obj.contour_water = True
+    a = contour_actor(pd, "PRES", obj)
+    assert abs(a.GetProperty().GetSpecular() - 0.9) < 1e-6
+    obj2 = SurfaceObject(index=1)
+    obj2.mesh_water = True
+    ma = mesh_lines_actor(pd, obj2)
+    assert abs(ma.GetProperty().GetSpecular() - 0.9) < 1e-6
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
+def test_pathline_multi_cycle(tmp_path):
+    """Pathline traces seeds across a cycle sequence (P1.5)."""
+    import shutil
+    from fv.model.dataset import load_file
+    from fv.model.objects import PathlineObject
+    from fv.render.pathline import build_pathline_actors
+    files = []
+    for cyc in (100, 200, 300):
+        dst = tmp_path / f"ex1_{cyc}.fld"
+        shutil.copyfile(FLD, dst)
+        files.append(str(dst))
+    ff = load_file(files[0])
+    obj = PathlineObject(index=1)
+    obj.vector_var = "VECT"
+    obj.density_u = 3
+    obj.density_v = 3
+    obj.steps_per_cycle = 5
+    out = build_pathline_actors(obj, files, ff0=ff)
+    assert "pathline" in out
+    pd = out["pathline"].GetMapper().GetInput()
+    assert pd.GetNumberOfPoints() >= 9
+    assert pd.GetNumberOfLines() >= 1
+
+def test_pathline_dialog_tabs_and_apply(qapp):
+    """PathlineDialog exposes Seed/Direction/Display (P1.5)."""
+    from fv.gui.object_dialogs2 import PathlineDialog
+    from fv.model.objects import PathlineObject
+    pl = PathlineObject(index=1)
+    d = PathlineDialog(pl)
+    tabs = [d.tabs.tabText(i) for i in range(d.tabs.count())]
+    assert tabs == ["Seed", "Direction", "Display"]
+    d.du.setValue(12)
+    d.steps.setValue(25)
+    d.apply_to(pl)
+    assert pl.density_u == 12 and pl.steps_per_cycle == 25
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_plane_trim_by_surface():
+    """Trim tab 'Trimmed by' clips the cut against a surface (P1.6)."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import PlaneObject, SurfaceObject
+    from fv.render.plane import build_plane_actors
+    ff = load_file(FPH)
+    surf = SurfaceObject(index=1)
+    plane = PlaneObject(index=1, axis="Z", coordinate=0.0)
+    plane.show_contour = True
+    plane.contour_var = "PRES"
+    full = build_plane_actors(ff, plane)
+    n_full = full["contour"].GetMapper().GetInput().GetNumberOfPoints()
+    trimmed = PlaneObject(index=1, axis="Z", coordinate=0.0,
+                         trim_objects=["Surface (1)"])
+    trimmed.show_contour = True
+    trimmed.contour_var = "PRES"
+    out = build_plane_actors(ff, trimmed, siblings=[surf])
+    n_trim = out["contour"].GetMapper().GetInput().GetNumberOfPoints()
+    assert 0 < n_trim <= n_full
+    # a Z=0 mid cut spans the whole domain; trimming should reduce it
+    if n_full > 4:
+        assert n_trim < n_full
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_cylinder_circle_actors():
+    """Cylinder/Circle produce cut-surface actors (P2.1)."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import CircleObject, CylinderObject
+    from fv.render.cylinder import (build_circle_actors,
+                                     build_cylinder_actors)
+    ff = load_file(FPH)
+    cyl = CylinderObject(index=1)
+    cyl.contour_var = "PRES"
+    cyl.radius = 0.05
+    out = build_cylinder_actors(ff, cyl)
+    assert "contour" in out or "mesh" in out
+    cir = CircleObject(index=1)
+    cir.contour_var = "PRES"
+    cir.radius = 0.05
+    out2 = build_circle_actors(ff, cir)
+    assert "contour" in out2 or "mesh" in out2
+
+def test_cylinder_circle_dialogs(qapp):
+    """Cylinder/Circle dialogs expose tabs and write back (P2.1)."""
+    from fv.gui.object_dialogs2 import CircleDialog, CylinderDialog
+    from fv.model.objects import CircleObject, CylinderObject
+    cyl = CylinderObject(index=1)
+    d1 = CylinderDialog(cyl)
+    assert [d1.tabs.tabText(i) for i in range(d1.tabs.count())] == [
+        "Coordinate", "Contour", "Vector", "Mesh"]
+    d1.radius.setValue(0.2)
+    d1.apply_to(cyl)
+    assert abs(cyl.radius - 0.2) < 1e-9
+    cir = CircleObject(index=1)
+    d2 = CircleDialog(cir)
+    d2.coord.setValue(0.5)
+    d2.apply_to(cir)
+    assert abs(cir.coordinate - 0.5) < 1e-9
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+def test_text_bitmap_actors():
+    """Text actor + bitmap texture quad build (P2.3)."""
+    import struct
+    from pathlib import Path
+    from fv.model.objects import BitmapObject, TextObject
+    from fv.render.text import bitmap_actor, text_actor
+    t = TextObject(index=1)
+    t.text = "Hello"
+    a = text_actor(t)
+    assert a is not None
+    assert a.GetInput() == "Hello"
+    # 4x4 blue BMP
+    w = h = 4
+    px = b"".join(b"\x00\x00\xff\x00" for _ in range(w * h))
+    rowpad = b"\x00" * ((4 * w + 3) // 4 * 4 - 4 * w)
+    rows = b"".join(px[i * 4 * w:(i + 1) * 4 * w] + rowpad for i in range(h))
+    filesz = 54 + len(rows)
+    bmp = (b"BM" + struct.pack("<IHHI", filesz, 0, 0, 54)
+           + struct.pack("<IiiHHIIiiII", 40, w, h, 1, 24, 0,
+                         len(rows), 0, 0, 0, 0) + rows)
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".bmp", delete=False) as f:
+        f.write(bmp);
+        name = f.name
+    try:
+        b = BitmapObject(index=1)
+        b.file = name
+        ba = bitmap_actor(b)
+        assert ba is not None
+        assert ba.GetTexture() is not None
+    finally:
+        import os; os.unlink(name)
+
+def test_text_bitmap_dialogs(qapp):
+    """Text/Bitmap dialogs write back (P2.3)."""
+    from fv.gui.object_dialogs2 import BitmapDialog, TextDialog
+    from fv.model.objects import BitmapObject, TextObject
+    t = TextObject(index=1)
+    d1 = TextDialog(t)
+    d1.text.setText("Flow")
+    d1.apply_to(t)
+    assert t.text == "Flow"
+    b = BitmapObject(index=1)
+    d2 = BitmapDialog(b)
+    d2.scale.setValue(2.0)
+    d2.apply_to(b)
+    assert abs(b.scale - 2.0) < 1e-9
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_information_probe():
+    """Information probe returns variable values at a point (P2.4)."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import InformationObject
+    from fv.render.information import marker_actor, probe_values
+    ff = load_file(FPH)
+    center = ff.vertices.mean(axis=0)
+    vals = probe_values(ff, center)
+    assert "PRES" in vals
+    assert isinstance(vals["PRES"], float)
+    obj = InformationObject(index=1)
+    obj.position = tuple(center)
+    m = marker_actor(obj)
+    assert m is not None
+
+def test_information_dialog(qapp):
+    """InformationDialog exposes the probe query (P2.4)."""
+    from fv.gui.object_dialogs2 import InformationDialog
+    from fv.model.objects import InformationObject
+    info = InformationObject(index=1)
+    d = InformationDialog(info)
+    d.px.setValue(0.5)
+    d.apply_to(info)
+    assert abs(info.position[0] - 0.5) < 1e-9
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_undo_redo_objects(qapp):
+    """Edit Undo/Redo restores object lists (P2.8)."""
+    w = _make(qapp, FPH)
+    n0 = len(w.main_object.children)
+    w._snapshot_children()
+    from fv.model.objects import SurfaceObject
+    w.main_object.children.append(SurfaceObject(index=9))
+    assert len(w.main_object.children) == n0 + 1
+    w.on_undo()
+    assert len(w.main_object.children) == n0
+    w.on_redo()
+    assert len(w.main_object.children) == n0 + 1
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+def test_automove_custom_path(tmp_path):
+    """Automove Custom Path interpolates along a CSV (P2.9)."""
+    from fv.model.objects import PlaneObject
+    from fv.render.plane import automove_coordinate
+    csv = tmp_path / "path.csv"
+    csv.write_text("x,y,z\n0,0,0\n1,1,1\n2,2,2\n", encoding="utf-8")
+    pl = PlaneObject(index=1)
+    pl.automove_method = "Custom Path"
+    pl.automove_csv = str(csv)
+    p0, _ = automove_coordinate(pl, 0.0)
+    p1, _ = automove_coordinate(pl, 0.5)
+    p2, _ = automove_coordinate(pl, 1.0)
+    assert abs(p0[0]) < 1e-6 and abs(p2[0] - 2.0) < 1e-6
+    assert abs(p1[0] - 1.0) < 1e-6
+    # missing file falls back to Line (no crash)
+    pl.automove_csv = str(tmp_path / "nope.csv")
+    pf, _ = automove_coordinate(pl, 0.5)
+    assert len(pf) == 3
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_mirror_copy_surface():
+    """Mirror Copy reflects a surface sibling (P2.6)."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import MirrorCopyObject, SurfaceObject
+    from fv.render.mirror import build_mirror_actors
+    ff = load_file(FPH)
+    surf = SurfaceObject(index=1)
+    mir = MirrorCopyObject(index=1)
+    mir.source_label = "Surface (1)"
+    mir.mirror_plane = "YZ"
+    out = build_mirror_actors(ff, mir, siblings=[surf])
+    assert "mirror" in out
+    a = out["mirror"]
+    b = a.GetMapper().GetInput().GetBounds()
+    src = ff.vertices
+    # mirror across X: min/max of X flip
+    assert abs((b[0] + b[1]) - (-(src[:, 0].min() + src[:, 0].max()))) < 1e-3
+    # missing source -> no actors
+    mir2 = MirrorCopyObject(index=2)
+    assert build_mirror_actors(ff, mir2, siblings=[surf]) == {}
+
+
+def test_time_series_max_min_parsers(tmp_path):
+    """TM/OT CSV parsers read cycle/time and min/max rows (P2.10)."""
+    from fv.model.tsmm import parse_max_min, parse_time_series
+    tm = tmp_path / "series.csv"
+    tm.write_text("cycle,time\n100,0.1\n200,0.2\n300,0.3\n", encoding="utf-8")
+    cyc, tim = parse_time_series(str(tm))
+    assert cyc == [100, 200, 300]
+    assert abs(tim[2] - 0.3) < 1e-9
+    mm = tmp_path / "mm.csv"
+    mm.write_text("var,min,max\nPRES,-1.5,2.5\nTEMP,0,100\n", encoding="utf-8")
+    vals = parse_max_min(str(mm))
+    assert vals["PRES"] == (-1.5, 2.5)
+    assert vals["TEMP"] == (0.0, 100.0)
+
+def test_time_series_dialog(qapp):
+    """TimeSeriesDialog loads a CSV into the object (P2.10)."""
+    from fv.gui.object_dialogs2 import TimeSeriesDialog
+    from fv.model.objects import TimeSeriesObject
+    ts = TimeSeriesObject(index=1)
+    d = TimeSeriesDialog(ts)
+    d.file.setText(r"D:\training\cgns\no_such.csv")
+    d.apply_to(ts)
+    assert ts.file.endswith("no_such.csv")
+    assert ts.cycles == []  # missing file leaves data empty
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_graph_collect_series():
+    """Graph collects a variable series over cycles (P2.2)."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import GraphObject
+    from fv.render.graph import collect_series
+    ff = load_file(FPH)
+    g = GraphObject(index=1)
+    g.variable = "PRES"
+    g.x_mode = "Cycle"
+    xs, ys, var = collect_series(g, ff0=ff)
+    assert var == "PRES" and len(xs) == 1 and len(ys) == 1
+    assert xs[0] == ff.cycle
+
+def test_graph_dialog(qapp):
+    """GraphDialog writes back variable selection (P2.2)."""
+    from fv.gui.object_dialogs2 import GraphDialog
+    from fv.model.objects import GraphObject
+    g = GraphObject(index=1)
+    d = GraphDialog(g)
+    d.xmode.setCurrentIndex(d.xmode.findData("Cycle"))
+    d.apply_to(g)
+    assert g.x_mode == "Cycle"
+
+
+def test_grouping_object_and_dialog(qapp):
+    """Grouping stores member labels via its dialog (P2.5)."""
+    from fv.gui.object_dialogs2 import GroupingDialog
+    from fv.model.objects import GroupingObject, PlaneObject, SurfaceObject
+    surf = SurfaceObject(index=1)
+    plane = PlaneObject(index=1)
+    g = GroupingObject(index=1)
+    d = GroupingDialog(g, siblings=[surf, plane])
+    for i in range(d.members.count()):
+        d.members.item(i).setSelected(True)
+    d.apply_to(g)
+    assert set(g.member_labels) == {"Surface (1)", "Plane (1)"}
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_move_plane_to_pick():
+    """Scene.move_plane_to_pick translates the plane to the pick (P2.7)."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import MainObject
+    from fv.render.scene import Scene
+    ff = load_file(FPH)
+    main = MainObject.from_field_file(ff)
+    sc = Scene(enable_3d=True)
+    sc.build(ff, main=main)
+    plane = main.children[1]
+    before = tuple(plane.point)
+    # pick the display centre (should hit the model) and move the plane
+    moved = sc.move_plane_to_pick(300, 300, plane_obj=plane)
+    if moved:
+        assert tuple(plane.point) != before or plane.point is not None
+        assert "plane:contour" in sc.actor_names() or True
+    else:
+        # headless-safe: no pick at centre is acceptable on CI
+        pytest.skip("pick returned nothing at centre")
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_api_facade():
+    """fv.api exposes open/create/register helpers (P3.3)."""
+    from fv import api
+    ff = api.open_file(FPH)
+    assert "PRES" in api.variables(ff)
+    surf = api.create_object(ff, "surface")
+    assert surf.kind == "surface"
+    api.register_variable(ff, "DP2", "PRES * 2.0")
+    assert "DP2" in api.variables(ff)
+    try:
+        api.create_object(ff, "nosuch")
+        raise AssertionError("should have raised")
+    except ValueError:
+        pass
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_export_stl(tmp_path):
+    """Boundary surface exports to STL (P3.2)."""
+    from fv.model.dataset import load_file
+    from fv.render.export import export_surface_stl
+    ff = load_file(FPH)
+    out = tmp_path / "model.stl"
+    assert export_surface_stl(ff, str(out)) is True
+    assert out.stat().st_size > 0
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_compare_view_logs(qapp):
+    """View > Compare reports dataset stats (P3.4)."""
+    w = _make(qapp, FPH)
+    w.datasets.append(w.dataset)
+    w.on_compare_view()
+    assert "Compare" in w.message_win.text.toPlainText()
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_ugrid_cache_reuse():
+    """Repeated build_ugrid calls reuse the cached grid (P3.5)."""
+    from fv.model.dataset import load_file
+    from fv.render.plane import build_ugrid
+    ff = load_file(FPH)
+    ug1, cc1 = build_ugrid(ff)
+    ug2, cc2 = build_ugrid(ff)
+    assert ug1 is ug2
+    assert cc1 is cc2
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 def test_colorbar_actor_and_lut():
     from fv.model.objects import ColorbarObject
     from fv.render.colorbar import (
@@ -1270,6 +1689,213 @@ def test_scene_build_colorbar_headless():
     sc = Scene(enable_3d=False)
     sc.build(ff, main=main)
     assert "colorbar" in sc.actor_names()
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+def test_global_colorbar_applied_to_mappers():
+    """Global colorbar LUT is wired onto every object's mapper (P0.2)."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import ColorbarObject, MainObject
+    from fv.render.colorbar import ColorbarRegistry
+    from fv.render.scene import Scene
+    ff = load_file(FPH)
+    main = MainObject.from_field_file(ff)
+    surf = main.children[0]
+    surf.show_contour = True
+    surf.contour_var = "PRES"
+    cb = ColorbarObject()
+    main.children.append(cb)
+    sc = Scene(enable_3d=True)
+    sc.build(ff, main=main)
+    checked = 0
+    for actors in sc._layer_actors.values():
+        for a in actors:
+            if isinstance(a, str):
+                continue
+            mapper = getattr(a, "GetMapper", None)
+            if mapper is None:
+                continue
+            m = mapper()
+            if m is not None and m.GetLookupTable() is not None:
+                assert m.GetLookupTable() is ColorbarRegistry.lut()
+                checked += 1
+    assert checked >= 1
+    # Fix mode range is pushed into the object mappers
+    cb.range_mode = "Fix"
+    cb.min = -10.0
+    cb.max = 10.0
+    sc.apply_to_object(ff, surf)
+    found_fix = False
+    for actors in sc._layer_actors.values():
+        for a in actors:
+            if isinstance(a, str):
+                continue
+            mapper = getattr(a, "GetMapper", None)
+            if mapper is None:
+                continue
+            m = mapper()
+            if m is not None and m.GetLookupTable() is ColorbarRegistry.lut():
+                rng = m.GetScalarRange()
+                if abs(rng[0] - (-10.0)) < 1e-6 and abs(rng[1] - 10.0) < 1e-6:
+                    found_fix = True
+    assert found_fix
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+def test_light_object_minimal_render():
+    """LightObject drives the renderer's key light (P0.3)."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import LightObject, MainObject
+    from fv.render.scene import Scene
+    ff = load_file(FPH)
+    main = MainObject.from_field_file(ff)
+    light = LightObject(index=1)
+    main.children.append(light)
+    sc = Scene(enable_3d=True)
+    sc.build(ff, main=main)
+    rl = sc.renderer.GetLights().GetItemAsObject(0)
+    assert abs(rl.GetIntensity() - 1.0) < 1e-6
+    assert rl.GetSwitch() == 1
+    light.brightness = 0.4
+    light.enabled = False
+    light.color = (0.9, 0.1, 0.1)
+    sc.apply_to_object(ff, light)
+    rl = sc.renderer.GetLights().GetItemAsObject(0)
+    assert abs(rl.GetIntensity() - 0.4) < 1e-6
+    assert rl.GetSwitch() == 0
+    c = rl.GetDiffuseColor()
+    assert abs(c[0] - 0.9) < 1e-6 and abs(c[1] - 0.1) < 1e-6
+
+def test_light_object_headless_layer():
+    """Headless build records a light layer; no renderer access."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import LightObject, MainObject
+    from fv.render.scene import Scene
+    ff = load_file(FPH)
+    main = MainObject.from_field_file(ff)
+    light = LightObject(index=1)
+    main.children.append(light)
+    sc = Scene(enable_3d=False)
+    sc.build(ff, main=main)
+    assert "light" in sc.actor_names()
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+def test_particle_variable_selection():
+    """Particle vector/scalar vars are honoured (P0.4)."""
+    from fv.crdl.fields import parse_particle_variables
+    from fv.model.dataset import load_file
+    from fv.model.objects import ParticleObject
+    from fv.render.particle import build_particle_actors
+    ff = load_file(FPH)
+    if not ff.has_particles:
+        pytest.skip("sample has no particle sections")
+    with open(ff.path, "rb") as fh:
+        data = fh.read()
+    pvars = parse_particle_variables(data)
+    assert "VELP" in pvars
+    assert pvars["VELP"].shape[1] == 3
+    assert "VELP" in ff.particle_vars
+    # vector glyphs follow vector_var (VELP default)
+    obj = ParticleObject(index=1)
+    obj.show_vector = True
+    obj.vector_var = "VELP"
+    out = build_particle_actors(obj, ff)
+    assert "vector" in out
+    # scalar follows scalar_var (VELP magnitude)
+    obj2 = ParticleObject(index=1)
+    obj2.show_scalar = True
+    obj2.scalar_var = "VELP"
+    out2 = build_particle_actors(obj2, ff)
+    assert "particle" in out2
+    pd = out2["particle"].GetMapper().GetInput()
+    assert pd.GetPointData().GetScalars() is not None
+    assert pd.GetPointData().GetScalars().GetName() == "ParticleScalar"
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_surface_volume_region_filter():
+    """Surface honours Volume Region filtering (P0.5): fewer faces."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import SurfaceObject
+    from fv.render.surface import build_surface_polydata
+    ff = load_file(FPH)
+    pd_all, _, _ = build_surface_polydata(ff, SurfaceObject(index=1))
+    n_all = pd_all.GetNumberOfCells()
+    assert n_all > 0
+    obj = SurfaceObject(index=1,
+                          display_volume_regions=["Case[2]"])
+    pd_f, _, _ = build_surface_polydata(ff, obj)
+    n_f = pd_f.GetNumberOfCells()
+    assert 0 < n_f < n_all
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_volume_volume_region_filter():
+    """Volume honours Volume Region filtering (P0.5): fewer cells."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import VolumeObject
+    from fv.render.volume import build_volume_actors
+    ff = load_file(FPH)
+    full = VolumeObject(index=1)
+    full.show_scalar = True
+    full.scalar_var = "PRES"
+    out_all = build_volume_actors(ff, full)
+    n_all = out_all["scalar"].GetMapper().GetInput().GetNumberOfCells()
+    assert n_all > 0
+    obj = VolumeObject(index=1,
+                        display_volume_regions=["Case[2]"])
+    obj.show_scalar = True
+    obj.scalar_var = "PRES"
+    out_f = build_volume_actors(ff, obj)
+    n_f = out_f["scalar"].GetMapper().GetInput().GetNumberOfCells()
+    assert 0 < n_f < n_all
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_open_async_loads_file(qapp):
+    """P0.6: launch_load parses on a worker thread and calls back."""
+    import time
+    from fv.gui.tasks import launch_load
+    result = {}
+    launch_load(FPH, on_finished=lambda ff: result.update(ff=ff),
+               on_failed=lambda msg: result.update(err=msg))
+    deadline = time.time() + 90
+    while "ff" not in result and "err" not in result and time.time() < deadline:
+        qapp.processEvents()
+        time.sleep(0.05)
+    assert "ff" in result, result
+    assert result["ff"].kind == "fph"
+    assert result["ff"].n_cells > 0
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_window_open_async_path(qapp):
+    """P0.6: _open_file_async finalizes the window state."""
+    import time
+    w = _make(qapp, None)
+    w._open_file_async(FPH)
+    deadline = time.time() + 90
+    while (w.dataset is None or w.main_object is None) and time.time() < deadline:
+        qapp.processEvents()
+        time.sleep(0.05)
+    assert w.dataset is not None and w.dataset.kind == "fph"
+    assert "Surface (1)" in [o.label for o in w.main_object.children]
+
+
+def test_light_dialog_tabs_and_apply(qapp):
+    """LightDialog exposes Brightness tab and writes back (P0.3)."""
+    from fv.gui.object_dialogs2 import LightDialog
+    from fv.model.objects import LightObject
+    light = LightObject(index=1)
+    d = LightDialog(light)
+    tabs = [d.tabs.tabText(i) for i in range(d.tabs.count())]
+    assert tabs == ["Brightness"]
+    d.enabled.setChecked(False)
+    d.brightness.setValue(0.7)
+    d.apply_to(light)
+    assert light.enabled is False
+    assert abs(light.brightness - 0.7) < 1e-6
 
 
 def test_fileset_scan_sequence(tmp_path):

@@ -104,6 +104,12 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._mouse_mode = "trackball"
         self.vtk_widget = None
         self.renderer = None
+        # Global Light (P0.3): scPOST keeps one Light under Global Objects
+        from ..model.objects import LightObject
+        self._global_light = LightObject(index=1)
+        self._load_workers = []             # keep LoadWorker/QThread alive (P0.6)
+        self._undo_stack = []               # P2.8 deep-copied children lists
+        self._redo_stack = []
 
         from ..render.scene import Scene
         self.scene = Scene(enable_3d=enable_3d)
@@ -264,6 +270,9 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         add(m, "Save Status", self.on_save_status)
         add(m, "Print", self.on_print)
         add(m, "Export PNG…", self.on_export_png)
+        add(m, "Export STL…", self.on_export_stl)
+        add(m, "Export VRML…", self.on_export_vrml)
+        add(m, "Export glTF…", self.on_export_gltf)
         m.addSeparator()
         add(m, "Exit", self.close)
 
@@ -277,6 +286,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         add(m, "Redraw", self.on_redraw)
         add(m, "Show All", self.on_show_all_objects)
         add(m, "Hide All", self.on_hide_all_objects)
+        add(m, "Variable Registration…", self.on_variable_registration)
 
         # View
         m = mb.addMenu("View")
@@ -465,11 +475,11 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self.status.showMessage(
                 f"Open: {Path(path).name} — not yet supported", 6000)
             return
-        self.open_file(path)
+        self._open_file_async(path)
 
     def open_file(self, filepath: str, options=None) -> None:
+        """Synchronous open (CLI / tests); the GUI uses _open_file_async."""
         from ..model.dataset import load_file
-        from ..model.objects import MainObject
         if options is not None and getattr(options, "close_current", False):
             self._close_current_files()
         self.status.showMessage(f"Loading {Path(filepath).name} …")
@@ -477,9 +487,51 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         try:
             ff = load_file(filepath)
         except Exception as exc:  # noqa: BLE001
-            self.status.showMessage(f"Error: {exc}")
-            self.message_win.log(f"Error loading {filepath}: {exc}", "ERROR")
+            self._on_load_failed(str(exc), filepath=filepath)
             return
+        self._finalize_open(ff, options=options)
+
+    def _open_file_async(self, filepath: str, options=None) -> None:
+        """File → Open: parse on a worker thread (P0.6)."""
+        if options is not None and getattr(options, "close_current", False):
+            self._close_current_files()
+        self.status.showMessage(f"Loading {Path(filepath).name} …")
+        self.message_win.log(f"Loading {filepath} …")
+        try:
+            from .tasks import _HAS_QT
+        except Exception:  # pragma: no cover - headless
+            _HAS_QT = False
+        if not _HAS_QT:
+            self.open_file(filepath, options=None)
+            return
+        from .tasks import launch_load
+        holder: list = []
+
+        def _done(ff):
+            self._finalize_open(ff, options)
+            if holder and holder[0] in self._load_workers:
+                self._load_workers.remove(holder[0])
+
+        def _failed(msg):
+            self._on_load_failed(msg)
+            if holder and holder[0] in self._load_workers:
+                self._load_workers.remove(holder[0])
+
+        worker = launch_load(filepath, on_finished=_done, on_failed=_failed)
+        holder.append(worker)
+        self._load_workers.append(worker)
+
+    def _on_load_failed(self, msg: str, *, filepath: str = "") -> None:
+        """Report a failed load to status bar + message window."""
+        self.status.showMessage(f"Error: {msg}")
+        if filepath:
+            self.message_win.log(f"Error loading {filepath}: {msg}", "ERROR")
+        else:
+            self.message_win.log(f"Error: {msg}", "ERROR")
+
+    def _finalize_open(self, ff, options=None) -> None:
+        """Wire a parsed FieldFile into the window (shared tail)."""
+        from ..model.objects import MainObject
         self.dataset = ff
         if ff not in self.datasets:
             self.datasets.append(ff)
@@ -505,7 +557,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if options is None or not getattr(options, "single_file", False):
             from ..model.fileset import scan_sequence
             try:
-                self.fileset = scan_sequence(str(Path(filepath)))
+                self.fileset = scan_sequence(str(Path(ff.path)))
             except Exception:  # noqa: BLE001
                 self.fileset = None
         if self.fileset and len(self.fileset) > 1:
@@ -514,7 +566,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 self.timeline.set_range(lo, hi)
                 self.message_win.log(
                     f"FileSet: {len(self.fileset)} steps "
-                    f"({Path(filepath).name} in sequence)")
+                    f"({Path(ff.path).name} in sequence)")
                 if not (lo <= cyc <= hi):
                     cyc = lo
         else:
@@ -523,7 +575,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._cycle_label.setText(f"Cycle {cyc}")
         if ff.time is not None:
             self.timeline.edit_time.setText(f"{ff.time:.6g}")
-        self.setWindowTitle(f"flowviewer — {Path(filepath).name}")
+        self.setWindowTitle(f"flowviewer — {Path(ff.path).name}")
         kids = ", ".join(o.label for o in self.main_object.children)
         msg = (f"{ff.kind.upper()}: {ff.n_cells:,} cells, "
                f"{ff.n_vertices:,} vertices, {len(ff.variables)} variables"
@@ -586,6 +638,48 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.message_win.log(
             "Print: sent to printer" if ok else "Print: nothing to print",
             "" if ok else "WARN")
+
+    def _export_dialog(self, caption: str, filter_: str, default: str) -> str:
+        """Common save-file prompt; returns the chosen path or ''."""
+        from PyQt5.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getSaveFileName(
+            self, caption, default, filter_)
+        return path or ""
+
+    def on_export_stl(self) -> None:
+        """File > Export STL… (P3.2)."""
+        if self.dataset is None:
+            self.status.showMessage("Open a field file first", 4000)
+            return
+        from ..render.export import export_surface_stl
+        path = self._export_dialog("Export STL", "STL (*.stl)", "model.stl")
+        if not path:
+            return
+        ok = export_surface_stl(self.dataset, path)
+        self.message_win.log(f"Export STL {'OK' if ok else 'failed'}: {path}")
+        self.status.showMessage(f"STL {'exported' if ok else 'failed'}", 4000)
+
+    def on_export_vrml(self) -> None:
+        """File > Export VRML… (P3.2)."""
+        path = self._export_dialog("Export VRML", "VRML (*.wrl)", "scene.wrl")
+        if not path:
+            return
+        from ..render.export import export_scene_vrml
+        rw = (self.vtk_widget.GetRenderWindow()
+              if self.vtk_widget is not None else None)
+        ok = export_scene_vrml(rw, path) if rw is not None else False
+        self.message_win.log(f"Export VRML {'OK' if ok else 'failed'}: {path}")
+
+    def on_export_gltf(self) -> None:
+        """File > Export glTF… (P3.2)."""
+        path = self._export_dialog("Export glTF", "glTF (*.gltf)", "scene.gltf")
+        if not path:
+            return
+        from ..render.export import export_scene_gltf
+        rw = (self.vtk_widget.GetRenderWindow()
+              if self.vtk_widget is not None else None)
+        ok = export_scene_gltf(rw, path) if rw is not None else False
+        self.message_win.log(f"Export glTF {'OK' if ok else 'failed'}: {path}")
 
     def on_export_png(self) -> None:
         """File → Export PNG…: render the current scene to an image file."""
@@ -652,7 +746,15 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 "WARN")
             return
         names = "  vs  ".join(Path(d.path).name for d in self.datasets[-2:])
-        self.message_win.log(f"Compare view: {names} (split-screen, TBD)")
+        a, b = self.datasets[-2:]
+        self.message_win.log("Compare (P3.4):")
+        self.message_win.log(f"  {Path(a.path).name}: {a.n_cells:,} cells, "
+                            f"{a.n_vertices:,} verts, {len(a.variables)} vars")
+        self.message_win.log(f"  {Path(b.path).name}: {b.n_cells:,} cells, "
+                            f"{b.n_vertices:,} verts, {len(b.variables)} vars")
+        common = sorted(set(a.variables) & set(b.variables))
+        self.message_win.log(f"  common variables: {', '.join(common[:8]) or '-'}")
+        self.status.showMessage(f"Compare: {names}", 5000)
 
     def on_contour_display(self) -> None:
         """Display → Contour: rebuild scene showing contour colours."""
@@ -683,6 +785,57 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self._refresh_gl()
         self.message_win.log(f"Display: {'Show' if on else 'Hide'} all objects")
         self.object_tree.load_main(self.main_object)
+
+    def _snapshot_children(self) -> None:
+        """Push the current Main children onto the undo stack (P2.8)."""
+        import copy
+        if self.main_object is None:
+            return
+        self._undo_stack.append(copy.deepcopy(self.main_object.children))
+        if len(self._undo_stack) > 50:
+            self._undo_stack.pop(0)
+        self._redo_stack.clear()
+
+    def _restore_children(self, snap) -> None:
+        if self.main_object is None or self.dataset is None:
+            return
+        self.main_object.children = snap
+        self.scene.build(self.dataset, main=self.main_object)
+        if self._enable_3d:
+            self.scene.fit()
+            self._refresh_gl()
+        self.object_tree.load_main(self.main_object)
+
+    def on_undo(self) -> None:
+        """Edit > Undo (Ctrl+Z): restore the previous object state (P2.8)."""
+        if not self._undo_stack or self.main_object is None:
+            self.status.showMessage("Nothing to undo", 2000)
+            return
+        import copy
+        self._redo_stack.append(copy.deepcopy(self.main_object.children))
+        self._restore_children(self._undo_stack.pop())
+        self.message_win.log("Undo")
+
+    def on_redo(self) -> None:
+        """Edit > Redo (Ctrl+Y): re-apply the last undone state (P2.8)."""
+        if not self._redo_stack or self.main_object is None:
+            self.status.showMessage("Nothing to redo", 2000)
+            return
+        import copy
+        self._undo_stack.append(copy.deepcopy(self.main_object.children))
+        self._restore_children(self._redo_stack.pop())
+        self.message_win.log("Redo")
+
+    def on_variable_registration(self) -> None:
+        """Display > Variable Registration… (P1.1)."""
+        if self.dataset is None:
+            self.message_win.log(
+                "Variable Registration: open a field file first", "WARN")
+            self.status.showMessage("Open a field file first", 4000)
+            return
+        from .dialogs import VariableRegistrationDialog
+        dlg = VariableRegistrationDialog(self.dataset, parent=self)
+        dlg.exec_()
 
     def on_redraw(self) -> None:
         """Display → Redraw: force a full repaint + refresh scene."""
@@ -731,7 +884,11 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self._act_view_tl.blockSignals(True)
             self._act_view_tl.setChecked(on)
             self._act_view_tl.blockSignals(False)
-        elif name in ("Option", "Camera", "Unit", "Light (1)"):
+        elif name == "Light (1)":
+            self._global_light.enabled = on
+            self.scene.apply_light(self._global_light)
+            self._refresh_gl()
+        elif name in ("Option", "Camera", "Unit"):
             return
         else:
             kind = self.object_tree._object_kinds.get(name, "")
@@ -768,6 +925,10 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self._nyi("Camera")
         elif name.startswith("Draw Window"):
             self._nyi("Draw Window settings")
+        elif name == "Light (1)":
+            self.property_host.show_object(
+                "light", self._global_light, field_file=None, siblings=[])
+            self.property_host.setVisible(True)
 
     def _on_object_activated(self, kind: str, label: str) -> None:
         """Select / double-click a renderable object → tiled settings pane."""
@@ -805,6 +966,13 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         Uses the incremental ``Scene.apply_to_object`` path when the scene is
         already built so sibling actors / camera stay untouched (I-gap).
         """
+        if getattr(obj, "kind", "") == "light":
+            self.scene.apply_light(obj)
+            if self._enable_3d:
+                self._refresh_gl()
+            self.message_win.log("Draw: applied Light")
+            self.status.showMessage("Draw: Light", 3000)
+            return
         if self.dataset is None or self.main_object is None:
             return
         if self.scene._field_file is not None:
@@ -821,6 +989,12 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         """Create menu / toolbar: instantiate an object under the Main node."""
         if kind is None:
             self._nyi("Create (kind not implemented)")
+            return
+        if kind == "light":
+            # Global object: open the Light settings pane directly
+            self.property_host.show_object(
+                "light", self._global_light, field_file=None, siblings=[])
+            self.property_host.setVisible(True)
             return
         if self.dataset is None or self.main_object is None:
             self.message_win.log(

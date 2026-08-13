@@ -52,6 +52,7 @@ class FieldFile:
     n_cells: int = 0
     link_data: Optional[dict] = None      # FPH/GPH topology
     cell_conn: Optional[np.ndarray] = None  # FLD (n_cells, 8)
+    cell_types: Optional[np.ndarray] = None  # CGNS per-cell vtk type codes
     material: Optional[np.ndarray] = None
     faces: list = field(default_factory=list)
     bc_plan: list = field(default_factory=list)
@@ -65,6 +66,22 @@ class FieldFile:
     cycle: Optional[int] = None
     time: Optional[float] = None
     has_particles: bool = False
+    _particle_vars: Optional[list] = field(default=None, repr=False)
+
+    @property
+    def particle_vars(self) -> list:
+        """Particle variable names (e.g. VELP), parsed lazily (P0.4)."""
+        if self._particle_vars is None:
+            self._particle_vars = []
+            if self.has_particles:
+                try:
+                    from ..crdl.fields import parse_particle_variables
+                    with open(self.path, "rb") as fh:
+                        self._particle_vars = sorted(
+                            parse_particle_variables(fh.read()))
+                except Exception:  # pragma: no cover - best effort
+                    pass
+        return self._particle_vars
 
     # ── helpers ────────────────────────────────────────────────────────────
 
@@ -88,6 +105,32 @@ def _looks_like_fld(filepath: str) -> bool:
         return find_section(data, "LS_Elements") >= 0 or find_section(data, "LS_MatOfElements") >= 0
 
 
+
+def cgns_load(filepath: str) -> FieldFile:
+    """CGNS-HDF5 loader (P1.2): mesh + fields -> FieldFile(kind='cgns')."""
+    from ..crdl.cgns import read_cgns
+    path = Path(filepath)
+    mesh = read_cgns(str(path))
+    if mesh is None:
+        raise ValueError(f"not a readable CGNS-HDF5 file: {filepath}")
+    ff = FieldFile(path=str(path), kind="cgns")
+    ff.vertices = mesh["vertices"]
+    ff.n_vertices = mesh["n_vertices"]
+    ff.cell_conn = mesh["cell_conn"]
+    ff.cell_types = mesh["cell_types"]
+    ff.n_cells = mesh["n_cells"]
+    ff.surface_regions = mesh["surface_regions"]
+    ff.volume_regions = mesh["volume_regions"]
+    ff.file_size = mesh["vertices"].nbytes
+    for name, (arr, loc) in mesh["fields"].items():
+        ff.variables[name] = VarInfo(
+            name=name,
+            kind=FIELD_KIND_SCALAR,
+            location=loc,
+            array=np.asarray(arr, dtype=np.float64),
+        )
+    return ff
+
 def _register_loaders() -> None:
     """Advertise the real parsers in :mod:`fv.model.loaders` registry."""
     try:
@@ -96,6 +139,8 @@ def _register_loaders() -> None:
         loaders.register("ifld", fld_only_load)
         loaders.register("fph", load_file)
         loaders.register("gph", load_file)
+        loaders.register("cgns", cgns_load)
+        loaders.register("emt", load_file)  # EMT: fph-family binary
     except Exception:  # pragma: no cover - registry is best-effort
         pass
 

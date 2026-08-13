@@ -178,6 +178,50 @@ def load_status(filepath: str) -> Optional[list]:
 
 # ── Print ──────────────────────────────────────────────────────────────────
 
+def export_surface_stl(ff, filename: str, obj=None) -> bool:
+    """Write the boundary surface polydata as STL (P3.2)."""
+    if not _HAS_VTK:
+        return False
+    from .surface import build_surface_polydata
+    from ..model.objects import SurfaceObject
+    obj = obj or SurfaceObject(index=1)
+    pd, _, _ = build_surface_polydata(ff, obj)
+    if pd is None or pd.GetNumberOfCells() == 0:
+        return False
+    writer = vtk.vtkSTLWriter()
+    writer.SetFileName(filename)
+    writer.SetInputData(pd)
+    writer.Write()
+    return True
+
+
+def export_scene_vrml(render_window, filename: str) -> bool:
+    """Export the whole scene as VRML (P3.2)."""
+    if not _HAS_VTK:
+        return False
+    try:
+        writer = vtk.vtkVRMLExporter()
+        writer.SetRenderWindow(render_window)
+        writer.SetFileName(filename)
+        writer.Write()
+        return True
+    except Exception:
+        return False
+
+
+def export_scene_gltf(render_window, filename: str) -> bool:
+    """Export the whole scene as glTF (P3.2)."""
+    if not _HAS_VTK:
+        return False
+    try:
+        writer = vtk.vtkGLTFExporter()
+        writer.SetRenderWindow(render_window)
+        writer.SetFileName(filename)
+        writer.Write()
+        return True
+    except Exception:
+        return False
+
 def print_scene(scene, parent=None) -> bool:
     """Print the current scene to the default printer (fallback PNG).
 

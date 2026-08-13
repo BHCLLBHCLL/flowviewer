@@ -17,6 +17,12 @@ except Exception:  # pragma: no cover - headless / no vtk
     _vns = None
 
 
+def _build_ugrid_shared(ff):
+    """Volume ugrid (FLD hexahedra or CGNS mixed cells) for wireframes."""
+    from .plane import _build_fld_ugrid
+    return _build_fld_ugrid(ff), False
+
+
 class Scene:
     """Holds VTK renderer + actors for one dataset.
 
@@ -36,6 +42,8 @@ class Scene:
         self._main = None
         self._actor_object: dict = {}          # vtkActor/Prop → (kind, obj)
         self._pick_callback = None
+        self._colorbar_obj = None                # global ColorbarObject (P0.2)
+        self._light_obj = None                   # global LightObject (P0.3)
         if self.enable_3d:
             self.renderer = vtk.vtkRenderer()
             # Light scPOST Draw Window (near-white)
@@ -66,6 +74,8 @@ class Scene:
         self._layer_actors = {}
         self._overlay_text = ""
         self._bounds = None
+        self._colorbar_obj = None
+        self._light_obj = None
 
     def add_actor(self, layer: str, actor) -> None:
         if self.enable_3d:
@@ -105,6 +115,7 @@ class Scene:
 
     def build_global_colorbar(self, colorbar_obj, range_=None) -> None:
         """Add the global ``vtkScalarBarActor`` (P2.3) to the scene."""
+        self._colorbar_obj = colorbar_obj
         if not self.enable_3d or self.renderer is None:
             return
         from .colorbar import ColorbarRegistry, colorbar_actor
@@ -118,6 +129,78 @@ class Scene:
             return
         self.add_actor("colorbar", sb)
         self.register_actor_object(sb, "colorbar", colorbar_obj)
+
+    def apply_global_colorbar(self, mapper) -> None:
+        """Point a scalar mapper at the global colorbar LUT (P0.2).
+
+        Fix-mode ranges are pushed into 'mapper.SetScalarRange' so the
+        whole scene honours the global Colorbar; Auto mode shares the LUT
+        while keeping each mapper's own range.
+        """
+        cb = self._colorbar_obj
+        if cb is None or mapper is None or not self.enable_3d:
+            return
+        from .colorbar import apply_to_mapper
+        apply_to_mapper(mapper, cb)
+
+    def _apply_global_colorbar_all(self) -> None:
+        """Apply the global LUT to every rendered object's mapper."""
+        if self._colorbar_obj is None or not self.enable_3d:
+            return
+        for actors in self._layer_actors.values():
+            for a in actors:
+                if isinstance(a, str):
+                    continue
+                mapper = getattr(a, "GetMapper", None)
+                if mapper is None:
+                    continue
+                try:
+                    self.apply_global_colorbar(mapper())
+                except Exception:  # pragma: no cover - vtk quirks
+                    pass
+
+    def move_plane_to_pick(self, x: int, y: int, plane_obj=None) -> bool:
+        """P2.7: move a plane so it passes through the picked point.
+
+        Picks the world point under display (x, y) and translates the
+        plane's point onto it (normal unchanged); the plane actors are
+        rebuilt incrementally.  Returns True when moved.
+        """
+        pt, _owner = self.pick_actor(x, y)
+        if pt is None:
+            return False
+        if plane_obj is None and self._main is not None:
+            for o in getattr(self._main, "children", []) or []:
+                if getattr(o, "kind", "") == "plane":
+                    plane_obj = o;
+                    break
+        if plane_obj is None or self._field_file is None:
+            return False
+        plane_obj.point = tuple(pt)
+        self.apply_to_object(self._field_file, plane_obj)
+        return True
+
+    def apply_light(self, light_obj) -> None:
+        """Apply a LightObject onto the renderer's key light (P0.3).
+
+        Uses the first light of the renderer (created on demand) and
+        mirrors the scPOST Brightness tab: switch, intensity, colour and
+        the directional light vector.
+        """
+        self._light_obj = light_obj
+        if not self.enable_3d or self.renderer is None:
+            return
+        lights = self.renderer.GetLights()
+        if lights.GetNumberOfItems() == 0:
+            self.renderer.AddLight(vtk.vtkLight())
+        light = lights.GetItemAsObject(0)
+        light.SetSwitch(1 if getattr(light_obj, "enabled", True) else 0)
+        light.SetIntensity(float(getattr(light_obj, "brightness", 1.0)))
+        light.SetColor(*getattr(light_obj, "color", (1.0, 1.0, 1.0)))
+        pos = getattr(light_obj, "position", (1.0, 1.0, 1.0))
+        light.SetPosition(*pos)
+        light.SetFocalPoint(0.0, 0.0, 0.0)
+        light.PositionalOff()
 
     def actor_names(self) -> list[str]:
         return [name for name, actors in self._layer_actors.items() if actors]
@@ -191,6 +274,7 @@ class Scene:
             actors = build_plane_actors(self._field_file, obj)
             for key, actor in actors.items():
                 self.add_actor(f"plane:{key}", actor)
+            self._apply_global_colorbar_all()
 
     # ── overlay (File / Cycle / Time) ─────────────────────────────────────
 
@@ -238,7 +322,7 @@ class Scene:
             self._layer_actors["surface"] = ["surface_1"]
             self._layer_actors["plane"] = ["plane_1"]
             for kind in ("isosurface", "point", "streamline", "volume",
-                         "colorbar"):
+                         "colorbar", "light"):
                 if any(o.kind == kind for o in
                        getattr(main, "children", []) or []):
                     self._layer_actors[kind] = [f"{kind}_1"]
@@ -263,6 +347,7 @@ class Scene:
             if not obj.visible:
                 continue
             self._dispatch_object(ff, obj)
+        self._apply_global_colorbar_all()
         self._field_file = ff
         self._main = main
 
@@ -286,6 +371,8 @@ class Scene:
             mode = getattr(obj, "range_mode", "Auto") or "Auto"
             rng = (obj.min, obj.max) if str(mode).lower() == "fix" else None
             self.build_global_colorbar(obj, range_=rng)
+        elif obj.kind == "light":
+            self.apply_light(obj)
 
     def apply_to_object(self, ff: FieldFile, obj) -> None:
         """Incrementally rebuild a single object without a full scene rebuild.
@@ -300,6 +387,7 @@ class Scene:
         self.remove_object_actors(obj)
         if getattr(obj, "visible", True):
             self._dispatch_object(ff, obj)
+        self._apply_global_colorbar_all()
 
     def _polydata_boundary(self, ff: FieldFile):
         ld = ff.link_data
@@ -362,17 +450,9 @@ class Scene:
             tuple(verts.min(axis=0).tolist()),
             tuple(verts.max(axis=0).tolist()),
         )
-        ugrid = vtk.vtkUnstructuredGrid()
-        points = vtk.vtkPoints()
-        points.SetData(_vns.numpy_to_vtk(verts, deep=True))
-        ugrid.SetPoints(points)
-        cells = vtk.vtkCellArray()
-        for row in conn:
-            hexa = vtk.vtkHexahedron()
-            for k in range(8):
-                hexa.GetPointIds().SetId(k, int(row[k]))
-            cells.InsertNextCell(hexa)
-        ugrid.SetCells(vtk.VTK_HEXAHEDRON, cells)
+        ugrid, _ = _build_ugrid_shared(ff)
+        if ugrid is None:
+            return
         edges = vtk.vtkExtractEdges()
         edges.SetInputData(ugrid)
         edges.Update()
@@ -408,7 +488,8 @@ class Scene:
         semi-transparent base rectangle for orientation.
         """
         from . import plane as plane_render
-        actors = plane_render.build_plane_actors(ff, obj)
+        siblings = list(getattr(self._main, "children", []) or [])
+        actors = plane_render.build_plane_actors(ff, obj, siblings=siblings)
         for key, actor in actors.items():
             self.add_actor(f"plane:{key}", actor)
             if not isinstance(actor, str):
@@ -480,6 +561,61 @@ class Scene:
             self.add_actor(f"streamline:{key}", actor)
             if not isinstance(actor, str):
                 self.register_actor_object(actor, "streamline", obj)
+
+    def _add_mirror_actor(self, ff, obj) -> None:
+        """Mirrored copy of a surface sibling (P2.6)."""
+        from .mirror import build_mirror_actors
+        siblings = list(getattr(self._main, "children", []) or [])
+        actors = build_mirror_actors(ff, obj, siblings=siblings)
+        for key, actor in actors.items():
+            self.add_actor(f"mirror:{key}", actor)
+            if not isinstance(actor, str):
+                self.register_actor_object(actor, "mirror", obj)
+
+    def _add_information_actor(self, obj) -> None:
+        """Information probe marker (P2.4)."""
+        from .information import marker_actor
+        a = marker_actor(obj)
+        if a is not None:
+            self.add_actor("information", a)
+            self.register_actor_object(a, "information", obj)
+
+    def _add_text_actor(self, obj) -> None:
+        """Text annotation overlay (P2.3)."""
+        from .text import text_actor
+        a = text_actor(obj)
+        if a is not None:
+            self.add_actor("text", a)
+            self.register_actor_object(a, "text", obj)
+
+    def _add_bitmap_actor(self, obj) -> None:
+        """Bitmap image overlay (P2.3)."""
+        from .text import bitmap_actor
+        a = bitmap_actor(obj)
+        if a is not None:
+            self.add_actor("bitmap", a)
+            self.register_actor_object(a, "bitmap", obj)
+
+    def _add_cut_actors(self, ff, obj) -> None:
+        """Cylinder / Circle cut-surface actors (P2.1)."""
+        from .cylinder import build_circle_actors, build_cylinder_actors
+        fn = build_cylinder_actors if obj.kind == "cylinder" else \
+            build_circle_actors
+        actors = fn(ff, obj)
+        for key, actor in actors.items():
+            self.add_actor(f"{obj.kind}:{key}", actor)
+            if not isinstance(actor, str):
+                self.register_actor_object(actor, obj.kind, obj)
+
+    def _add_pathline_actors(self, ff, obj) -> None:
+        """Pathline actors across the object's cycle files (P1.5)."""
+        from .pathline import build_pathline_actors
+        files = getattr(obj, "files", None) or []
+        actors = build_pathline_actors(obj, list(files), ff0=ff)
+        for key, actor in actors.items():
+            self.add_actor(f"pathline:{key}", actor)
+            if not isinstance(actor, str):
+                self.register_actor_object(actor, "pathline", obj)
 
     def _add_volume_actors(self, ff, obj) -> None:
         """Whole-domain volume scalar/vector actors (P2.7)."""

@@ -61,6 +61,13 @@ def _fph_surface_polydata(ff: FieldFile, obj):
     verts = np.asarray(ff.vertices, dtype=np.float64)
 
     sel = _selected_faces(ff, obj)
+    # MAT / Volume Region filter (P0.5): keep faces owned by kept cells
+    from .plane import cell_filter_mask
+    mask = cell_filter_mask(ff, obj)
+    if mask is not None and len(mask) == ff.n_cells:
+        keep_set = {int(c) for c in np.flatnonzero(mask)}
+        sel = sel[np.asarray([int(owner[fi]) in keep_set for fi in sel],
+                             dtype=bool)]
     points = vtk.vtkPoints()
     points.SetData(_vns.numpy_to_vtk(verts, deep=True))
     polys = vtk.vtkCellArray()
@@ -206,7 +213,9 @@ def contour_actor(pd, scalar_array_name: str, obj) -> Optional["vtk.vtkActor"]:
         prop.SetFrontFaceCulling(1)
     if not getattr(obj, "contour_paint_back", True):
         prop.SetBackFaceCulling(1)
-    prop.SetInterpolationToPhong()
+    from .material import apply_sheen
+    apply_sheen(prop, getattr(obj, "contour_luster", False),
+                getattr(obj, "contour_water", False))
     return actor
 
 
@@ -260,6 +269,9 @@ def mesh_lines_actor(pd, obj) -> "vtk.vtkActor":
     prop.SetLineWidth(max(1, int(obj.mesh_thickness)))
     if obj.mesh_transparent:
         prop.SetOpacity(0.5)
+    from .material import apply_sheen
+    apply_sheen(prop, getattr(obj, "mesh_luster", False),
+                getattr(obj, "mesh_water", False))
     return actor
 
 

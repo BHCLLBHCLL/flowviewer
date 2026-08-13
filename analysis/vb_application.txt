@@ -1,0 +1,1227 @@
+﻿
+Application Class
+scPOST User's Guide VB Interface Reference
+Application Class
+| [Explanation]
+| Application class holds Postprocessor's application and Setting object (Hereinafter, app is used as a sample variable name indicating this class)
+[Example of Instance Acquisition]
+You can acquire an instance of the Application class in the following methods.
+| Method 1
+| Create by starting an application with VBS/VBA
+Set app = CreateObject("scPOST_Sx64net.Application.2025")
+| Method 2
+| Acquire from a running application with VBS/VBA
+Set app = GetObject(,"scPOST_Sx64net.Application.2025")
+| Method 3
+| Acquire from the inside of a running application (only POST)
+Set app = GetApplication()
+Property List
+| ErrorCode
+| Error code (integer)
+| ErrorString
+| Error message (string)
+| UserControl
+| Program control flag (True, False)
+| Visible
+| Visible/Invisible flag (True, False)
+| WriteBackToEnvFile
+| Flag to overwrite an environment setting file at the termination(True, False)
+Method List
+| AlignObjectsAlongAnotherObject
+| Aligns selected objects along another object
+| AlignObjectsAlongPane
+| Aligns selected objects along the panes of the drawing window or the clipping frame of the main object
+| AnimationFrame
+| Does animation for the specified frame
+| AnimationSecond
+| Does animation for the specified time period (at least one frame is shown)
+| AnimationStart
+| Begins animation
+| AnimationStop
+| Stops anim
+| CloseMessageLogFile
+| Moves to the mode where output of the subsequent message windows are not saved in a file
+| CreateDrawWnd
+| Creates the draw window
+| CreateFolder
+| Creates a folder on the hard disk
+| CreateObjectFLD
+| Reads an FLD file and get FLDFile class
+| CreateObjectFLD2
+| Reads an FLD file using a hash table and get FLDFile class
+| CreateObjectFld_TRIM
+| Loads geometries and data of an FLD file selectively.
+| CreateObjectFLDbySTA
+| Reads an FLD file referring an STA file, then get correspond class
+| DefineVar
+| Add your own STA command to preferences
+| Dock
+| Dock the specified window into another window
+| DropFile
+| Emulates drag & drop
+| GetAllFilesForWildCard
+| Collects files in the specified folder by wild card.
+| GetCurNP
+| Return processing parallel number
+| GetDisplayLOGO
+| Returns whether the company logo is displayed or not
+| GetDockableWindow
+| Get dockable opponent window
+| GetDrawWindow
+| Gets the DrawWindow class
+| GetEnvFilePath
+| Return the path of the xenv file
+| GetEnvInfo
+| Returns the environmental information output in the message window in strings at the time of the start-up of Postprocessor
+| GetGlobalWindow
+| Gets the GlobalWindowclass which holds a Global object
+| GetHomeFolder
+| Gets the current home folder name
+| GetMessageWindow
+| Gets the MessageWindow class
+| GetObjectActiveFLD
+| Gets the active FLDFile cla
+| GetObjectFLDbyID
+| Gets the fld file class specifying an id
+| GetOneOfFilesForWildCard
+| Narrows down files in the specified folder by wild card and get one of them
+| GetPID
+| Gets Process ID
+| GetRandomFilename
+| Creates a filename which does not conflict with currently open FLD files
+| GetTickCount
+| Returns the time elapsed since the star-up of Postprocessor in millisecond (integer)
+| GetTickCountEx
+| Returns the time elapsed since the star-up of the computer in second (double precision decimal)
+| IsThisFldValid
+| Checks if the specified fld file is correct in terms of the format
+| IsThisPathValid
+| Inspects whether the specified file can be written or
+| ObjectNameArrange
+| Automatically rearrange the position of the balloon
+| ObjectNameDisplay
+| Display names of objects with a balloon
+| OpenMessageLogFile
+| Moves to the mode where output of the subsequent message windows are saved in files as well
+| PikaPika
+| Pushes a Beginner's button in the [Brightness] tab of light object (works with or without existing light object)
+| PrepareMinMaxPos
+| Use maximum minimum position display function
+| Quit
+| Exits Postprocessor
+| SaveVariableOutput
+| Saves a variable output file
+| SetBeepAll
+| Sets all be
+| SetDefaultAll
+| Sets all settings back to default (equivalent to remake ENV file)
+| SetDisplayDrawMode
+| Shows the draw mode in the drawing window
+| SetDisplayHint
+| Shows/hides hints
+| SetDisplayLOGO
+| Shows/hides the logo
+| SetDisplayObjName
+| Shows/hides object names
+| SetLogFilename
+| Appends list of called methods to a file
+| SetMessageLevel
+| Specifies the level of detail of the message window output
+| SetNoControls
+| Makes the application window small at the upper left the desktop
+| SetNoDefaultObj
+| Does not create default objects
+| SetNoNextElements
+| Stores data of neighboring elements on
+| SetNoProgressBar
+| Shows/hides a progress bar while reading a file
+| SetNotReduceRiddge
+| Set the mode that does not thin outlines
+| SetOperateObjectEnabled
+| Enables or disables the operate object
+| SetOperationType
+| Change the mouse operation system
+| SetUseAutoSave
+| Sets/Unsets auto back up
+| SetUseUndoBuffer
+| Use/Unuses undo buffer
+| ShellExecute
+| Calls a Windows Shell API, ShellExecute, by the following argument
+| SplitView
+| Display files side-by-side
+| UpdateAll
+| Refreshes GUI and the drawing window
+Contents
+1 Property
+1.1 ErrorCode
+1.2 ErrorString
+1.3 UserControl(BOOL)
+1.4 Visible
+1.5 WriteBackToEnvFile(BOOL)
+2 Method
+2.1 AlignObjectsAlongAnotherObject
+2.2 AlignObjectsAlongPane
+2.3 AnimationFrame
+2.4 AnimationSecond
+2.5 AnimationStart
+2.6 AnimationStop
+2.7 CloseMessageLogFile
+2.8 CreateDrawWnd
+2.9 CreateFolder
+2.10 CreateObjectFLD
+2.11 CreateObjectFLD2
+2.12 CreateObjectFld_TRIM
+2.13 CreateObjectFLDbySTA
+2.14 DefineVar
+2.15 Dock
+2.16 DropFile
+2.17 GetAllFilesForWildCard
+2.18 GetCurNP
+2.19 GetDisplayLOGO
+2.20 GetDockableWindow
+2.21 GetDrawWindow
+2.22 GetEnvFilePath
+2.23 GetEnvInfo
+2.24 GetGlobalWindow
+2.25 GetHomeFolder
+2.26 GetMessageWindow
+2.27 GetObjectActiveFLD
+2.28 GetObjectFLDbyID
+2.29 GetOneOfFilesForWildCard
+2.30 GetPID
+2.31 GetRandomFilename
+2.32 GetTickCount
+2.33 GetTickCountEx
+2.34 IsThisFldValid
+2.35 IsThisPathValid
+2.36 ObjectNameArrange
+2.37 ObjectNameDisplay
+2.38 OpenMessageLogFile
+2.39 PikaPika
+2.40 PrepareMinMaxPos
+2.41 Quit
+2.42 SaveVariableOutput
+2.43 SetBeepAll
+2.44 SetDefaultAll
+2.45 SetDisplayDrawMode
+2.46 SetDisplayHint
+2.47 SetDisplayLOGO
+2.48 SetDisplayObjName
+2.49 SetLogFilename
+2.50 SetMessageLevel
+2.51 SetNoControls
+2.52 SetNoDefaultObj
+2.53 SetNoNextElements
+2.54 SetNoProgressBar
+2.55 SetNotReduceRiddge
+2.56 SetOperateObjectEnabled
+2.57 SetOperationType
+2.58 SetUseAutoSave
+2.59 SetUseUndoBuffer
+2.60 ShellExecute
+2.61 SplitView
+2.62 UpdateAll
+Property
+ErrorCode
+| [Explanation]
+| Error code (integer)
+ErrorString
+| [Explanation]
+| Error message (string)
+UserControl(BOOL)
+| [Explanation]
+| A flag to control Postprocessor(True, False)
+(Note) If this flag is set to True, Postprocessor does not quit at the end of script.
+Visible
+| [Explanation]
+| A flag to show/hide the main window (True, False)
+True : The main window of this application is visible.
+False: The main window of this application is invisible.
+The default is False. If it is True, this application terminates only when Quit method is called. If it is False, it automatically terminates when this Application class becomes out of scope. This application does not terminate regardless of True/False while the script is "still" status. Thus if the script terminates with "still" status (For example debugging work is terminated),
+WriteBackToEnvFile(BOOL)
+| [Explanation]
+| A flag to overwrite an environment setting file at the termination(True, False)
+(Note) If this flag is set to False, an environment setting file is not overwritten at the termination. The default value is True.
+Method
+AlignObjectsAlongAnotherObject
+retval = app.AlignObjectsAlongAnotherObject(position)
+| [Explanation]
+| Aligns selected objects along another object
+| [Argument]
+| (BSTR)position
+| :
+| position objects are align to
+|
+|
+|
+| "left"
+| Left
+|
+|
+|
+| "horizontal center"
+| Horizontal center
+|
+|
+|
+| "right"
+| Right
+|
+|
+|
+| "top"
+| Top
+|
+|
+|
+| "vertical center"
+| Vertical center
+|
+|
+|
+| "bottom"
+| Bottom
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+(Note) Objects to be aligned must be selected in Postprocessor in advance.
+The object selected at the end is the destination object for alignment.
+AlignObjectsAlongPane
+retval = app.AlignObjectsAlongPane(position)
+| [Explanation]
+| Aligns selected objects along the panes of the drawing window or the clipping frame of the main object
+| [Argument]
+| (BSTR)position
+| :
+| position objects are align to
+|
+|
+|
+| "left"
+| Left
+|
+|
+|
+| "horizontal center"
+| Horizontal center
+|
+|
+|
+| "right"
+| Right
+|
+|
+|
+| "top"
+| Top
+|
+|
+|
+| "vertical center"
+| Vertical center
+|
+|
+|
+| "bottom"
+| Bottom
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successfull, False if failed
+(Note) Objects to be aligned must be selected in Postprocessor in advance.
+AnimationFrame
+retval=app.AnimationFrame(frame)
+| [Explanation]
+| Does animation for the specified frame
+| [Argument]
+| (long)frame
+| :
+| The number of frames for anim
+| [Return Value]
+| (long)frame
+| :
+| Always True
+AnimationSecond
+frame=app.AnimationSecond(second)
+| [Explanation]
+| Does animation for the specified time period (at least one frame is shown)
+| [Argument]
+| (double)second
+| :
+| Do animation for the specified time period (at least one frame is shown)
+| [Return Value]
+| (long)frame
+| :
+| The number of frames animated.
+AnimationStart
+retval=app.AnimationStart( )
+| [Explanation]
+| Begins animation (Equivalent to clicking the clock icon)
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (BOOL)retval
+| :
+| True if animation started, False if animation had already started
+AnimationStop
+retval=app.AnimationStop( )
+| [Explanation]
+| Stops animation (Equivalent to clicking-back the clock icon)
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (BOOL)retval
+| :
+| True if the animation stopped, False if the animation had already stopped
+CloseMessageLogFile
+retval = app.CloseMessageLogFile()
+| [Explanation]
+| Moves
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (long)retval
+| :
+| Always 0
+CreateDrawWnd
+Set drawwindow=app.CreateDrawWnd(ocx)
+| [Explanation]
+| Creates the draw window
+If the draw window is created by this method, Postprocessor calls callback to the draw window management OCX with the following values.
+1 : When the loading the FLD file finishes after a FLD file is dropped on the draw window.
+2 : When the draw window is picked using a Point object.
+3 : When the draw window is picked using a Surface object.
+| [Argument]
+| (LPDISPATCH)ocx
+| :
+| DISPATCH of OCX to control the draw window
+| [Return Value]
+| (LPDISPATCH)drawwindow
+| :
+| The created draw window class
+Refer to: Split Draw Window Function
+Sample file: post_point_pick.xls, post_surface_pick.xls
+(Note) When the draw window is created by this method, Quit method must be called to terminate the application.
+CreateFolder
+retval=app.CreateFolder(path)
+| [Explanation]
+| Creates a folder on the hard disk
+| [Argument]
+| (BSTR)path
+| :
+| The folder name to be created
+| [Return Value]
+| (long)retval
+| :
+| Number other than 0 if successful; 0 if failed
+CreateObjectFLD
+Set fld=app.CreateObjectFLD(path)
+| [Explanation]
+| Reads an FLD file and get an FLDFile class
+| [Argument]
+| (BSTR)path
+| :
+| Full path name of the FLD file to read
+| [Return Value]
+| LPDISPATCH)fld
+| :
+| A class corresponding to the FLD file.
+CreateObjectFLD2
+Set fld=app.CreateObjectFLD2(path, use_hash)
+| [Explanation]
+| Reads an FLD file using a hash table and get an FLDFile class
+| [Argument]
+| (BSTR)path
+| :
+| Full path name of the FLD file to read
+|
+| (BOOL)use_hash
+| :
+| Trueto use a hash table, Falsenot to use a hash table
+| [Return Value]
+| (LPDISPATCH)fld
+| :
+| A class corresponding to the FLD file.
+CreateObjectFld_TRIM
+Set fld=app.CreateObjectFld_TRIM(path, xmin, xmax, ymin, ymax, zmin, zmax, ON_surf_names, OFF_surf_names, ON_vol_names, OFF_vol_names, ON_mat_nums, OFF_mat_nums, ON_var1_names, OFF_var1_names, ON_var3_names, OFF_var3_names)
+| [Explanation]
+| Selects shapes and data of an FLD file and load them
+| [Argument]
+| (BSTR)path
+| :
+| The full path name of the FLD file to load
+|
+| (double)xmin
+| :
+| The minimum X coordinate after trimming
+|
+| (double)xmax
+| :
+| The maximum X coordinate after trimming
+|
+| (double)ymin
+| :
+| The minimum Y coordinate after trimming
+|
+| (double)ymax
+| :
+| The maximum Y coordinate after trimming
+|
+| (double)zmin
+| :
+| The minimum Z coordinate after trimming
+|
+| (double)zmax
+| :
+| The maximum Z coordinate after trimming
+|
+| (BSTR)ON_surf_names
+| :
+| The name of surface to load
+|
+| (BSTR)OFF_surf_names
+| :
+| The name of surface not to load
+|
+| (BSTR)ON_vol_names
+| :
+| The name of volume region to load
+|
+| (BSTR)OFF_vol_names
+| :
+| The name of volume region not to load
+|
+| (BSTR)ON_mat_nums
+| :
+| The MAT number to load (as string)
+|
+| (BSTR)OFF_mat_nums
+| :
+| The MAT number not to load (as string)
+|
+| (BSTR)ON_var1_names
+| :
+| The scalar variable to load
+|
+| (BSTR)OFF_var1_names
+| :
+| The scalar variable not to load
+|
+| (BSTR)ON_var3_names
+| :
+| The vector variable to load
+|
+| (BSTR)OFF_var3_names
+| :
+| The vector variable not to load
+| [Return Value]
+| (LPDISPATCH)fld
+| :
+| A class corresponding to the FLD file
+CreateObjectFLDbySTA
+Set fld=app.CreateObjectFLDbySTA(path, use_hash)
+| [Explanation]
+| Reads an FLD file referring an STA file, and get the corresponding class
+| [Argument]
+| (BSTR)path
+| :
+| Full path name of the STA file
+|
+| (BOOL)use_hash
+| :
+| Trueto use a hash table, Falsenot to use
+| [Return Value]
+| (LPDISPATCH)fld
+| :
+| A class corresponding to the FLD file.
+DefineVar
+retval=app.DefineVar( varname )
+| [Explanation]
+| Add your own STA command to preferences
+| [Argument]
+| (BSTR)varname
+| :
+| STA command to add
+| [Return value]
+| (long)retval
+| :
+| -1: not found the same name of the item, 0 or more : Found ID
+Dock
+retval=app.Dock( myClassType , toWndName , to_mu , to_rate )
+| [Explanation]
+| Dock the specified window into another window
+| [Argument]
+| (BSTR)myClassType
+| :
+| The name or class type of your own window to dock
+(Example) Cut plane: "PLANE", Surface: "FULLSURF"
+|
+| (BSTR)toWndName
+| :
+| Name of the partner's window to dock
+(Example) Main window: "" Control window: "CTRL"
+|
+| (long)to_mu
+| :
+| Docking direction (1 for left, 2 for right, 3 for top, 4 for bottom)
+|
+| (double)to_rate
+| :
+| Docking rate (0.0 to less than 1.0)
+| [Return value]
+| (long)retval
+| :
+| Always 0
+DropFile
+retval=app.DropFile(path)
+| [Explanation]
+| Emulates drag & drop
+| [Argument]
+| (BSTR)path
+| :
+| Full path name of the drag & dropped file
+| [Return value]
+| (BOOL)retval
+| :
+| Trueif succeeded, False if not succeeded
+GetAllFilesForWildCard
+path=app.GetAllFilesForWildCard(folder, wildcard)
+| [Explanation]
+| Collect sfiles in the specified folder by wild card
+| [Argument]
+| (BSTR)folder
+| :
+| The folder to inspect
+|
+| (BSTR)wildcard
+| :
+| The wild card indicating the file name to inspect
+| [Return value]
+| (BSTR)wildcard
+| :
+| The group of obtained file names (The space-deliminated results in "" are listed up.)
+GetCurNP
+NP=app.GetCurNP( )
+| [Explanation]
+| Return processing parallel number
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (long)NP
+| :
+| Processing parallel number
+GetDisplayLOGO
+isdraw=app.GetDisplayLOGO( )
+| [Explanation]
+| Returns whether the company logo is displayed or not
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (BOOL)isdraw
+| :
+| True if it is displayed. False if not.
+GetDockableWindow
+retval=app.GetDockableWindow( type )
+| [Explanation]
+| Get dockable opponent window
+| [Argument]
+| (BSTR)type
+| :
+| Window type
+Main window: "MAINWINDOW"
+Drawing window: "DRAWWINDOW"
+Message window: "MESSAGEWINDOW"
+Control window: "CONTROLWINDOW"
+| [Return value]
+| (long)retval
+| :
+| Window handle
+GetDrawWindow
+Set drawwindow=app.GetDrawWindow( )
+| [Explanation]
+| Gets the Drawwindow class
+| [Argument]
+| None
+|
+|
+| [Return value]
+| (LPDISPATCH)drawwindow
+| :
+| The DrawWindow class
+GetEnvFilePath
+path=app.GetEnvFilePath( )
+| [Explanation]
+| Return the path of the xenv file
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (BSTR)path
+| :
+| the path of the xenv file
+GetEnvInfo
+strinfo = app.GetEnvInfo()
+| [Explanation]
+| Returns the environmental information output in the message window in strings at the time of the start-up of Postprocessor
+| [Argument]
+| None
+|
+|
+| [Return value]
+| (long)strinfo
+| :
+| Environmental information
+GetGlobalWindow
+Set global=app.GetGlobalWindow( )
+| [Explanation]
+| Gets Globalwindow class which holds a Global object
+| [Argument]
+| None
+|
+|
+| [Return value]
+| (LPDISPATCH)glb
+| :
+| The GlobalWindow class
+GetHomeFolder
+path=app.GetHomeFolder( )
+| [Explanation]
+| Gets the name of current home folder
+| [Argument]
+| None
+|
+|
+| [Return value]
+| (BSTR)path
+| :
+| The name of current home folder
+GetMessageWindow
+Set messagewindow=app.GetMessageWindow( )
+| [Explanation]
+| Gets the MessageWindow class
+| [Argument]
+| None
+|
+|
+| [Return value]
+| (LPDISPATCH)messagewindow
+| :
+| The MessageWindow class
+GetObjectActiveFLD
+Set fld=app.GetObjectActiveFLD( )
+| [Explanation]
+| Gets the active FLDfile class
+| [Argument]
+| None
+|
+|
+| [Return value]
+| (LPDISPATCH)fld
+| :
+| The FLDFile class
+GetObjectFLDbyID
+Set fld=app.GetObjectFLDbyID(id)
+| [Explanation]
+| Gets the fld file class specifying an id
+| [Argument]
+| (long)id
+| :
+| Id to identify fld (id starts with 0)
+| [Return value]
+| (LPDISPATCH)fld
+| :
+| Class corresponding to the FLD file
+GetOneOfFilesForWildCard
+path=app.GetOneOfFilesForWildCard(folder,wildcard)
+| [Explanation]
+| Narrows files in the specified folder by wild card and get one of them
+| [Argument]
+| (BSTR)folder
+| :
+| The folder to inspect
+|
+| (BSTR)wildcard
+| :
+| The wild card indicating the file name to inspect
+| [Return value]
+| (LPDISPATCH)path
+| :
+| The obtained file name
+GetPID
+pid=app.GetPID( )
+| [Explanation]
+| Gets the process ID of Postprocessor
+| [Argument]
+| None
+|
+|
+| [Return value]
+| (long)pid
+| :
+| The process ID.
+GetRandomFilename
+path=app.GetRandomFilename( )
+| [Explanation]
+| Creates a filename which does not conflict with currently open FLD files
+| [Argument]
+| None
+|
+|
+| [Return value]
+| (BSTR)path
+| :
+| The file name.
+GetTickCount
+retval = app.GetTickCount()
+| [Explanation]
+| Returns the time elapsed since the star-up of Postprocessor in millisecond (integer)
+| [Argument]
+| None
+|
+|
+| [Return value]
+| (long)retval
+| :
+| Elapsed time (millisecond)
+GetTickCountEx
+retval = app.GetTickCountEx()
+| [Explanation]
+| Returns the time elapsed since the star-up of the computer in second (double precision decimal)
+| [Argument]
+| None
+|
+|
+| [Return value]
+| (double)retval
+| :
+| Elapsed time (second)
+IsThisFldValid
+ret = app.IsThisFldValid( path )
+| [Explanation]
+| Checks if the specified fld file is correct in terms of the format
+| [Argument]
+| (BSTR)path
+| :
+| FLD file name
+| [Return value]
+| (long)ret
+| :
+| If ret = 0, the file might be FLD
+If ret = 1, the path does not exist
+If ret = 2, the file cannot be opened
+If ret = 3, the file size is 0
+If ret = 4, the header cannot be read
+If ret = 5, the header is not FLD
+If ret = 6, the footer cannot be read
+If ret = 7, footer is not OverlapEnd
+IsThisPathValid
+retval=app.IsThisPathValid(path)
+| [Explanation]
+| Inspects whether the specified file can be written or not
+| [Argument]
+| (BSTR)path
+| :
+| The file name to inspect
+| [Return Value]
+| (long)retval
+| :
+|
+|
+|
+100 : The file path is empty
+101 : The absolute path name is not specified and the current folder is not obtained
+102 : The absolute path name is not specified and the current folder is obtained, but it is empty
+1 : The file path name indicates an existing file
+2 : The file path name indicates a file other than existing files (e.g. folder)
+0 : when the specified file can be created and written
+3 : when the specified file can not be created but can be written with other file name
+4 : when the file can not be written
+ObjectNameArrange
+retval=app.ObjectNameArrange( dmy )
+| [Explanation]
+| Automatically rearrange the position of the balloon
+| [Argument]
+| (long)dmy
+| :
+| Not used
+| [Return Value]
+| (long)retval
+| :
+| Always 0
+ObjectNameDisplay
+retval=app.ObjectNameDisplay( show )
+| [Explanation]
+| Display names of objects with a balloon
+| [Argument]
+| (long)show
+| :
+| 0:Hide 1:Show
+| [Return Value]
+| (long)retval
+| :
+| Always 0
+OpenMessageLogFile
+retval = app.OpenMessageLogFile( path , dmy )
+| [Explanation]
+| Moves to the mode where output of the subsequent message windows are saved in files as well
+| [Argument]
+| (BSTR)path
+| :
+| The file name to be saved
+|
+| (long)dmy
+| :
+| Always 0
+| [Return Value]
+| (long)retval
+| :
+| Always 0
+PikaPika
+retval=app.PikaPika(mode)
+| [Explanation]
+| Pushes a direct button in the [Brightness] tab of light object (It is available if not light object)
+| [Argument]
+| (long)mode
+| :
+| 1 for weak light
+2 for bright light
+3 for "Evaluation"
+4 for "Metalic"
+5 for "Shick"
+6 for "Glossy"
+|
+|
+| [Return Value]
+| (BOOL)retval
+| :
+| True
+|
+|
+PrepareMinMaxPos
+retval=app.PrepareMinMaxPos( mode , loop , show )
+| [Explanation]
+| Use maximum minimum position display function (Continuously call GetCurrentMinMaxInfo to get the actual value.)
+| [Argument]
+| (long)mode
+| :
+| 0 The current cycle is targeted
+1 The current active object is targeted
+2 The current draw window display is targeted
+|
+| (long)loop
+| :
+| When mode is 2, the number of iterations (default is 6)
+|
+| (long)show
+| :
+| 1 display setting dialog
+0 hide setting dialog
+| [Return Value]
+| (long)retval
+| :
+| Always 0
+Quit
+retval=app.Quit( )
+| [Explanation]
+| Quits Postprocessor
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed.
+SaveVariableOutput
+retval=app.SaveVariableOutput(path, items)
+| [Explanation]
+| Saves a variable output file
+| [Argument]
+| (BSTR)path
+| :
+| The file name to save
+|
+| (VARIANT)items
+| :
+| items to save to a variable output file This argument can be set to "all" as string to output all items, otherwise, it should be an array consist of the following strings.
+"title" : Object name
+"coords" : Coordinates
+"normal" : Normal vector
+"scalar" : Scalar variable value
+"vector" : Vector variable value
+"elem" : Element number
+"node" : Node number
+"rank" : Thread identification number
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+SetBeepAll
+retval=app.SetBeepAll(use)
+| [Explanation]
+| Sets all beep
+| [Argument]
+| (BOOL)use
+| :
+| True to beep, Falsenot to b
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+SetDefaultAll
+retval=app.SetDefaultAll(mode)
+| [Explanation]
+| Sets all settings back to default (equivalent to remake ENV file)
+| [Argument]
+| (long)mode
+| :
+| Must be 0.
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+SetDisplayDrawMode
+retval=app.SetDisplayDrawMode(show)
+| [Explanation]
+| Switches Visible/Invisible of the draw mode in the drawing window
+| [Argument]
+| (BOOL)show
+| :
+| Truefor visible, False for invisible
+| [Return Value]
+| (BOOL)retval
+| :
+| True
+SetDisplayHint
+retval=app.SetDisplayHint(show)
+| [Explanation]
+| Switches Visible/Invisible of hints
+| [Argument]
+| (BOOL)show
+| :
+| Truefor visible, False for invisible
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+SetDisplayLOGO
+retval=app.SetDisplayLOGO(show)
+| [Explanation]
+| Switches Visible/Invisible of the logo
+| [Argument]
+| (BOOL)show
+| :
+| True to show, Falseto hide
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+SetDisplayObjName
+retval=app.SetDisplayObjName(show)
+| [Explanation]
+| Switches show/hide of object names
+| [Argument]
+| (BOOL)show
+| :
+| True to show, Falseto hide
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+SetLogFilename
+retval=app.SetLogFilename(path)
+| [Explanation]
+| Appends history of called methods to a file
+| [Argument]
+| (BSTR)path
+| :
+| The file name to append
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+(Note 1) This method is valid only for IA32. Under some environment, this method dose not valid even for IA32.
+(Note 2) This method is available only for debugging (to point out problem-occurred methods).
+SetMessageLevel
+retval = app.SetMessageLevel( level )
+| [Explanation]
+| Specifies the level of detail of the message window output
+| [Argument]
+| (long)level
+| :
+| "Simple" if 0, "Details" if 1, "Details+" if 2
+| [Return Value]
+| (long)retval
+| :
+| Always 0
+SetNoControls
+retval=app.SetNoControls( )
+| [Explanation]
+| Makes the application window small at the upper left the desktop
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+SetNoDefaultObj
+retval=app.SetNoDefaultObj(nouse)
+| [Explanation]
+| Does not create default objects
+| [Argument]
+| (BOOL)nouse
+| :
+| Truenot to create, False to create
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+SetNoNextElements
+retval=app.SetNoNextElements(ondisk)
+| [Explanation]
+| Setting for Storing data of neighboring elements on disk
+| [Argument]
+| (BOOL)ondisk
+| :
+| True to create, Falsenot to create
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+SetNoProgressBar
+retval=app.SetNoProgressBar(nouse)
+| [Explanation]
+| Sets show/hide a progress bar while reading a file
+| [Argument]
+| (BOOL)nouse
+| :
+| True to show, Falseto hide
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+SetNotReduceRiddge
+retval=app.SetOperateObjectEnabled(enabled)
+| [Explanation]
+| Set the mode that does not thin outlines
+| [Argument]
+| (BOOL)enabled
+| :
+| True if enabled (do not thin outline), False if disabled (decimate outline)
+| [Return value]
+| Always TRUE
+|
+|
+SetOperateObjectEnabled
+retval=app.SetOperateObjectEnabled(enabled)
+| [Explanation]
+| Enables or disables the operate object
+| [Argument]
+| (BOOL)enabled
+| :
+| True to enable, False to disable
+| [Return Value]
+| None
+|
+|
+SetOperationType
+retval=app.SetOperationType(type)
+| [Explanation]
+| Change the mouse operation system
+| [Argument]
+| (BSTR)name
+| :
+| The mouse operation system
+"1" (Cradle 1-Button Mode),
+"2" (Cradle 2-Button Mode),
+"3C" (Cradle 3-Button Mode (CTRL)),
+"3" (Cradle 3-Button Mode),
+"A" (Type A), "B" (Type B),
+"C" (Type C),
+"D" (Type D),
+"E" (Type E),
+"F" (Type F),
+"G" (Type G)
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+SetUseAutoSave
+retval=app.SetUseAutoSave(use)
+| [Explanation]
+| Set/Unsetes auto back up
+| [Argument]
+| (BOOL)use
+| :
+| True to create, False not to create
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+SetUseUndoBuffer
+retval=app.SetUseUndoBuffer(use)
+| [Explanation]
+| Use/Unuses undo buffer
+| [Argument]
+| (BOOL)use
+| :
+| Trueto use, False not to use
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+ShellExecute
+retval=app.ShellExecute(path,data)
+| [Explanation]
+| Calls the shell of Windows, API ShellExecute, by the following argument
+ShellExecute ( (Handle Window of Postprocessor), "open", path, data, NULL, SW_SHOWNORMAL)
+| [Argument]
+| (BSTR)path
+| :
+| The file name to "open" (See above.)
+|
+| (BSTR)data
+| :
+| The parameter (See above.)
+| [Return Value]
+| (BOOL)retval
+| :
+| True
+SplitView
+retval=app.SplitView( mode )
+| [Explanation]
+| Display files side-by-side
+| [Argument]
+| (long)mode
+| :
+| 0:Reset 1:Horizontal 2:Vertical 3:Tiled
+| [Return Value]
+| (long)retval
+| :
+| Always 1
+UpdateAll
+retval=app.UpdateAll( )
+| [Explanation]
+| Refreshes GUI and drawing window
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed

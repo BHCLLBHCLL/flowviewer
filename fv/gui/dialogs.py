@@ -616,3 +616,111 @@ class EnvironmentDialog(PostDialogBase):
         if parent is not None and hasattr(parent, "statusBar"):
             parent.statusBar().setVisible(self.chk_status.isChecked())
         self.accept()
+
+
+class VariableRegistrationDialog(QDialog):
+    """scPOST Main > Variable Registration (P1.1).
+
+    Defines a derived variable from a safe arithmetic expression over
+    the loaded variables (see 'fv.model.varreg').  Live preview shows
+    min/max or the parse error; Apply registers the variable on the
+    FieldFile so every object's variable list picks it up.
+    """
+
+    def __init__(self, field_file, parent=None):
+        super().__init__(parent)
+        if not _HAS_QT:
+            self.field_file = field_file
+            return
+        self.field_file = field_file
+        self.setWindowTitle("Variable Registration")
+        self.resize(560, 380)
+        lay = QVBoxLayout(self)
+
+        row = QHBoxLayout()
+        self.var_list = QListWidget(self)
+        for name in sorted(field_file.variable_names()):
+            self.var_list.addItem(name)
+        self.var_list.itemDoubleClicked.connect(self._insert_var)
+        row.addWidget(self.var_list, 1)
+
+        right = QVBoxLayout()
+        right.addWidget(QLabel("Expression:", self))
+        self.expr = QLineEdit(self)
+        right.addWidget(self.expr)
+        right.addWidget(QLabel("Result name:", self))
+        self.result_name = QLineEdit(self)
+        self.result_name.setPlaceholderText("e.g. DP")
+        right.addWidget(self.result_name)
+        self.preview = QLabel(" ", self)
+        self.preview.setStyleSheet("color:#666; font-size:11px;")
+        self.preview.setWordWrap(True)
+        right.addWidget(self.preview)
+        hint = QLabel(
+            "Ops: + - * / ^ & @  |  fns: abs sqrt min max mag(V) "
+            "ifgt(a,b) ifet(a,b) ifeq(a,b)", self)
+        hint.setStyleSheet("color:#888; font-size:10px;")
+        right.addWidget(hint)
+        right.addStretch(1)
+        row.addLayout(right, 2)
+        lay.addLayout(row)
+
+        self.expr.textChanged.connect(self._update_preview)
+
+        btns = QHBoxLayout()
+        self.btn_apply = QPushButton("Apply", self)
+        self.btn_apply.clicked.connect(self._on_apply)
+        btn_cancel = QPushButton("Close", self)
+        btn_cancel.clicked.connect(self.reject)
+        btns.addStretch(1)
+        btns.addWidget(self.btn_apply)
+        btns.addWidget(btn_cancel)
+        lay.addLayout(btns)
+
+    def _insert_var(self, item) -> None:
+        """Double-click a variable to insert its name at the cursor."""
+        self.expr.insert(str(item.text()))
+
+    def _update_preview(self) -> None:
+        expr = self.expr.text().strip()
+        if not expr:
+            self.preview.setText(" ");
+            return
+        try:
+            from ..model.varreg import _resolved_vars, evaluate_expression
+            ff = self.field_file
+            variables = _resolved_vars(ff)
+            n = 0
+            for a in variables.values():
+                if a is not None and getattr(a, "size", 0):
+                    n = int(a.shape[0]);
+                    break
+            if n == 0:
+                n = ff.n_vertices or ff.n_cells
+            arr = evaluate_expression(expr, variables, max(1, n))
+            self.preview.setText(
+                f"OK: min={float(arr.min()):.6g} max={float(arr.max()):.6g}")
+        except Exception as exc:
+            self.preview.setText(f"Error: {exc}")
+
+    def _on_apply(self) -> None:
+        name = self.result_name.text().strip()
+        expr = self.expr.text().strip()
+        if not name or not expr:
+            self.preview.setText("Enter a result name and an expression.");
+            return
+        try:
+            from ..model.varreg import register_variable
+            register_variable(self.field_file, name, expr)
+        except Exception as exc:
+            self.preview.setText(f"Error: {exc}");
+            return
+        self.preview.setText(f"Registered: {name}");
+        self.result_name.clear()
+        self.var_list.addItem(name)
+        if self.parent() is not None and hasattr(self.parent(),
+                "message_win"):
+            self.parent().message_win.log(f"Registered variable {name}")
+        if self.parent() is not None and hasattr(self.parent(),
+                "status"):
+            self.parent().status.showMessage(f"Registered {name}", 3000)

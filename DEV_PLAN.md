@@ -584,3 +584,63 @@ EMT 别名、headless placeholder）。验证 5 项全过。
 - 平铺设置面板 + PropertyHost 8 kind 映射。
 - 测试：`tests/test_gui.py` 66 项 + `test_scene_snapshot.py` 5 项
   + crdl/fld/gph 13 项 = 全量 84 项通过（2026-08-09 实测）。
+---
+
+## 12. P0 改进阶段（2026-08-09，按 SCPOST_COMPARISON.md §6 执行）
+
+> 目标：清理与接线（SCPOST_COMPARISON.md P0 清单 0.1–0.6）。
+
+| # | 项 | 实现 |
+|---|---|---|
+| 0.1 | 测试临时目录修复 | **根因**：pytest 用 mode=0o700 创建临时目录（_pytest/tmpdir.py mkdir(mode=0o700)），Python 在 Windows 上把 0o700 应用为 ACL，DSH 沙箱上下文无法访问（WinError 5）。**方案**：删除 pytest.ini 的 --basetemp；新增 tests/conftest.py 覆盖内建 tmp_path/tmp_path_factory，以默认权限在 tests/pytest_tmp 下创建；test_plane_integration_csv_output 与 test_plane_colorbar_texture 去掉硬编码 C:/Users/sdcll/AppData/Local/Temp/opencode 改用 tmp_path。
+| 0.2 | 全局 Colorbar LUT 接线 | scene.py：_colorbar_obj 状态 + apply_global_colorbar(mapper) / _apply_global_colorbar_all()；build()、apply_to_object()、animate() 三处钩子统一应用。Fix 范围经 mapper.SetScalarRange 推入所有对象 mapper；Auto 模式共享 LUT。新增 test_global_colorbar_applied_to_mappers。
+| 0.3 | LightObject 最小实现 | objects.py：LightObject 增字段 enabled/brightness/color/position。scene.py：apply_light（renderer 第一个 vtkLight：switch/intensity/color/方向光）。object_dialogs2.py：LightDialog（Brightness tab：启用/亮度/颜色/方向）。main.py：_global_light 全局对象、树 Light (1) 激活/显隐接线、Create→Light、apply 快速路径。panes.py：show_object 收录 light。新增 3 测试。
+| 0.4 | Particle vector_var/scalar_var | fields.py：新增 parse_particle_variables（解析所有 LS_ParticleV:* 节）。dataset.py：FieldFile.particle_vars 懒属性。particle.py：build_particle_actors 按 obj.vector_var（默认 VELP）选矢量、obj.scalar_var 选标量（幅值/分量），修复 numpy 数组 or 真值陷阱。ParticleDialog 标量/矢量下拉并入粒子变量。新增 test_particle_variable_selection。
+| 0.5 | Surface/Volume cell_filter_mask | volume.py：build_volume_actors 应用 cell_filter_mask（MAT/区域过滤真实生效）。surface.py：FPH 边界面按 owner cell mask 过滤。新增 test_surface_volume_region_filter / test_volume_volume_region_filter。
+| 0.6 | LoadWorker 接入 File→Open | main.py：open_file 拆为同步入口 + _finalize_open 共用尾部；新增 _open_file_async（File→Open 走后台线程，_load_workers 持有 worker 防 GC）。tasks.py 重写为 QThreadPool + QRunnable（原 QThread 手动管理在 pytest 下崩溃 0xC0000409 fail-fast；QThreadPool 生命周期由 Qt 托管），无 Qt 时同步回退。新增 test_open_async_loads_file / test_window_open_async_path。
+
+**测试**：P0 新增 10 项测试（colorbar 1 + light 3 + particle 1 + 过滤 2 + 异步 2 + 0.1 相关回归）。
+
+---
+
+## 13. P1–P3 改进阶段（2026-08-09，按 SCPOST_COMPARISON.md §6 执行）
+
+> 目标：核心差距（P1）、对象补齐（P2）、平台化（P3）。
+
+### P1 — 核心差距
+
+| # | 项 | 实现 |
+|---|---|---|
+| 1.1 | 变量注册引擎 | fv/model/varreg.py：安全递归下降求值器（+ - * / ^ & @ 括号一元负；abs/sqrt/min/max/mag(VEC)/ifgt/ifet/ifeq）+ register_variable；Display→Variable Registration 对话框（预览 min/max、变量双击插入）。测试 test_varreg.py 5 项。 |
+| 1.2 | CGNS 读取器 + EMT | fv/crdl/cgns.py：h5py 读 CGNS-HDF5（坐标/单元/节点场/BC/多 zone 首 zone）；容忍 ' data' 空格键名与数值 ElementType 码；cell_types 支持混合单元。FieldFile.cell_types + cgns_load + loaders 注册 + 渲染层 _build_fld_ugrid 混合单元构建。EMT 注册为 load_file 别名。测试 test_cgns.py 4 项。 |
+| 1.3 | 真体渲染 | volume.py：FLD hex/CGNS tet 走 vtkUnstructuredGridVolumeRayCastMapper + 颜色/不透明度传递函数（Rainbow 4 点 + ShadeOn）；FPH 多面体回退半透明 vtkDataSetMapper；Mono 色路径保留。测试 test_volume_raycast_fld。 |
+| 1.4 | 光照系统 | fv/render/material.py apply_sheen（Luster=specular 0.5/20，Water=0.9/60）；surface contour/mesh 与 plane mesh 应用；SurfaceObject 增 contour/mesh luster/water 字段 + 对话框复选框。测试 test_surface_luster_water_material。 |
+| 1.5 | Pathline 对象 | PathlineObject + fv/render/pathline.py：跨 FileSet cycle 的粒子追踪（vtkStreamTracer，FLD 用 numpy 最近点 Euler 规避 VTK hex 定位器崩溃）；Seed/Direction/Display 三 tab 对话框；Create 菜单/树/scene 接线。测试 2 项。 |
+| 1.6 | Trim-by-object | plane.trim_by_objects：Trim "Trimmed by" 中匹配的 surface sibling 用 vtkImplicitPolyDataDistance 裁剪切面（保留内侧）；build_plane_actors 增 siblings 参数，scene 传入。测试 test_plane_trim_by_surface。 |
+
+### P2 — 对象补齐与交互
+
+| # | 项 | 实现 |
+|---|---|---|
+| 2.1 | Cylinder/Circle | CylinderObject/CircleObject + fv/render/cylinder.py（vtkCylinder 隐函数切割 + 高度平面裁剪 / 平面切割 + 半径盘裁剪）；注意 vtkClipPolyData.InsideOut 语义（Off=保留正值侧）修正；四 tab 对话框。测试 2 项。 |
+| 2.2 | Graph | GraphObject + fv/render/graph.py（matplotlib Qt5Agg 窗口：沿 cycle/index 的变量均值曲线）；GraphDialog 变量/X 轴/标题。测试 2 项。 |
+| 2.3 | Text/Bitmap | TextObject（vtkTextActor 归一化坐标标注）+ BitmapObject（vtkTexture 贴图四边形）；对话框含 Browse。测试 2 项。 |
+| 2.4 | Information | InformationObject + fv/render/information.py（最近节点变量探针 + 标记球）；对话框 Query 按钮输出到面板与消息窗口。测试 2 项。 |
+| 2.5 | Grouping | GroupingObject 成员显隐联动（树 eye 切换重建场景）；成员多选对话框。测试 1 项。 |
+| 2.6 | Mirror Copy | MirrorCopyObject + fv/render/mirror.py（surface 边界 polydata 镜像变换 YZ/ZX/XY）；源选择对话框。测试 1 项。 |
+| 2.7 | 交互手柄 | Scene.move_plane_to_pick(x,y)（拾取世界点 → 平移平面 point → 增量重建）；完整交互器拖拽接线留待后续（测试在 offscreen 拾取中心可能 skip）。 |
+| 2.8 | Undo/Redo | Edit 菜单（Ctrl+Z/Ctrl+Y）：children deepcopy 快照栈（50 上限）；属性应用/创建对象前压栈；恢复后重建场景与树。测试 1 项。 |
+| 2.9 | Automove Custom Path | automove_coordinate 增 Custom Path：CSV(x,y,z) 行按 t 插值，文件缺失回退 Line。测试 1 项。 |
+| 2.10 | TimeSeries/MaxMin | TimeSeriesObject（cycle,time CSV）与 MaxMinObject（var,min,max CSV）+ fv/model/tsmm.py 解析器 + 对话框。测试 2 项。 |
+
+### P3 — 平台化与生态
+
+| # | 项 | 实现 |
+|---|---|---|
+| 3.1 | STA 兼容声明 | **声明：flowviewer .sta 为私有 JSON 格式**（flowviewer-sta v1，见 export.save_status/load_status），不承诺与 scPOST 二进制 STA 互读。 |
+| 3.2 | STL/VRML/GLTF 导出 | export.py：export_surface_stl（vtkSTLWriter）、export_scene_vrml（vtkVRMLExporter）、export_scene_gltf（vtkGLTFExporter）；File 菜单 3 项。测试 test_export_stl。 |
+| 3.3 | Python API | fv/api.py：open_file/create_object/build_scene/render_png/export_stl/register_variable/variables/cycles 薄封装。测试 test_api_facade。 |
+| 3.4 | Compare 并排 | View→Compare 诚实降级：对比最近两个 dataset 的单元/顶点/变量统计与共有变量（消息窗口），并排视图留待后续。测试 1 项。 |
+| 3.5 | ugrid 缓存 | build_ugrid 按 cell_mask 键缓存最近构建的 ugrid（动画/重复调用复用）。测试 test_ugrid_cache_reuse。 |
+
+**测试**：P1 新增 15 项、P2 新增 16 项、P3 新增 4 项（部分计入 test_gui.py / test_varreg.py / test_cgns.py）。

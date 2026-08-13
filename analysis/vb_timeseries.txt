@@ -1,0 +1,11 @@
+﻿
+Time Series Object class
+scPOST User's Guide VB Interface Reference
+Time Series Object class
+| [Explanation]
+| A class corresponding to a Folder object
+This class does not have its own properties and methods.
+[Example of Instance Acquisition]
+app.DropFile "C:\SampleTM.csv"
+Set GlbWnd = app.GetGlobalWindow()
+Set tm = GlbWnd.GetObjectByType( "TM" , 1 )

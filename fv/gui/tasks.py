@@ -1,9 +1,9 @@
-"""Background loading worker (DEV_PLAN §3.1) — not yet wired to the UI.
+"""Background loading worker (DEV_PLAN §3.1) — wired to File→Open (P0.6).
 
-``LoadWorker`` runs :func:`fv.model.dataset.load_file` on a ``QThread`` so a
-large file need not block the GUI; ``progress`` and ``finished`` signals
-carry the result back to the main thread.  Falls back to synchronous loading
-when PyQt5 is unavailable so callers work headless.
+'LoadWorker' parses a field file on a QThreadPool thread so a large
+file need not block the GUI; 'finished'/'failed' signals carry the
+result back to the main thread (queued).  Falls back to synchronous
+loading when PyQt5 is unavailable so callers work headless.
 """
 
 from __future__ import annotations
@@ -11,53 +11,54 @@ from __future__ import annotations
 from typing import Optional
 
 try:
-    from PyQt5.QtCore import QObject, QThread, pyqtSignal
+    from PyQt5.QtCore import QObject, QRunnable, QThreadPool, pyqtSignal
     _HAS_QT = True
 except Exception:  # pragma: no cover - headless
     _HAS_QT = False
     QObject = object
+    QRunnable = object
+    QThreadPool = None
     pyqtSignal = None
 
 
 if _HAS_QT:
 
-    class LoadWorker(QObject):
-        """Runs :func:`fv.model.dataset.load_file` on a worker thread."""
+    class _LoadSignals(QObject):
+        """Cross-thread result carriers (queued to the main thread)."""
 
-        progress = pyqtSignal(int, str)       # step, message
-        finished = pyqtSignal(object)        # FieldFile or None on error
-        failed = pyqtSignal(str)             # error message
+        finished = pyqtSignal(object)   # FieldFile
+        failed = pyqtSignal(str)        # error message
 
-        def __init__(self, filepath: str, *, threads: int = 1, parent=None):
-            super().__init__(parent)
+    class LoadWorker(QRunnable):
+        """Runs 'fv.model.dataset.load_file' on a pool thread."""
+
+        def __init__(self, filepath: str, *, threads: int = 1,
+                     parent=None):
+            super().__init__()
             self._filepath = filepath
             self._threads = threads
+            self.signals = _LoadSignals()
 
         @property
         def filepath(self) -> str:
             return self._filepath
 
-        def _load(self):
+        def run(self):
+            """Parse the file (pool thread) and emit the result."""
             try:
-                self.progress.emit(1, f"Loading {self._filepath} …")
                 from ..model.dataset import load_file
                 ff = load_file(self._filepath)
-                self.progress.emit(100, "Done")
-                self.finished.emit(ff)
-                return ff
+                self.signals.finished.emit(ff)
             except Exception as exc:  # noqa: BLE001
-                self.failed.emit(str(exc))
-                return None
-
-        def run(self) -> Optional[object]:
-            return self._load()
+                self.signals.failed.emit(str(exc))
 
 else:
 
     class LoadWorker:  # pragma: no cover - headless fallback
         """Synchronous stand-in: exposes the progress/finished protocol."""
 
-        def __init__(self, filepath: str, *, threads: int = 1, parent=None):
+        def __init__(self, filepath: str, *, threads: int = 1,
+                     parent=None):
             self._filepath = filepath
             self._threads = threads
             self.progress = None
@@ -68,7 +69,7 @@ else:
         def filepath(self) -> str:
             return self._filepath
 
-        def run(self) -> Optional[object]:
+        def run(self):
             from ..model.dataset import load_file
             try:
                 return load_file(self._filepath)
@@ -78,20 +79,28 @@ else:
 
 def launch_load(filepath: str, *, threads: int = 1,
                 on_finished=None, on_failed=None):
-    """Start :class:`LoadWorker` on a thread and connect callbacks.
+    """Parse *filepath* off the GUI thread (P0.6).
 
-    Returns the worker; ``on_finished(ff)`` runs with the parsed FieldFile,
-    ``on_failed(msg)`` with the error text.
+    Uses the global QThreadPool so thread life-cycle is managed by Qt;
+    'on_finished(ff)' / 'on_failed(msg)' run queued on the main thread.
+    Without Qt the load runs synchronously and callbacks fire inline.
     """
     worker = LoadWorker(filepath, threads=threads)
+    if not _HAS_QT:
+        # Headless: parse synchronously and fire callbacks inline.
+        try:
+            from ..model.dataset import load_file
+            ff = load_file(filepath)
+        except Exception as exc:  # noqa: BLE001
+            if on_failed is not None:
+                on_failed(str(exc))
+            return worker
+        if on_finished is not None:
+            on_finished(ff)
+        return worker
     if on_finished is not None:
-        worker.finished.connect(on_finished)
+        worker.signals.finished.connect(on_finished)
     if on_failed is not None:
-        worker.failed.connect(on_failed)
-    thread = QThread()
-    worker.moveToThread(thread)
-    thread.started.connect(worker.run)
-    thread.finished.connect(thread.deleteLater)
-    thread.finished.connect(worker.deleteLater)
-    thread.start()
+        worker.signals.failed.connect(on_failed)
+    QThreadPool.globalInstance().start(worker)
     return worker

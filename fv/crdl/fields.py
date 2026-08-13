@@ -123,6 +123,45 @@ def parse_particles(data) -> Optional[tuple[np.ndarray, np.ndarray]]:
     return positions, velocities
 
 
+def parse_particle_variables(data) -> dict:
+    """Every 'LS_ParticleV:<var>' nested section -> {var: (N,3)}.
+
+    Each nested section follows the usual [I4=32][32B name][I4=32][body]
+    layout; the body holds three [12][200] (50 float32) coordinate
+    blocks like 'LS_ParticlesPosition'.  Returns {} when the file
+    has no particle variables.
+    """
+    out: dict = {}
+    marker = b"LS_ParticleV:"
+    pos = 0
+    while True:
+        idx = data.find(marker, pos)
+        if idx < 0:
+            break
+        pos = idx + 1
+        if idx < 4 or read_i32_be(data, idx - 4) != 32:
+            continue
+        raw_name = data[idx:idx + 32].split(b"\x00")[0].strip()
+        try:
+            name = raw_name.decode("ascii")
+        except UnicodeDecodeError:
+            continue
+        if not name.startswith("LS_ParticleV:"):
+            continue
+        var = name[len("LS_ParticleV:"):].strip()
+        sec_start = idx - 4
+        sec_end = section_end(data, sec_start)
+        comps = []
+        for p, bc in iter_data_blocks(data, sec_start, sec_end):
+            if bc == 200 and p + bc <= sec_end:
+                comps.append(f32_be_array(data, p, bc // 4))
+            if len(comps) == 3:
+                break
+        if len(comps) == 3 and all(a.size for a in comps):
+            out[var] = np.column_stack(comps).astype(np.float64)
+    return out
+
+
 def parse_fph_flow_solution(data, n_cells: int) -> dict[str, np.ndarray]:
     """Parse ``LS_SPHFile`` → ``{var: float64 (n_cells,)}`` (cell-centred)."""
     sec_start = find_section(data, "LS_SPHFile")

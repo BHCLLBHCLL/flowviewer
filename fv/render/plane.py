@@ -130,9 +130,21 @@ def build_ugrid(ff: FieldFile, cell_mask: Optional[np.ndarray] = None):
     if not _HAS_VTK:
         return None, True
     rows = _masked_cell_rows(ff, cell_mask)
+    # P3.5: reuse the last-built grid when nothing changed (animation frames)
+    cache = getattr(ff, "_ugrid_cache", None)
+    key = None if cell_mask is None else (cell_mask.tobytes(),
+                                          int(np.count_nonzero(cell_mask)))
+    if cache is not None and cache[0] == key:
+        return cache[1], cache[2]
     if ff.kind == "fph":
-        return _build_fph_ugrid(ff, rows), True
-    return _build_fld_ugrid(ff, rows), False
+        ug = _build_fph_ugrid(ff, rows), True
+    else:
+        ug = _build_fld_ugrid(ff, rows), False
+    try:
+        ff._ugrid_cache = (key, ug[0], ug[1])
+    except Exception:  # pragma: no cover - frozen dataclass
+        pass
+    return ug
 
 
 def _build_fph_ugrid(ff: FieldFile, rows=None):
@@ -176,6 +188,7 @@ def _build_fld_ugrid(ff: FieldFile, rows=None):
         return None
     verts = np.asarray(ff.vertices, dtype=np.float64)
     conn = np.asarray(ff.cell_conn, dtype=np.int64)
+    ctypes = getattr(ff, "cell_types", None)
     points = vtk.vtkPoints()
     points.SetData(_vns.numpy_to_vtk(verts, deep=True))
     ug = vtk.vtkUnstructuredGrid()
@@ -183,14 +196,34 @@ def _build_fld_ugrid(ff: FieldFile, rows=None):
     cells = vtk.vtkCellArray()
     if rows is not None:
         sel = conn[rows]
+        sel_types = ctypes[rows] if ctypes is not None else None
     else:
         sel = conn
-    for row in sel:
-        h = vtk.vtkHexahedron()
-        for k in range(8):
-            h.GetPointIds().SetId(k, int(row[k]))
-        cells.InsertNextCell(h)
-    ug.SetCells(vtk.VTK_HEXAHEDRON, cells)
+        sel_types = ctypes
+    if sel_types is None:
+        for row in sel:
+            h = vtk.vtkHexahedron()
+            for k in range(8):
+                h.GetPointIds().SetId(k, int(row[k]))
+            cells.InsertNextCell(h)
+        ug.SetCells(vtk.VTK_HEXAHEDRON, cells)
+        return ug
+    # CGNS / mixed types: build per-cell vtk cells (P1.2)
+    makers = {
+        10: (vtk.vtkTetra, 4),
+        12: (vtk.vtkHexahedron, 8),
+        13: (vtk.vtkWedge, 6),
+        14: (vtk.vtkPyramid, 5),
+    }
+    for c, row in enumerate(sel):
+        t = int(sel_types[c])
+        maker, nn = makers.get(t, (vtk.vtkHexahedron, 8))
+        cell = maker()
+        n = min(nn, len(row))
+        for k in range(n):
+            cell.GetPointIds().SetId(k, int(row[k]))
+        cells.InsertNextCell(cell)
+    ug.SetCells(vtk.VTK_UNSTRUCTURED_GRID, cells)
     return ug
 
 
@@ -758,6 +791,9 @@ def mesh_lines_actor(pd, obj) -> "vtk.vtkActor":
     prop.SetLineWidth(obj.mesh_thickness)
     if obj.mesh_transparent:
         prop.SetOpacity(0.5)
+    from .material import apply_sheen
+    apply_sheen(prop, getattr(obj, "mesh_luster", False),
+                getattr(obj, "mesh_water", False))
     return actor
 
 
@@ -907,6 +943,37 @@ def subline_actor(ff, obj) -> Optional["vtk.vtkActor"]:
 # ---------------------------------------------------------------------------
 # Trim
 # ---------------------------------------------------------------------------
+
+def trim_by_objects(pd, ff, obj, siblings=None) -> "vtk.vtkPolyData":
+    """Clip the cut against objects listed in the Trim 'Trimmed by' tab.
+
+    Each sibling whose label matches 'obj.trim_objects' contributes an
+    implicit distance field from its boundary surface (P1.6); the cut is
+    kept on the inside (distance <= 0) side of every such surface.  This
+    approximates the scPOST Trim-by-object region.
+    """
+    names = set(getattr(obj, "trim_objects", None) or [])
+    if not names or not siblings:
+        return pd
+    from . import surface as surface_render
+    for sib in siblings:
+        if getattr(sib, "kind", "") != "surface":
+            continue
+        if getattr(sib, "label", "") not in names:
+            continue
+        spd, _, _ = surface_render.build_surface_polydata(ff, sib)
+        if spd is None or spd.GetNumberOfCells() == 0:
+            continue
+        imp = vtk.vtkImplicitPolyDataDistance()
+        imp.SetInput(spd)
+        clip = vtk.vtkClipPolyData()
+        clip.SetInputData(pd)
+        clip.SetClipFunction(imp)
+        clip.InsideOutOff()
+        clip.Update()
+        pd = clip.GetOutput()
+    return pd
+
 
 def trim_cut(pd, obj) -> "vtk.vtkPolyData":
     """Clip the cut against coordinate ranges (Trim tab).
@@ -1134,6 +1201,34 @@ def automove_coordinate(obj, t: float, frames: Optional[int] = None) -> tuple:
         n = _rotate_vector(start_n, axd, angle)
         return tuple(p), tuple(n)
 
+    if method == "Custom Path":
+        # P2.9: interpolate along a CSV path (x,y,z per row, optional time col)
+        import csv as _csv
+        from pathlib import Path as _Path
+        csv_path = getattr(obj, "automove_csv", "") or ""
+        if csv_path and _Path(csv_path).exists():
+            rows = []
+            with open(csv_path, newline="", encoding="utf-8") as fh:
+                rd = _csv.reader(fh)
+                header = next(rd, None)
+                for row in rd:
+                    try:
+                        rows.append([float(v) for v in row[:3]])
+                    except ValueError:
+                        continue
+            if rows:
+                arr = np.asarray(rows, dtype=np.float64)
+                idx = min(len(arr) - 1, int(round(t * (len(arr) - 1))))
+                p = arr[idx]
+                n = start_n
+                return tuple(p), tuple(n)
+        # fall back to Line when the CSV is missing
+        f = t
+        p = start_p + f * (ref_p - start_p)
+        n = start_n + f * (ref_n - start_n)
+        n = n / (np.linalg.norm(n) + 1e-12)
+        return tuple(p), tuple(n)
+
     # Line / Sin / Cos: interpolate position along p_ref - p_start
     f = t
     if method == "Sin":
@@ -1269,7 +1364,8 @@ def write_integration_csv(path: str, res: dict, obj, *,
 
 
 def build_plane_actors(ff: FieldFile, obj, ugrid=None,
-                       cell_centered: bool = True) -> dict:
+                       cell_centered: bool = True,
+                       siblings=None) -> dict:
     """High-level entry: produce every actor for a PlaneObject.
 
     Returns ``{"plane", "contour", "contour_line", "vector", "mesh",
@@ -1297,6 +1393,8 @@ def build_plane_actors(ff: FieldFile, obj, ugrid=None,
 
     # Trim
     cut = trim_cut(cut, obj)
+    # Trim by other objects (P1.6)
+    cut = trim_by_objects(cut, ff, obj, siblings)
     # Clip (X/Y region)
     cut = clip_cut(cut, obj)
 

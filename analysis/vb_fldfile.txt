@@ -1,0 +1,2444 @@
+﻿
+FLD File class
+scPOST User's Guide VB Interface Reference
+FLD File class
+| [Explanation]
+| This class holds an FLD object (Hereinafter fld is a sample name indicating this class.)
+[Example of Instance Acquisition]
+Set fld = app.CreateObjectFLD( "C:\Sample_123.fld" )
+Property List
+| ErrorCode
+| Error code (integer)
+| ErrorString
+| Error message (string)
+Method List
+| AddCycList
+| Adds an FLD file to the FLD files displayed in the cycle tab of the main object
+| ApplySTA
+| Reads an STA file and apply to the FLD object
+| Compare
+| Execute variable comparison between multiple FLDs using the comparison dialog
+| CreateObjectBitmap
+| Creates a new Bitmap object
+| CreateObjectCircle
+| Creates a new Circle object
+| CreateObjectCurve
+| Creates a new Curve object
+| CreateObjectCutplane
+| Creates a new Plane object
+| CreateObjectCylinder
+| Creates a new Cylinder object
+| CreateObjectGradation
+| Creates a new Gradation object
+| CreateObjectGrouping
+| Creates a new Grouping object
+| CreateObjectInformation
+| Creates a new Information object
+| CreateObjectIsosurface
+| Creates a new Isosurface object
+| CreateObjectLight
+| Creates a new Light object
+| CreateObjectMirror
+| Creates a new Mirror object
+| CreateObjectNeutral
+| Creates a neutral file object as an FLD object
+| CreateObjectOT
+| Creates a new Max and Min object
+| CreateObjectParticles
+| Creates a new Particle object
+| CreateObjectPCL
+| Create a new Pathline object
+| CreateObjectPeriod
+| Creates a new Periodical Copy object
+| CreateObjectPoints
+| Creates a new Point object
+| CreateObjectRNAT
+| Creates a Region&Attribute object
+| CreateObjectStreamlines
+| Creates a new Streamline object
+| CreateObjectSurface
+| Creates a new Surface ob
+| CreateObjectUFO
+| Creates a new UFO object
+| CreateObjectVolume
+| Creates a new All Area object
+| CreateSurfacesOfVolumeRegions
+| Registers the surface of the existing volume region as the registered surface
+| CreateVar
+| Registers a new variable
+| CreateVarALLCYC
+| Create a variables collecting lnam in all cycles
+| CreateVarCombinationVelocity
+| Creates CMBVEL variable using Extended Variable function
+| CreateVarDST
+| Creates DST variables using Extended Variable function
+| CreateVarDST2
+| Creates the distance from a wall DST, one of extended variables, by referring only to the specified surface
+| CreateVarNORMAL
+| Creates NORMAL variable using Extended Variable function
+| DelCycList
+| Remove an FLD file from the FLD files displayed in the cycle tab of the main object
+| DeleteVar
+| Deletes a registered variable
+| GetAdjacentElementOfFace*
+| Get an element adjacent to a face of element
+| GetAreaOfFace*
+| Get the area of an element face
+| GetBaseScale
+| Gets the scale factor
+| GetBoundingBox
+| Function that specifies a volume region name, and obtains the rectangular region surrounding the name
+| GetCurCycle
+| Gets the current cycle number
+| GetCurCycleID
+| Gets a cycle ID.
+| GetCurCycleID_F
+| Decimal part of the cycle ID when the ID is regarded as a decimal number
+| GetCurCycOpeNum
+| Gets the current number of operations in the operation function between cycles
+| GetCurTime
+| Gets the current time described in the FLD file
+| GetCycleByCycleID
+| Gets the cycle number of the FLD file corresponding to the cycle ID
+| GetCycleNum
+| Returns the number of FLD files in the series
+| GetElemBySurf
+| Get element number to which specified face belongs
+| GetElementCount*
+| Get the number of elements
+| GetElementsOfVolumeRegion*
+| Get elements in a volume region
+| GetFaceCountOfElement*
+| Get the number of faces in an element
+| GetFaceNumOfRgn
+| Gets the number of faces in the specified surface registration area
+| GetLatestStaPath
+| Gets the full path of the latest STA file applied in the past
+| GetMATemtnamebyMATID
+| Gets a material name from MAT-ID
+| GetMATIDbyMATemtname
+| Gets MAT-ID from material name
+| GetMATIDbyMATN
+| Gets MAT-ID from MAT-Number
+| GetMATIDofVOL
+| Gets the id of MAT which belongs to the specified volume region (part)
+| GetMATNbyMATID
+| Gets MAT-Number from MAT-ID
+| GetMATNumFLD
+| Gets the number of materials in an FLD file, equivalent to the maximum MAT-ID
+| GetMATNOfElement*
+| volume region (part)
+| GetMATNumOfVOL
+| Get MAT Number of an element
+| GetNextNodes
+| Gets the node numbers which are neighbor to the specified node
+| GetNodeCount*
+| Get the number of nodes
+| GetNodeCountOfElement*
+| Get the number of nodes in an element
+| GetNodeCountOfFace*
+| Get the number of nodes on an element face
+| GetNodeOfs
+| Gets the initial node number
+| GetNodesOfElement*
+| Get nodes in an element
+| GetNodesOfFace*
+| Get nodes on an element face
+| GetNodesOfSurfaceRegion
+| Get nodes in a surface resion
+| GetNodesOfVolumeRegion*
+| Get nodes in a volume region
+| GetNodeXYZ
+| Obtain the coordinates of the node
+| GetObjectActiveObj
+| Gets the class of the active object
+| GetObjectByGID
+| Gets a class by GID
+| GetObjectByLongTitle
+| Gets a class from the long name of a object
+| GetObjectByNumber
+| Gets a class by Number
+| GetObjectByType
+| Gets a class by object type
+| GetObjNum
+| Gets the number of objects in this FLD object
+| GetObjType
+| Gets a type name of the specified object class
+| GetOverlappingRegionCount*
+| Get the number of overlapping regions
+| GetRgnName
+| Get name of surface registration area
+| GetRgnNum
+| Get the number of surface registration areas
+| GetScalar*
+| Get a scalar variable value
+| GetScalarMinMaxByVol
+| Get scalar variable values in an array
+| GetScalarArray*
+| Obtains minimum/maximum values of specified scalar variables in the pre-defined volume region
+| GetSurfaceArray
+| Gets the list of registered surfaces
+| GetSurfaceArray2
+| Gets a set of surface registration area names to which the specified face belongs
+| GetTimeByCycleID
+| Gets the time described in the FLD file corresponding to the cycle ID
+| GetVariableInfo
+| Gets field information of specified point
+| GetVariableMax
+| Gets the maximum value of a variable
+| GetVariableMin
+| Gets the minimum value of a variable
+| GetVector*
+| Get a vector variable value
+| GetVectorArray*
+| Get vector variable values in an array
+| GetVectorMinMaxByVol
+| Obtains minimum/maximum values of specified vector variables in the pre-defined volume region
+| GetViewPoint
+| Gets a set of current viewpoint
+| GetVOLemtnameAsArray
+| Gets volume region names as array
+| GetVOLemtnamebyVOLID
+| Gets a volume region name from VOLID
+| GetVOLIDbyElement*
+| Gets VOLID which the specified element belongs to
+| GetVOLIDbyVOLemtname
+| Gets VOLID from volume region name
+| GetVOLIDbyVOLorgname
+| Gets VOLID from an internal volume region name
+| GetVOLNum
+| Gets the number of volume regions described in the FLD file
+| GetVOLorgnameAsArray
+| Gets internal volume region names as array
+| GetVOLorgnamebyVOLID
+| Gets an internal volume region name from VOLID
+| GetVolumeArray2
+| Gets a set of volume area names to which the specified element belongs
+| GetVolumeOfElement*
+| Get the volume of a volume region
+| LocalXYZ2GlobalXYZ
+| Converts a coordinate of a local coordinate system to the global coordinate system.
+| RemoveAllObj
+| Removes all FLD objects but Main object
+| RemoveRelatedObj
+| Removes all FLD objects same to the specified objects
+| ResetCycOpe
+| Resets an operation in the operation function between cycles
+| SaveCradleViewer
+| Saves as a CradleViewer file (*.CradleViewer)
+| SaveFBX
+| Save as FBX file
+| SaveGLTF
+| Save as GLTF file
+| SaveSTA
+| Saves current status of the FLD file to a status file
+| SaveSTL
+| Save as STL files
+| SaveVRML
+| Save as VRML files
+| SetAutoCycle
+| Selects the [Auto Set] checkbox
+| SetCurCycleID
+| Changes current cycle by cycle ID
+| SetCurCycleID_F
+| Sets the current cycle ID as a decimal number
+| SetCycOpeMode
+| Selects an operation method for the operation function between cycles
+| SetDisplayAxis
+| Sets show/hide of axis
+| SetDisplayChildAllObj
+| Shows/hides FLD objects in the loaded FLD
+| SetDisplayFLD
+| Shows/hides loaded FLD
+| SetDisplayTitleCycle
+| Sets show/hide of cycle number
+| SetDisplayTitlePath
+| Sets show/hide of FLD file name
+| SetDisplayTitleTime
+| Sets show/hide of time
+| SetVarTitle
+| Change the description of the variable
+| SetViewPoint
+| Sets view point
+| SetViewPort
+| Sets the location of the clipping frame
+(Note) The methods with the mark * do not support iFLD.
+Contents
+1 Property
+1.1 ErrorCode
+1.2 ErrorString
+2 Method
+2.1 AddCycList
+2.2 ApplySTA
+2.3 Compare
+2.4 CreateObjectBitmap
+2.5 CreateObjectCircle
+2.6 CreateObjectCurve
+2.7 CreateObjectCutplane
+2.8 CreateObjectCylinder
+2.9 CreateObjectGradation
+2.10 CreateObjectGrouping
+2.11 CreateObjectInformation
+2.12 CreateObjectIsosurface
+2.13 CreateObjectLight
+2.14 CreateObjectMirror
+2.15 CreateObjectNeutral
+2.16 CreateObjectOT
+2.17 CreateObjectParticles
+2.18 CreateObjectPCL
+2.19 CreateObjectPeriod
+2.20 CreateObjectPoints
+2.21 CreateObjectRNAT
+2.22 CreateObjectStreamlines
+2.23 CreateObjectSurface
+2.24 CreateObjectUFO
+2.25 CreateObjectVolume
+2.26 CreateSurfacesOfVolumeRegions
+2.27 CreateVar
+2.28 CreateVarALLCYC
+2.29 CreateVarCombinationVelocity
+2.30 CreateVarDST
+2.31 CreateVarDST2
+2.32 CreateVarNORMAL
+2.33 DelCycList
+2.34 DeleteVar
+2.35 GetAdjacentElementOfFace
+2.36 GetAreaOfFace
+2.37 GetBaseScale
+2.38 GetBoundingBox
+2.39 GetCurCycle
+2.40 GetCurCycleID
+2.41 GetCurCycleID_F
+2.42 GetCurCycOpeNum
+2.43 GetCurTime
+2.44 GetCycleByCycleID
+2.45 GetCycleNum
+2.46 GetElemBySurf
+2.47 GetElementCount
+2.48 GetElementsOfVolumeRegion
+2.49 GetFaceCountOfElement
+2.50 GetFaceNumOfRgn
+2.51 GetLatestStaPath
+2.52 GetMATemtnamebyMATID
+2.53 GetMATIDbyMATemtname
+2.54 GetMATIDbyMATN
+2.55 GetMATIDofVOL
+2.56 GetMATNbyMATID
+2.57 GetMATNumFLD
+2.58 GetMATNumOfVOL
+2.59 GetMATNOfElement
+2.60 GetNextNodes
+2.61 GetNodeCount
+2.62 GetNodeCountOfElement
+2.63 GetNodeCountOfFace
+2.64 GetNodeOfs
+2.65 GetNodesOfElement
+2.66 GetNodesOfFace
+2.67 GetNodesOfSurfaceRegion
+2.68 GetNodesOfVolumeRegion
+2.69 GetNodeXYZ
+2.70 GetObjectActiveObj
+2.71 GetObjectByGID
+2.72 GetObjectByLongTitle
+2.73 GetObjectByNumber
+2.74 GetObjectByType
+2.75 GetObjNum
+2.76 GetObjType
+2.77 GetOverlappingRegionCount
+2.78 GetRgnName
+2.79 GetRgnNum
+2.80 GetScalar
+2.81 GetScalarArray
+2.82 GetScalarMinMaxByVol
+2.83 GetSurfaceArray
+2.84 GetSurfaceArray2
+2.85 GetTimeByCycleID
+2.86 GetVariableInfo
+2.87 GetVariableMax
+2.88 GetVariableMin
+2.89 GetVecteor
+2.90 GetVecteorArray
+2.91 GetVectorMinMaxByVol
+2.92 GetViewPoint
+2.93 GetVOLemtnameAsArray
+2.94 GetVOLemtnamebyVOLID
+2.95 GetVOLIDbyElement
+2.96 GetVOLIDbyVOLemtname
+2.97 GetVOLIDbyVOLorgname
+2.98 GetVOLNum
+2.99 GetVOLorgnameAsArray
+2.100 GetVOLorgnamebyVOLID
+2.101 GetVolumeArray2
+2.102 GetVolumeOfElement
+2.103 LocalXYZ2GlobalXYZ
+2.104 RemoveAllObj
+2.105 RemoveRelatedObj
+2.106 ResetCycOpe
+2.107 SaveCradleViewer
+2.108 SaveFBX
+2.109 SaveGLTF
+2.110 SaveSTA
+2.111 SaveSTL
+2.112 SaveVRML
+2.113 SetAutoCycle
+2.114 SetCurCycleID
+2.115 SetCurCycleID_F
+2.116 SetCycOpeMode
+2.117 SetDisplayAxis
+2.118 SetDisplayChildAllObj
+2.119 SetDisplayFLD
+2.120 SetDisplayTitleCycle
+2.121 SetDisplayTitlePath
+2.122 SetDisplayTitleTime
+2.123 SetVarTitle
+2.124 SetViewPoint
+2.125 SetViewPort
+Property
+ErrorCode
+| [Explanation]
+| Error code (integer)
+ErrorString
+| [Explanation]
+| Error message (string)
+Method
+AddCycList
+retval=fld.AddCycList(path)
+| [Explanation]
+| Adds an FLD file to the FLD files displayed in the cycle tab of the main object
+| [Argument]
+| (BSTR)path
+| :
+| The full path name of the FLD file to add
+| [Return Value]
+| (BOOL)retval
+| :
+| True
+ApplySTA
+retval=fld.ApplySTA(path, setwnd)
+| [Explanation]
+| Reads an STA file and apply its settings to the FLD object
+| [Argument]
+| (BSTR)path
+| :
+| The full path of the STA file to read
+|
+| (BOOL)setwnd
+| :
+| True if apply window configuration, Falseif not
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+Compare
+retval=fld.Compare( savepath , disp , typ , ope , retMin , retMax )
+| [Explanation]
+| Execute variable comparison between multiple FLDs using the comparison dialog
+| [Argument]
+| (BSTR)savepath
+| :
+| File name to save the comparison result image(numbers of every file added)
+|
+| (long)disp
+| :
+| 0 - Horizontal
+1 - Vertical
+2 - Tiled
+3 - Fit to draw window
+|
+| (long)typ
+| :
+| 0 - Do not use status file
+1 - Specify the status file in the dialog
+2 - Make the same status as the active FLD
+|
+| (long)ope
+| :
+| 0 - Do not calculate between FLD
+1 - Display difference in image
+2 - Calculate differences of displayed variables
+3 - Calculate differences of all variables
+|
+| (VARIANT)retMin
+| :
+| Array consist of minimum values of color bar when calculating difference in image
+|
+| (VARIANT)retMax
+| :
+| Array consist of maximum values of color bar when calculating difference in image
+| [Return Value]
+| (long)retval
+| :
+| 0 for success, 1 for failure
+CreateObjectBitmap
+Set bitmap=fld.CreateObjectBitmap( )
+| [Explanation]
+| Creates a new Bitmap object
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (LPDISPATCH)bitmap
+| :
+| The created CameraObject class
+CreateObjectCircle
+Set circle=fld.CreateObjectCircle( )
+| [Explanation]
+| Creates a new Circle object
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (LPDISPATCH)circle
+| :
+| The created CircleObject class
+CreateObjectCurve
+Set curve=fld.CreateObjectCurve( )
+| [Explanation]
+| Creates a new Curve object
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (LPDISPATCH)curve
+| :
+| The created CurveObject class
+CreateObjectCutplane
+Set cutplane=fld.CreateObjectCutplane( )
+| [Explanation]
+| Creates a new Plane object
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (LPDISPATCH)cutplane
+| :
+| The created PlaneObject class
+CreateObjectCylinder
+Set cylinder=fld.CreateObjectCylinder( )
+| [Explanation]
+| Creates a new Cylinder object
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (LPDISPATCH)cylinder
+| :
+| The created CylinderOjbect class
+CreateObjectGradation
+Set gradation=fld.CreateObjectGradation( )
+| [Explanation]
+| Creates a new Gradation object
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (LPDISPATCH)gradation
+| :
+| The created GradationObject class
+CreateObjectGrouping
+Set grouping=fld.CreateObjectGrouping( )
+| [Explanation]
+| Creates a new Grouping object
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (LPDISPATCH)grouping
+| :
+| The created GroupingObject class
+CreateObjectInformation
+Set information=fld.CreateObjectInformation( )
+| [Explanation]
+| Creates a new Information object
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (LPDISPATCH)information
+| :
+| The created InformationObject class
+CreateObjectIsosurface
+Set isosurface=fld.CreateObjectIsosurface( )
+| [Explanation]
+| Creates a new Isosurface object
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (LPDISPATCH)isosurface
+| :
+| The created IsoSurface Object class
+CreateObjectLight
+Set light=fld.CreateObjectLight( )
+| [Explanation]
+| Creates a new Light object
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (LPDISPATCH)light
+| :
+| The created LightObject class
+CreateObjectMirror
+Set mirror=fld.CreateObjectMirror( )
+| [Explanation]
+| Creates a new Mirror object
+| [Argument]
+| 無し
+|
+|
+| [Return Value]
+| (LPDISPATCH)mirror
+| :
+| The created MirrorObject class
+CreateObjectNeutral
+Set neu=fld.CreateObjectNeutral(path)
+| [Explanation]
+| Creates a neutral file object as an FLD object by loading it
+| [Argument]
+| (BSTR)path
+| :
+| The full path name of the neutral file
+| [Return Value]
+| (LPDISPATCH)neu
+| :
+| A class corresponding to the neutral file object
+CreateObjectOT
+Set ot=fld.CreateObjectOT( )
+| [Explanation]
+| Creates a new Max and Min object
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (LPDISPATCH)ot
+| :
+| The Created MinMaxObject class
+CreateObjectParticles
+Set particles=fld.CreateObjectParticles( )
+| [Explanation]
+| Creates a new Particle object
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (LPDISPATCH)particles
+| :
+| The created ParticleObject class
+CreateObjectPCL
+Set pcl=fld.CreateObjectPCL()
+| [Explanation]
+| Create a new Pathline object
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (LPDISPATCH)pcl
+| :
+| The created Pathline Object class
+CreateObjectPeriod
+Set period=fld.CreateObjectPeriod( )
+| [Explanation]
+| Creates a new Periodical Copy object
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (LPDISPATCH)period
+| :
+| The created PeriodicalCopyObject class
+CreateObjectPoints
+Set points=fld.CreateObjectPoints( )
+| [Explanation]
+| Creates a new Point object
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (LPDISPATCH)points
+| :
+| The created PointObject class
+CreateObjectRNAT
+Set rnat=fld.CreateObjectRNAT( )
+| [Explanation]
+| Creates a Region&Attribute object
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (LPDISPATCH)rnat
+| :
+| The created Region&Attribute object class
+CreateObjectStreamlines
+Set streamlines=fld.CreateObjectStreamlines( )
+| [Explanation]
+| Creates a new Streamline object
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (LPDISPATCH)streamlines
+| :
+| The created StreamlineObject class
+CreateObjectSurface
+Set surface=fld.CreateObjectSurface(LRGN)
+| [Explanation]
+| Creates a new Surface object
+| [Argument]
+| (VARIANT)LRGN
+| :
+| Specify multiple registration areas to be displayed when creating a new file. Can be omitted.
+(Do not finish with spaces)
+| [Return Value]
+| (LPDISPATCH)surface
+| :
+| The created SurfaceObject class
+CreateObjectUFO
+Set ufo=fld.CreateObjectUFO( )
+| [Explanation]
+| Creates a new UFO object
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (LPDISPATCH)ufo
+| :
+| The created UFOObject class
+CreateObjectVolume
+Set volume=fld.CreateObjectVolume( )
+| [Explanation]
+| Creates a new All Area object
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (LPDISPATCH)volume
+| :
+| The created AllAreaObject class
+CreateSurfacesOfVolumeRegions
+retval = fld.CreateSurfacesOfVolumeRegions( )
+| [Explanation]
+| Registers the surface of the existing volume
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (BOOL)retval
+| :
+| Trueif succeeded, False if not succeeded
+CreateVar
+retval=fld.CreateVar(newLNAM, info, text)
+| [Explanation]
+| Registers a new variable
+| [Argument]
+| (BSTR)newLNAM
+| :
+| Short name of the new variable
+|
+| (BSTR)info
+| :
+| Long name
+|
+| (BSTR)text
+| :
+| Equation
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+CreateVarALLCYC
+retval=fld.CreateVarALLCYC(lnam)
+| [Explanation]
+| Create a variables collecting lnam in all cycles
+| [Argument]
+| (BSTR)lnam
+| :
+| Variable
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+CreateVarCombinationVelocity
+retval=fld.CreateVarCombinationVelocity(static_lnam, volid_array, lnam_array)
+| [Explanation]
+| Create the CMBVEL variable using Extended Variable function
+| [Argument]
+| (BSTR)static_lnam
+| :
+| Short name of a vector variable on the static region
+|
+| (VARIANT)volid_array
+| :
+| Array consist of rotational region's VOLID
+|
+| (VARIANT)lnam_array
+| :
+| Array consist of short name of a vector variable on a rotational region The length of lnam_array must equals to the length of volid_array, and the elements must be ordered so that the short name of the vector variable on the volume region with volume region id volid_array(n) corresponts to lnam_array(n).
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+CreateVarDST
+retval=fld.CreateVarDST(maxlen)
+| [Explanation]
+| Creates the DST variable using Extended Variable function
+| [Argument]
+| (double)maxlen
+| :
+| The maximum distance from the wall
+(All region if negative)
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+CreateVarDST2
+retval=fld.CreateVarDST2(surfaces,maxlen)
+| [Explanation]
+| Creates the distance from a wall DST, one of extended variables, by referring to the specified surface
+| [Argument]
+| (BSTR)surfaces
+| :
+| Arrangement of the registered surface regarded as a wall by separating with a space
+|
+| (double)maxlen
+| :
+| 0 or greater : Distance to create Negative : All region
+| [Return Value]
+| (BOOL)retval
+| :
+| True
+CreateVarNORMAL
+ret=fld.CreateVarNORMAL(region_names)
+| [Explanation]
+| Creates NORMAL variable using Extended Variable function
+| [Argument]
+| (VARIANT)region_names
+| :
+| Array consist of registered region names
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successfull, False if failed
+DelCycList
+rretval=fld.DelCycList(cycid)
+| [Explanation]
+| Remove an FLD file from the FLD files displayed in the cycle tab of the main object
+| [Argument]
+| (long)cycid
+| :
+| Cycle ID of the FLD file to remove.
+(This ID is given from 1.)
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+DeleteVar
+retval=fld.DeleteVar(name)
+| [Explanation]
+| Deletes a registered variable
+| [Argument]
+| (BSTR)name
+| :
+| The variable name to delete
+| [Return Value]
+| (BOOL)retval
+| :
+| True
+GetAdjacentElementOfFace
+retval= fld.GetAdjacentElementOfFace(ov, elem, face, adjelem)
+| [Explanation]
+| Get an element number of element that is adjacent to a face of element
+| [Argument]
+| (long)ov
+| :
+| Overlap region ID
+|
+| (long)elem
+| :
+| Element number
+|
+| (long)face
+| :
+| Local face number
+|
+| (VARIANT)adjelem
+| :
+| Element numbers (as long) adjacent to a face containing a
+local face number “face” within a face containing “elem”. The element numbers should be other than “elem”. -1, if there is no element which is adjacent to a face.
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False failed
+(Note) It does not function properly on multiblock boundaries.
+GetAreaOfFace
+retval=fld.GetAreaOfFace(ov, elem, face, area)
+| [Explanation]
+| Get the area of an element face
+| [Argument]
+| (long)ov
+| :
+| Overlap region ID
+|
+| (long)elem
+| :
+| Element number
+|
+| (long)face
+| :
+| Local face number
+|
+| (VARIANT)area
+| :
+| Area (as double)
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+GetBaseScale
+scale=fld.GetBaseScale( )
+| [Explanation]
+| Gets the scale factor
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (double)scale
+| :
+| The scale factor
+GetBoundingBox
+retval = fld.GetBoundingBox( name , minX , maxX , minY , maxY , minZ , maxZ )
+| [Explanation]
+| Function that specifies a volume region name, and obtains the rectangular region surrounding the name. Note that the surface geometry expressing the volume region is needed.
+| [Argument]
+| (BSTR)name
+| :
+| The volume region name
+|
+| (VARIANT)minX
+| :
+| The minimum value in the direction of the X axis of a rectangle (output as double)
+|
+| (VARIANT)maxX
+| :
+| The maximum value in the direction of the X axis of a rectangle (output as double)
+|
+| (VARIANT)minY
+| :
+| The minimum value in the direction of the Y axis of a rectangle (output as double)
+|
+| (VARIANT)maxY
+| :
+| The maximum value in the direction of the Y axis of a rectangle (output as double)
+|
+| (VARIANT)minZ
+| :
+| The minimum value in the direction of the Z axis of a rectangle (output as double)
+|
+| (VARIANT)maxZ
+| :
+| The maximum value in the direction of the Z axis of a
+rectangle (output as double)
+| [Return Value]
+| (LONG)retval
+| :
+| 0 if failed; other value if successful
+GetCurCycle
+retval=fld.GetCurCycle( )
+| [Explanation]
+| Gets the current cycle number
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (long)retval
+| :
+| The current cycle number
+GetCurCycleID
+cycid=fld.GetCurCycleID( )
+| [Explanation]
+| Gets a cycle ID. The cycle ID is numbered to a series of file groups. It is given from 1 by the order of cycle.
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (long)cycid
+| :
+| The cycle ID
+GetCurCycleID_F
+cyc_f=fld.GetCurCycleID_F( )
+| [Explanation]
+| Decimal part of the cycle ID when the ID is regarded as decimal
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (double)cyc_f
+| :
+| The decimal part of the current cycle ID
+GetCurCycOpeNum
+openum=fld.GetCurCycOpeNum( )
+| [Explanation]
+| Gets the current number of operations in the operation function between cycles
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (long)openum
+| :
+| The current number of operat
+GetCurTime
+retval=fld.GetCurTime( )
+| [Explanation]
+| Gets the current time described in the FLD file
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (double)retval
+| :
+| The current time described in the FLD file
+GetCycleByCycleID
+retval=fld.GetCycleByCycleID(cycid)
+| [Explanation]
+| Gets the cycle number of the FLD file corresponding to the cycle ID
+| [Argument]
+| (long)cycid
+| :
+| Cycle ID
+| [Return Value]
+| (long)retval
+| :
+| The cycle number of the FLD file corresponding to the cycle ID -1 if failed
+GetCycleNum
+cycnum=fld.GetCycleNum( )
+| [Explanation]
+| Returns the number of FLD files in the series
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (long)cycnum
+| :
+| The number of materials
+GetElemBySurf
+retval = fld.GetElemBySurf (ngfb)
+| [Explanation]
+| Get element number to which specified face belongs
+| [Argument]
+| (long) ngfb
+| :
+| Face number (starting from 0)
+| [Return Value]
+| (long) retval
+| :
+| The element number obtained (starting from 0)
+GetElementCount
+retval=fld.GetElementCount(ov)
+| [Explanation]
+| Get the number of elements in an overlap region
+| [Argument]
+| (long)ov
+| :
+| Overlap region ID
+| [Return Value]
+| (long)retval
+| :
+| The number of elements
+0 if failed.
+GetElementsOfVolumeRegion
+retval=fld.GetElementsOfVolumeRegion(volid, nelem, elems, ov)
+| [Explanation]
+| Get elements an volume region
+| [Argument]
+| (long)volid
+| :
+| VOLID
+See volname=fld.GetVOLemtname-
+byVOLID(volid)for word definition
+|
+| (long)nelem
+| :
+| The number of elements (as long)
+|
+| (VARIANT)elems
+| :
+| Array consisting of the element numbers (as long)
+|
+| (VARIANT)ov
+| :
+| Array consisting of the overlap region indices (as long)
+|
+| The arrays of "elems" and "ov" are "nelem", and the ID of overlapped regions, to which "elems(i)" belongs is "ov(i)".
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+GetFaceCountOfElement
+retval=fld.GetFaceCountOfElement(ov, elem)
+| [Explanation]
+| Get the number of faces in an element
+| [Argument]
+| (long)ov
+| :
+| Overlap region ID
+|
+| (long)elem
+| :
+| Element number
+| [Return Value]
+| (long)retval
+| :
+| the number of faces
+0 if failed.
+GetFaceNumOfRgn
+retval = fld.GetFaceNumOfRgn (ngfax)
+| [Explanation]
+| Gets the number of faces in the specified surface registration area
+| [Argument]
+| (long) ngfax
+| :
+| Surface registration area id (starting from 0)
+| [Return Value]
+| (long) retval
+| :
+| Number of acquired faces
+GetLatestStaPath
+retval=fld.GetFaceCountOfElement( )
+| [Explanation]
+| Gets the full path of the latest STA file applied in the past
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (BSTR)retval
+| :
+| Full path obtained. NULL string is returned if STA has not applied yet.
+GetMATemtnamebyMATID
+matname=fld.GetMATemtnamebyMATID(matid)
+| [Explanation]
+| Gets a material name from MAT-ID. MAT-ID is the serial number numbered to each material from 1. MAT-Number is the number used in Solver. Material name is described in EMT file. There are no missing number in MAT-ID while there may be in MAT-Number.
+| [Argument]
+| (long)matid
+| :
+| MAT ID
+| [Return Value]
+| (BSTR)matname
+| :
+| Material name
+GetMATIDbyMATemtname
+matid=fld.GetMATIDbyMATemtname(matname)
+| [Explanation]
+| Gets MAT-ID from material name.
+See matname=fld.GetMATemtnamebyMATID(matid) for word definition
+| [Argument]
+| (BSTR)matname
+| :
+| Material name
+| [Return Value]
+| (long)matid
+| :
+| MAT ID
+GetMATIDbyMATN
+matid=fld.GetMATIDbyMATN(matn)
+| [Explanation]
+| Gets MAT-ID from MAT-Number.
+| [Argument]
+| (long)matn
+| :
+| MAT-Numbe
+| [Return Value]
+| (long)matid
+| :
+| MAT ID
+GetMATIDofVOL
+MATid=fld.GetMATIDofVOL(volid, n)
+| [Explanation]
+| Gets the ID of MAT which belongs to the specified volume region (part)
+| [Argument]
+| (long)volid
+| :
+| Volume region ID (Start from 1)
+| [Return Value]
+| (long)n
+| :
+| The number of the MAT which belongs to the specified volume region when the number is counted from 1
+| [Return Value]
+| (long)matid
+| :
+| The MAT ID (Start from 1)
+GetMATNbyMATID
+matn=fld.GetMATNbyMATID(matid)
+| [Explanation]
+| Gets MAT-Number from MAT-ID
+See matname=fld.GetMATemtnamebyMATID(matid) for word definition
+| [Argument]
+| (long)matid
+| :
+| MAT ID
+| [Return Value]
+| (long)matn
+| :
+| MAT-Number
+GetMATNumFLD
+matnum=fld.GetMATNumFLD( )
+| [Explanation]
+| Gets the number of materials in an FLD file, equivalent to the maximum MAT ID
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (long)matnum
+| :
+| The number of materials
+GetMATNumOfVOL
+MATnum=fld.GetMATNumOfVOL(volid)
+| [Explanation]
+| Gets the number of kinds of MATs which belong to the specified volume region (part)
+| [Argument]
+| (long)volid
+| :
+| Volume region ID (Start from 1)
+| [Return value]
+| (long)MATnum
+| :
+| The number of kinds of MATs
+GetMATNOfElement
+retval=fld.GetMATNOfElement(ov, elem, matn)
+| [Explanation]
+| Get MAT Number of an element
+| [Argument]
+| (long)ov
+| :
+| Overlap region ID
+|
+| (long)elem
+| :
+| Element number
+|
+| (VARIANT)matn
+| :
+| MAT Number (as long)
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+GetNextNodes
+nodesnum=fld.GetNextNodes(node, nextnodes)
+| [Explanation]
+| Gets the node numbers which are neighbor to the specified node. Each neighbor node should be connected to the original node by an edge
+| [Argument]
+| (long)node
+| :
+| The node number to inspect. Node numbers begins from 0 in SC/Tetra, from 1 in scSTREAM or HeatDesigner
+|
+| (VARIANT)nextnodes
+| :
+| The array of the neighbor node numbers
+| [Return Value]
+| (long)nodesnum
+| :
+| The number of neighbor nodes, or the array size of nextnodes
+GetNodeCount
+retval=fld.GetNodeCount(ov)
+| [Explanation]
+| Get the number of nodes in an overlap re
+| [Argument]
+| (long)ov
+| :
+| Overlap region ID
+| [Return Value]
+| (long)retval
+| :
+| The number of nodes
+0 if failed.
+GetNodeCountOfElement
+retval=fld.GetNodeCountOfElement(ov, elem)
+| [Explanation]
+| Get the number of nodes in an element
+| [Argument]
+| (long)ov
+| :
+| Overlap region ID
+|
+| (long)elem
+| :
+| Element number
+| [Return Value]
+| (long)retval
+| :
+| The number of nodes
+0 if failed.
+GetNodeCountOfFace
+retval=fld.GetNodeCountOfFace(ov, elem, face)
+| [Explanation]
+| Get the number of nodes on an element face
+| [Argument]
+| (long)ov
+| :
+| Overlap region ID
+|
+| (long)elem
+| :
+| Element number
+|
+| (long)face
+| :
+| Local face number
+| [Return Value]
+| (long)retval
+| :
+| The number of nodes
+0 if failed.
+GetNodeOfs
+ofs=fld.GetNodeOfs( )
+| [Explanation]
+| The initial node number. It should be 0 (scFLOW, SC/Tetra) or 1 (scSTREAM, HeatDesigner)
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (long)ofs
+| :
+| Get the initial node number
+GetNodesOfElement
+retval=fld.GetNodesOfElement(ov, elem, nodes)
+| [Explanation]
+| Get nodes in an element
+| [Argument]
+| (long)ov
+| :
+| Overlap region ID
+|
+| (long)elem
+| :
+| Element number
+|
+| (VARIANT)nodes
+| :
+| Array consisting of node numbers (as long)
+The array length of nodesis fld.GetNodeCountOfElement(ov, elem).
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+GetNodesOfFace
+retval=fld.GetNodesOfFace(ov, elem, face, nodes)
+| [Explanation]
+| Get nodes on an element face
+| [Argument]
+| (long)ov
+| :
+| Overlap region ID
+|
+| (long)elem
+| :
+| Element number
+|
+| (long)face
+| :
+| Local face number
+|
+| (VARIANT)nodes
+| :
+| Array consisting of node numbers (as long)
+|
+| The array length of nodesis fld.GetNodeCountOfFace(ov, elem, face).
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+GetNodesOfSurfaceRegion
+retval=fld.GetNodesOfSurfaceRegion(surfacename, nodes, ov)
+| [Explanation]
+| Get nodes in a surface resion
+| [Argument]
+| (BSTR)surfacename
+| :
+| Surface region name
+|
+| (VARIANT)nodes
+| :
+| Array consisting of node numbers (as long)
+|
+| (VARIANT)ov
+| :
+| Array consisting of overlap region indices (as long)
+The overlap region indices is always zero if moving objects analysis is not performed, and if moving objects analysis is performed, it is a number assigned sequentially from 1 to each moving object number.
+|
+| The array length of nodes and ov are same, and the ID of overlapped regions, to which "nodes(i)" belongs is "ov(i)".
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+GetNodesOfVolumeRegion
+retval=fld.GetNodesOfVolumeRegion(volid, nnode, nodes, ov)
+| [Explanation]
+| Get nodes in a volume region
+| [Argument]
+| (long)volid
+| :
+| VOLID
+See GetVOLemtnamebyVOLID for word definition
+|
+| (VARIANT)nnode
+| :
+| The number of nodes (as long)
+|
+| (VARIANT)nodes
+| :
+| Array consisting of node numbers (as long)
+|
+| (VARIANT)ov
+| :
+| Array consisting of overlap region indices (as long)
+|
+| The array length of nodesand ov is nnodes, and the ID of overlapped regions, to which "nodes(i)" belongs is "ov(i)".
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+GetNodeXYZ
+retval=fld.GetNodeXYZ(nodeid, px, py, pz)
+| [Explanation]
+| Gets coordinates of a node
+| [Argument]
+| (long)nodeid
+| :
+| Node number (Begin from 0 (scFLOW or SC/Tetra) or 1 (scSTREAM or HeatDesigner)
+|
+| (VARIANT)px
+| :
+| X coordinate
+|
+| (VARIANT)py
+| :
+| Y coordinate
+|
+| (VARIANT)pz
+| :
+| Z coordinate
+| [Return Value]
+| (BOOL)retval
+| :
+| Always True
+GetObjectActiveObj
+Set obj=fld.GetObjectActiveObj( )
+| [Explanation]
+| Gets the class of the active object
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (LPDISPATCH)obj
+| :
+| The Object class
+GetObjectByGID
+Set obj=fld.GetObjectByGID(num)
+| [Explanation]
+| Gets a class by GID
+| [Argument]
+| (long)num
+| :
+| GID. It is unique in this application. (Begin from 0)
+| [Return Value]
+| (LPDISPATCH)obj
+| :
+| The class
+GetObjectByLongTitle
+Set retobj=fld.GetObjectByLongTitle(longtitle)
+| [Explanation]
+| Gets a class from the long name of a object
+| [Argument]
+| (BSTR)longtitle
+| :
+| Long name of the object
+| [Return Value]
+| (LPDISPATCH)retobj
+| :
+| The class
+GetObjectByNumber
+Set obj=fld.GetObjectByNumber(num)
+| [Explanation]
+| Gets a class by Number
+| [Argument]
+| (long)num
+| :
+| The serial number. It is unique in the FLD object. (Begin from 1)
+| [Return Value]
+| (LPDISPATCH)obj
+| :
+| The class
+GetObjectByType
+Set obj=fld.GetObjectByType(name, num)
+| [Explanation]
+| Gets a class by object type
+| [Argument]
+| (BSTR)name
+| :
+| The name of type
+|
+| (long)num
+| :
+| The serial number. It is unique for the specified type of object. (Begin from 1)
+| [Return Value]
+| (LPDISPATCH)obj
+| :
+| The class
+GetObjNum
+num=fld.GetObjNum( )
+| [Explanation]
+| Gets the number of objects in this FLD object
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (long)num
+| :
+| The number of objects.
+GetObjType
+name=fld.GetObjType(n)
+| [Explanation]
+| Gets a type name of the specified object class
+| [Argument]
+| (long)n
+| :
+| The serial number of the object. It begins from 1.
+| [Return Value]
+| (BSTR)name
+| :
+| The name of type.
+GetOverlappingRegionCount
+retval=fld.GetOverlappingRegionCount( )
+| [Explanation]
+| Get the number of overlapping regions
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (long)retval
+| :
+| The number of overlap regions
+GetRgnName
+string retval = fld.GetRgnName (ngfax)
+| [Explanation]
+| Get name of surface registration area
+| [Argument]
+| (long) ngfax
+| :
+| Surface registration area id starting from 0
+| [Return Value]
+| (string) retval
+| :
+| Retrieved name
+GetRgnNum
+long retval = fld.GetRgnNum ()
+| [Explanation]
+| Get the number of surface registration areas
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (long) retval
+| :
+| Number of fetched
+GetScalar
+retval=fld.GetScalar(LNAM, ov, node, s)
+| [Explanation]
+| Get a scalar variable value of the specified node
+| [Argument]
+| (BSTR)LNAM
+| :
+| Short name of variable (PRES, TEMP, ...)
+|
+| (long)ov
+| :
+| Overlap region ID
+|
+| (long)node
+| :
+| Node number
+|
+| (VARIANT)s
+| :
+| Scalar value(as double)
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+GetScalarArray
+retval=fld.GetScalarArray(LNAM, ov, s)
+| [Explanation]
+| Get scalar variable values with a specified variable name in an array
+| [Argument]
+| (BSTR)LNAM
+| :
+| Short name of variable (PRES, TEMP, ...)
+|
+| (long)ov
+| :
+| Overlap region ID
+|
+| (VARIANT)s
+| :
+| Array consisting of scalar values(array of double)
+The array length of sis fld.GetNodeCount(ov), and the scalar variable value of node number "node" is s(node-fld.GetNodeOfs( )).
+| [Return value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+GetScalarMinMaxByVol
+retval = fld.GetScalarMinMaxByVol( volname , var1name , min , max )
+| [Explanation]
+| Obtains minimum/maximum values of specified scalar variables in the pre-defined volume region
+| [Argument]
+| (BSTR)volname
+| :
+| Volume region name
+|
+| (BSTR)var1name
+| :
+| Scalar variable name
+|
+| (VARIANT)min
+| :
+| The minimum value of a scalar variable in the specified volume region (as double)
+|
+| (VARIANT)max
+| :
+| The maximum value of a scalar variable in the specified volume region (as double)
+| [Return Value]
+| (long)retval
+| :
+| If -1, failed as no variable was found
+If 0, variables were found
+GetSurfaceArray
+retval=fld.GetSurfaceArray(size, names)
+| [Explanation]
+| Gets the list of registered surfaces
+| [Argument]
+| (VARIANT)size
+| :
+| The maximum size as input, the number of surfaces at output.
+|
+| (VARIANT)names
+| :
+| The array of registered surfaces (as string)
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+GetSurfaceArray2
+retval = fld.GetSurfaceArray2 (ngfb, variant, variant)
+| [Explanation]
+| Gets a set of surface registration area names to which the specified face belongs
+| [Argument]
+| (long) ngfb
+| :
+| Face number (starting from 0)
+|
+| (variant) num
+| :
+| number of names retrieved
+|
+| (variant) names
+| :
+| array of retrieved names
+| [Return Value]
+| (bool) retval
+| :
+| True on success, false on failure
+GetTimeByCycleID
+retval=fld.GetTimeByCycleID (cycid)
+| [Explanation]
+| Gets the time described in the FLD file corresponding to the cycle ID
+| [Argument]
+| (long)cycid
+| :
+| The cycle ID
+| [Return Value]
+| (long)retval
+| :
+| The time described in the FLD file corresponding to the cycle ID -1 if failed
+GetVariableInfo
+isinarea=fld.GetVariableInfo(LNAM, x, y, z, ov, elem, mat, copy, v1, v2, v3)
+| [Explanation]
+| Gets field information of the specified location
+| [Argument]
+| (BSTR)LNAM
+| :
+| Short name of variable (PRES, TEMP, ...)
+|
+| (double)x, y, z
+| :
+| Coordinates
+|
+| (VARIANT)ov
+| :
+| Overlap region ID (as long)
+|
+| (VARIANT)elem
+| :
+| Element number (as long)
+|
+| (VARIANT)mat
+| :
+| MAT number (as long)
+|
+| (VARIANT)copy
+| :
+| Copy ID (as long)
+|
+| (VARIANT)v1, v2, v3
+| :
+| The value (as double). (v1, v2, v3) if the variable is vector. v2and v3are meaningless if it is scalar.
+| [Return Value]
+| (BOOL)isinarea
+| :
+| True if MAT number is correctly received. Falseif not.
+GetVariableMax
+max=fld.GetVariableMax(LNAM)
+| [Explanation]
+| Gets the maximum value of a variable
+| [Argument]
+| (BSTR)LNAM
+| :
+| Short name of the variable
+| [Return Value]
+| (double)max
+| :
+| The maximum value
+GetVariableMin
+min=fld.GetVariableMin(LNAM)
+| [Explanation]
+| Gets the minimum value of a variable
+| [Argument]
+| (BSTR)LNAM
+| :
+| Short name of the variable
+| [Return Value]
+| (double)min
+| :
+| The minimum value
+GetVecteor
+retval=fld.GetVecteor(LNAM, ov, node, vx, vy, vz)
+| [Explanation]
+| Get vector variable values of the specified node
+| [Argument]
+| (BSTR)LNAM
+| :
+| Short name of variable (PRES, TEMP, ...)
+|
+| (long)ov
+| :
+| Overlap region ID
+|
+| (long)node
+| :
+| Node num
+|
+| (VARIANT)vx
+| :
+| X-component of vector value (as double)
+|
+| (VARIANT)vy
+| :
+| Y-component of vector value (as double)
+|
+| (VARIANT)vz
+| :
+| Z-component of vector value (as double)
+| [Return Value]
+| (XXXX)zzzz
+| :
+| True if successful, False if failed
+GetVecteorArray
+retval=fld.GetVectorArray(LNAM, ov, vx, vy, vz)
+| [Explanation]
+| Get vector variable values with a specified variable name in an array
+| [Argument]
+| (BSTR)LNAM
+| :
+| Short name of variable (PRES, TEMP, ...)
+|
+| (long)ov
+| :
+| Overlap region ID
+|
+| (VARIANT)vx
+| :
+| X-component of vector variable value (array of double)
+|
+| (VARIANT)vy
+| :
+| Y-component of vector variable value (array of double)
+|
+| (VARIANT)vz
+| :
+| Z-component of vector variable value (array of double)
+|
+| The array of vx, vy, and vz is fld.GetNodeCount(ov), and the vector variable value of node number "node" is (vx(node-fld.GetNodeOfs( )), vy(node-fld.GetNodeOfs( )), and vz(node-fld.GetNodeOfs( ))).
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+GetVectorMinMaxByVol
+retval = fld.GetVectorMinMaxByVol( volname , var1name , minX , maxX , minY , maxY , minZ , maxZ )
+| [Explanation]
+| Obtains minimum/maximum values of specified vector variables in the pre-defined volume region
+| [Argument]
+| (BSTR)volname
+| :
+| Volume region name
+|
+| (BSTR)var1name
+| :
+| Vector variable name
+|
+| (VARIANT)minX
+| :
+| The minimum value of the X component of specified vector variable in the pre-defined volume region (output as double)
+|
+| (VARIANT)maxX
+| :
+| The maximum value of the X component of specified vector variable in the pre-defined volume region (output as double)
+|
+| (VARIANT)minY
+| :
+| The minimum value of the Y component of specified vector variable in the pre-defined volume region (output as double)
+|
+| (VARIANT)maxY
+| :
+| The maximum value of the Y component of specified vector variable in the pre-defined volume region (output as double)
+|
+| (VARIANT)minZ
+| :
+| The minimum value of the Z component of specified vector variable in the pre-defined volume region (output as double)
+|
+| (VARIANT)maxZ
+| :
+| The maximum value of the Z component of specified vector variable in the pre-defined volume region (output as double)
+| [Return Value]
+| (long)retval
+| :
+| If -1, failed as no variable was found If 0, variables were found
+GetViewPoint
+retval=fld.GetViewPoint(tx, ty, tz, fx, fy, fz, nx, ny, nz)
+| [Explanation]
+| Gets a set of current viewpoint
+| [Argument]
+| (VARIANT)tx
+| :
+| X-coordinate of target point
+|
+| (VARIANT)ty
+| :
+| Y-coordinate of target point
+|
+| (VARIANT)tz
+| :
+| Z-coordinate of target point
+|
+| (VARIANT)fx
+| :
+| X-coordinate of view point
+|
+| (VARIANT)fy
+| :
+| Y-coordinate of view point
+|
+| (VARIANT)fz
+| :
+| Z-coordinate of view point
+|
+| (VARIANT)nx
+| :
+| X-coordinate of reference vector
+|
+| (VARIANT)ny
+| :
+| Y-coordinate of reference vector
+|
+| (VARIANT)nz
+| :
+| Z-coordinate of reference vector
+| [Return Value]
+| (BOOL)retval
+| :
+| Always True
+(BOOL)retval
+GetVOLemtnameAsArray
+datanum = fld.GetVOLemtnameAsArray(names)
+| [Explanation]
+| Gets volume region names as array
+| [Argument]
+| (VARIANT) names
+| :
+| Array of retrieved names
+| [Return Value]
+| (int) datanum
+| :
+| Number of retrieved names
+GetVOLemtnamebyVOLID
+volname=fld.GetVOLemtnamebyVOLID(volid)
+| [Explanation]
+| Gets a volume region name from VOLID. VOLID is the serial number numbered to each volume region from 1.
+Internal volume region name used by Solver and described in FLD files (No exotic language allowed).
+Volume region name, is the name described in an EMT file.
+Volume region is equivalent to parts in scSTREAM or HeatDesigner.
+| [Argument]
+| (long)volid
+| :
+| VOLID
+| [Return Value]
+| (BSTR)volname
+| :
+| Volume region name
+GetVOLIDbyElement
+retval = fld.GetVOLIDbyElement(ov, elem, VOLID)
+| [Explanation]
+| Gets VOLID which the specified element belongs to
+| [Argument]
+| (long) ov
+| :
+| VOLID
+|
+| (long) elem
+| :
+| Element number
+|
+| (VARIANT) VOLID
+| :
+| Array consisting of VOLID
+| [Return Value]
+| (BOOL) retval
+| :
+| True if successful, False if failed
+GetVOLIDbyVOLemtname
+volid=fld.GetVOLIDbyVOLemtname(volname)
+| [Explanation]
+| Gets VOLID from volume region name
+See GetVOLemtnamebyVOLID for word definition
+| [Argument]
+| (BSTR)volname
+| :
+| Volume region name
+| [Return Value]
+| (long)volid
+| :
+| VOLID
+GetVOLIDbyVOLorgname
+volid=fld.GetVOLIDbyVOLorgname(orgname)
+| [Explanation]
+| Gets VOLID from an internal volume region name
+See GetVOLemtnamebyVOLID for word definition
+| [Argument]
+| (BSTR)orgname
+| :
+| Internal volume region name
+| [Return Value]
+| (long)volid
+| :
+| VOLID
+GetVOLNum
+volnum=fld.GetVOLNum( )
+| [Explanation]
+| Gets the number of volume regions described in the FLD file.
+It is equivalent to the maximum VOLID
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (long)volnum
+| :
+| The number of volume regions
+GetVOLorgnameAsArray
+datanum = fld.GetVOLorgnameAsArray(names)
+| [Explanation]
+| Gets internal volume region names as array
+| [Argument]
+| (VARIANT) names
+| :
+| Array of retrieved names
+| [Return Value]
+| (int) datanum
+| :
+| Number of retrieved names
+GetVOLorgnamebyVOLID
+orgname=fld.GetVOLorgnamebyVOLID(volid)
+| [Explanation]
+| Gets an internal volume region name from VOLID
+See GetVOLemtnamebyVOLID for word definition
+| [Argument]
+| (long)volid
+| :
+| VOLID
+| [Return Value]
+| (BSTR)orgname
+| :
+| Internal volume region name
+GetVolumeArray2
+retval = fld.GetVolumeArray2 (elem, num, names)
+| [Explanation]
+| Gets a set of volume area names to which the specified element belongs
+| [Argument]
+| (long) elem
+| :
+| Element number (starting from 0)
+|
+| (VARIANT) num
+| :
+| number of names retrieved
+|
+| (VARIANT) names
+| :
+| array of retrieved names
+| [Return Value]
+| (bool) retval
+| :
+| True on success, false on failure
+GetVolumeOfElement
+retval=fld.GetVolumeOfElement(ov, elem, volume)
+| [Explanation]
+| Get the volume of a volume region
+| [Argument]
+| (long)ov
+| :
+| Overlap region I
+|
+| (long)elem
+| :
+| Element number
+|
+| (VARIANT)volume
+| :
+| Volume (as double)
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+LocalXYZ2GlobalXYZ
+retval=fld.LocalXYZ2GlobalXYZ(px, py, pz, gx, gy, gz)
+| [Explanation]
+| Converts a coordinate of a local coordinate system to the global coordinate system
+| [Argument]
+| (double)px
+| :
+| Local x coordinate
+|
+| (double)px
+| :
+| Local y coordinate
+|
+| (double)px
+| :
+| Local z coordinate
+|
+| (double)px
+| :
+| Global x coordinate (casted to double)
+|
+| (double)px
+| :
+| Global y coordinate (casted to double)
+|
+| (double)px
+| :
+| Global z coordinate (casted to double)
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+RemoveAllObj
+retval=fld.RemoveAllObj( )
+| [Explanation]
+| Removes all FLD objects but Main object
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+RemoveRelatedObj
+retval=fld.RemoveRelatedObj(deltype)
+| [Explanation]
+| Removes all FLD objects same to the specified objects
+| [Argument]
+| (LPDISPATCH)deltype
+| :
+| The type of object
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+ResetCycOpe
+retval=fld.ResetCycOpe( )
+| [Explanation]
+| Resets an operation in the operation function between cycles
+| [Argument]
+| None
+|
+|
+| [Return Value]
+| (BOOL)retval
+| :
+| True
+SaveCradleViewer
+retval=fld.SaveCradleViewer(path)
+| [Explanation]
+| Saves in CradleViewer (*.CradleViewer)
+| [Argument]
+| (BSTR)path
+| :
+| The file name to save
+| [Return Value]
+| (BOOL)retval
+| :
+| True
+SaveFBX
+retval=fld.SaveFBX(path,opt)
+| [Explanation]
+| Save as FBX file
+| [Argument]
+| (BSTR)path
+| :
+| File path to save
+|
+| (BSTR)opt
+| :
+| Save options
+If the option is AAA for command and BBB for value, they are written in the format AAA=BBB;, separated by semicolons.
+The following can be used as commands
+BRIGHT
+If unspecified or set to 0, the coordinate components will not be changed.
+If set to 1, the Z axis of the post will be changed to the Y axis of the FBX.
+SURF
+If unspecified or set to 0, the image will not be double-sided.
+If set to 1, the image will be double-sided.
+SCALE
+If unspecified or set to 0, no scaling will be performed.
+If set to 1, scaling will be performed to the scale specified by VAL.
+CSV
+If unspecified or set to 0, CSV output is not performed.
+If set to 1, CSV output of animation particles is performed.
+SKIP
+If unspecified or set to 0, the save dialog will be displayed.
+If set to 1, the save dialog will be skipped.
+| [Return Value]
+| (bool)retval
+| :
+| Always true
+SaveGLTF
+retval=fld.SaveGLTF(path,opt)
+| [Explanation]
+| Save as GLTF file
+| [Argument]
+| (BSTR)path
+| :
+| File path to save
+|
+| (BSTR)opt
+| :
+| Save options
+If the command is AAA and the value is BBB, the options are written in the format AAA=BBB;, separated by semicolons.
+The following commands are available:
+BRIGHT
+If not specified, the previous value will be used.
+If it is 0, [Light] will be selected in the save dialog.
+If it is 1, [Standard] will be selected in the save dialog.
+If it is 2, [Dark] will be selected in the save dialog.
+SKIP
+If not specified or set to 0, the save dialog will be displayed.
+If set to 1, the save dialog will be skipped.
+For example, if you specify "SKIP=1;", the save dialog will not be displayed.
+| [Return Value]
+| (bool)retval
+| :
+| Always true
+SaveSTA
+retval=fld.SaveSTA(stafilename)
+| [Explanation]
+| Saves current status of the FLD file to a status file
+| [Argument]
+| (BSTR)stafilename
+| :
+| Name of a file (full path)
+| [Return Value]
+| (BOOL)retval
+| :
+| Always True
+SaveSTL
+retval=fld.SaveSTL(path)
+| [Explanation]
+| Save as STL files
+| [Argument]
+| (BSTR)path
+| :
+| File path to save
+| [Return Value]
+| (bool)retval
+| :
+| Always true
+SaveVRML
+retval=fld.SaveVRML(path)
+| [Explanation]
+| Save as VRML files
+| [Argument]
+| (BSTR)path
+| :
+| File path to save
+| [Return Value]
+| (bool)retval
+| :
+| Always true
+SetAutoCycle
+retval = fld.SetAutoCycle( isAuto )
+| [Explanation]
+| Selects the [Auto Set] checkbox
+| [Argument]
+| (bool)isAuto
+| :
+| The status of the [Cycle shift auto set] checkbox
+| [Return Value]
+| (bool)retva
+| :
+| Always true
+SetCurCycleID
+newcycid=fld.SetCurCycleID(cycid)
+| [Explanation]
+| Changes current cycle by cycle ID
+| [Argument]
+| (long)cycid
+| :
+| Cycle ID. See GetCurCycleID for cycle ID
+| [Return Value]
+| (long)newcycid
+| :
+| Cycle ID after cycle is changed. -1 if the cycid is out of range
+SetCurCycleID_F
+retval=fld.SetCurCycleID_F(cyc_i,cyc_f)
+| [Explanation]
+| Sets the current cycle ID as decimal
+| [Argument]
+| (long)cyc_i
+| :
+| The integral part of the cycle ID to set (Start from 1)
+|
+| (double)cyc_f
+| :
+| The decimal part of the cycle ID to set (Greater than 0 and smaller than 1)
+| [Return Value]
+| (long)retval
+| :
+| The integral part of the cycle ID to set if successful; -1 if failed
+SetCycOpeMode
+retval=fld.SetCycOpeMode(mode)
+| [Explanation]
+| Selects an operation method for the operation function between cycles
+| [Argument]
+| (long)mode
+| :
+| 0 : Sum (Initial value=0)
+1: Average (Initial value=0)
+2: Sum (Initial value=Current value)
+3: Subtract (Initial value=Current value)
+4: Multiply (Initial value=Current value)
+5: Divide (Initial value=Current value)
+6: Square and sum (Initial value=0)
+7: Square and average (Initial value=0)
+| [Return Value]
+| (BOOL)retval
+| :
+| True
+SetDisplayAxis
+retval=fld.SetDisplayAxis(show)
+| [Explanation]
+| Sets show/hide of axis
+| [Argument]
+| (BOOL)show
+| :
+| True to show, False to hide
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+SetDisplayChildAllObj
+retval=fld.SetDisplayChildAllObj(show)
+| [Explanation]
+| Shows/hides FLD objects in the loaded FLD
+| [Argument]
+| (long)show
+| :
+| Trueif show, False if hide
+| [Return Value]
+| (BOOL)retval
+| :
+| True
+SetDisplayFLD
+retval=fld.SetDisplayFLD(show)
+| [Explanation]
+| Shows/hides loaded FLD
+| [Argument]
+| (long)show
+| :
+| Trueif show, False if hide
+| [Return Value]
+| (BOOL)retval
+| :
+| True
+SetDisplayTitleCycle
+retval=fld.SetDisplayTitleCycle(show)
+| [Explanation]
+| Sets show/hide of cycle number
+| [Argument]
+| (BOOL)show
+| :
+| True to show, False to hide
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+SetDisplayTitlePath
+retval=fld.SetDisplayTitlePath(show)
+| [Explanation]
+| Sets show/hide of FLD file name
+| [Argument]
+| (BOOL)show
+| :
+| True to show, False to hide
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+SetDisplayTitleTime
+retval=fld.SetDisplayTitleTime(show)
+| [Explanation]
+| Sets show/hide of time
+| [Argument]
+| (BOOL)show
+| :
+| True to show, False to hide
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+SetVarTitle
+retval=fld.SetVarTitle(lnam, title)
+| [Explanation]
+| Change the description of the variable
+| [Argument]
+| (BSTR)lnam
+| :
+| Variable
+|
+| (BSTR)title
+| :
+| Description
+| [Return Value]
+| (BOOL)retval
+| :
+| True if the description is changed, False if the variable is not found
+SetViewPoint
+retval=fld.SetViewPoint(tx, ty, tz, fx, fy, fz, rx, ry, rz)
+| [Explanation]
+| Sets view point
+| [Argument]
+| (double)tx
+| :
+| X-coordinate of view point
+|
+| (double)ty
+| :
+| Y-coordinate of view point
+|
+| (double)tz
+| :
+| Z-coordinate of view point
+|
+| (double)fx
+| :
+| X-coordinate of target point
+|
+| (double)fy
+| :
+| Y-coordinate of target point
+|
+| (double)fz
+| :
+| Z-coordinate of target point
+|
+| (double)rx
+| :
+| X-component of reference vector
+|
+| (double)ry
+| :
+| Y-component of reference vector
+|
+| (double)rz
+| :
+| Z-component of reference v
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed
+SetViewPort
+retval=fld.SetViewPort(sx, sy, ex, ey)
+| [Explanation]
+| Sets the location of the clipping frame
+| [Argument]
+| (double)sx
+| :
+| Horizontal location of lower left corner (0 to 1)
+|
+| (double)sy
+| :
+| Vertical location of lower left corner (0 to 1)
+|
+| (double)ex
+| :
+| Horizontal location of upper right corner (0 to 1)
+|
+| (double)ey
+| :
+| Vertical location of upper right corner (0 to 1)
+| [Return Value]
+| (BOOL)retval
+| :
+| True if successful, False if failed

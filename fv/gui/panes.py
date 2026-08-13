@@ -228,6 +228,9 @@ class ObjectTree(QTreeWidget if _HAS_QT else object):
             "particle": "point",
             "isosurface": "isosurface",
             "streamline": "streamline",
+            "pathline": "streamline",
+            "cylinder": "plane_xy",
+            "circle": "plane_xy",
             "volume": "volume",
             "vector": "vector",
             "colorbar": "colorbar",
@@ -305,7 +308,10 @@ class ObjectTree(QTreeWidget if _HAS_QT else object):
             self.object_activated.emit(kind, name)
 
     _RENDERABLE_KINDS = ("surface", "plane", "particle", "isosurface",
-                         "streamline", "volume", "colorbar", "point")
+                         "streamline", "volume", "colorbar", "point",
+                         "light", "pathline", "cylinder", "circle",
+                         "text", "bitmap", "information", "mirror",
+                         "timeseries", "maxmin", "graph", "grouping")
 
     def _on_selection_changed(self) -> None:
         """Single-click a renderable object → show tiled settings (scPOST)."""
@@ -455,7 +461,10 @@ class PropertyHost(QWidget if _HAS_QT else object):
             return
         from .object_dialogs import ParticleDialog, PlaneDialog, SurfaceDialog
         from .object_dialogs2 import (
-            ColorbarDialog, IsosurfaceDialog, PointDialog, StreamlineDialog,
+            BitmapDialog, CircleDialog, ColorbarDialog, CylinderDialog,
+            GraphDialog, GroupingDialog, InformationDialog, IsosurfaceDialog,
+            LightDialog, MaxMinDialog, MirrorCopyDialog, PathlineDialog,
+            PointDialog, StreamlineDialog, TextDialog, TimeSeriesDialog,
             VolumeDialog,
         )
         cls = {
@@ -467,6 +476,18 @@ class PropertyHost(QWidget if _HAS_QT else object):
             "streamline": StreamlineDialog,
             "volume": VolumeDialog,
             "colorbar": ColorbarDialog,
+            "light": LightDialog,
+            "pathline": PathlineDialog,
+            "cylinder": CylinderDialog,
+            "circle": CircleDialog,
+            "text": TextDialog,
+            "bitmap": BitmapDialog,
+            "information": InformationDialog,
+            "mirror": MirrorCopyDialog,
+            "timeseries": TimeSeriesDialog,
+            "maxmin": MaxMinDialog,
+            "graph": GraphDialog,
+            "grouping": GroupingDialog,
         }.get(kind)
         if cls is None:
             return

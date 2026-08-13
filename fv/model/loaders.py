@@ -57,5 +57,5 @@ def describe(path: str) -> str:
         return f"loadable ({', '.join(sorted(LOADERS))})"
     tag = probe_format(path)
     if tag.startswith("cgns"):
-        return (f"CGNS file detected ({tag}) — parser not yet implemented")
+        return f"CGNS file detected ({tag}) — loadable via cgns loader"
     return f"{Path(path).suffix or '(no extension)'} — no loader registered"

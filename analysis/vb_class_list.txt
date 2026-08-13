@@ -1,0 +1,128 @@
+﻿
+List of Class(scPOST)
+scPOST User's Guide VB Interface Reference
+List of Class(scPOST)
+The classes provided by Postprocessor are as follows.
+Application class (app)
+Global Window class (global)
+Message Window class (msg)
+Camera Object class (savebitmaps)
+Draw Window class (drawwindow)
+FLD File class (fld)
+Object class (obj)
+Surface Object class (surface)
+IsoSurface Object class (isosurface)
+Unlimited Plane Object class (obj_P)
+Limited Plane Object class (obj_A)
+Colorbar Object class (colorbar)
+Streamline Object class (streamlines)
+Plane Object class (cutplane)
+Graph Object class (graph)
+Point Object class (points)
+Text Object class (text)
+Curve Object class (curve)
+Region Object class (obj_R)
+Volume Object class (vol)
+Neutral File Object class (neu)
+Pathline Object class (pcl)
+Particle Object class (particle)
+Bitmap Object class (bitmap)
+Circle Object class (circle)
+Cylinder Object class (cylinder)
+Gradation Object class (gradation)
+Grouping Object class (grouping)
+Information Object class (info)
+Light Object class (light)
+Mirror Copy Object class (mirror)
+Periodical Copy Object class (period)
+RegionBC Object class (rnat)
+UFO Object class (ufo)
+Compare Scales Object class (measure)
+Folder Object class (folder)
+Time Series Object class (tm)
+Environment Object class (Environment)
+Max and Min Object class (ot)
+Bar Object class (obj_S)
+Turbo Object class (turbo)
+To use the properties/methods of these classes, "instances" of these classes should be acquired first.
+For how to acquire the instance, refer to the example at the beginning of the section of each class. With that instance, use the properties/methods prepared for the applicable class.
+In this manual, the variable name in the parentheses is uniformly used for the instance name of each class, however, you can set other variable name without problem.
+The following is a hierarchical structure for generation of an instance.
+| Type Name
+| Object
+| FLD
+| Option
+| PRE
+| Neutral file
+| PLANE
+| Plane
+| CYLINDER
+| Cylinder
+| FULLSURF
+| Surface
+| CIRCLE
+| Circle
+| POINTS
+| Point
+| VOLUME
+| Whole
+| ISOSURF
+| Isosurface
+| FLOWLINES
+| Streamline
+| LIGHT
+| Light
+| SKY
+| Gradation
+| PARTICLE
+| Particle
+| COLORBAR
+| Colorbar
+| MIRROR
+| Mirror Copy
+| PERIOD
+| Periodical Copy
+| INFO
+| Information
+| LINE
+| Curve
+| UFO
+| UFO
+| GROUP
+| Gropuing
+| 1DGRAPH
+| Graph
+| TEST
+| Text
+| BMP
+| Bitmap
+| ENV
+| Env
+| SAVEBMP
+| Camera
+| TM
+| Time Series
+| FOLDER
+| Folder
+| RNAT
+| RegionBC
+| PCL
+| Pathline
+| FULLSURF
+| Surface
+| PLANE
+| Plane
+| CYLINDER
+| Cylinder
+| CIRCLE
+| Circle
+| POINTS
+| Point
+| PRE
+| Nertral File
+| VOLUME
+| Volume
+| MEASURE
+| Compare Scales
+| SPECIALTURBO
+| Turbo
