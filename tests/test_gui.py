@@ -2251,6 +2251,34 @@ def test_measure_dialog(qapp):
     assert m.points[0][0] == 1.0
 
 
+@pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
+def test_xdmf_reader(tmp_path):
+    """Inline XDMF parses into a FieldFile (D1)."""
+    from fv.model.dataset import xdmf_load
+    from fv.model.loaders import can_load
+    # 1 hexahedron: 8 nodes, 1 cell, 1 node attribute
+    coords = "0 0 0  1 0 0  1 1 0  0 1 0  0 0 1  1 0 1  1 1 1  0 1 1"
+    conn = "0 1 2 3 4 5 6 7"
+    pres = "1 2 3 4 5 6 7 8"
+    xml = f"""<?xml version="1.0"?>
+    <Xdmf><Domain><Grid Name="g">
+    <Topology TopologyType="Hexahedron" NumberOfElements="1">
+    <DataItem Dimensions="1 8" Format="XML">{conn}</DataItem></Topology>
+    <Geometry GeometryType="XYZ"><DataItem Dimensions="8 3" Format="XML">
+    {coords}</DataItem></Geometry>
+    <Attribute Name="PRES" Center="Node">
+    <DataItem Dimensions="8" Format="XML">{pres}</DataItem></Attribute>
+    </Grid></Domain></Xdmf>"""
+    xmf = tmp_path / "cube.xmf"
+    xmf.write_text(xml, encoding="utf-8")
+    assert can_load(str(xmf)) is True
+    ff = xdmf_load(str(xmf))
+    assert ff.kind == "xdmf"
+    assert ff.n_vertices == 8 and ff.n_cells == 1
+    assert ff.variables["PRES"].location == "node"
+    assert ff.variables["PRES"].array.tolist() == [1, 2, 3, 4, 5, 6, 7, 8]
+
+
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_export_animation_frames_headless(tmp_path):

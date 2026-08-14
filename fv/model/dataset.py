@@ -131,6 +131,30 @@ def cgns_load(filepath: str) -> FieldFile:
         )
     return ff
 
+
+def xdmf_load(filepath: str) -> FieldFile:
+    """XDMF loader (D1): XML mesh + fields -> FieldFile(kind='xdmf')."""
+    from ..crdl.xdmf import parse_xdmf
+    path = Path(filepath)
+    mesh = parse_xdmf(str(path))
+    if mesh is None:
+        raise ValueError(f"not a readable XDMF file: {filepath}")
+    ff = FieldFile(path=str(path), kind="xdmf")
+    ff.vertices = mesh["vertices"]
+    ff.n_vertices = mesh["n_vertices"]
+    ff.cell_conn = mesh["cell_conn"]
+    ff.cell_types = mesh["cell_types"]
+    ff.n_cells = mesh["n_cells"]
+    ff.surface_regions = mesh["surface_regions"]
+    ff.volume_regions = mesh["volume_regions"]
+    ff.file_size = mesh["vertices"].nbytes
+    for name, (arr, loc) in mesh["fields"].items():
+        ff.variables[name] = VarInfo(
+            name=name, kind=FIELD_KIND_SCALAR, location=loc,
+            array=np.asarray(arr, dtype=np.float64),
+        )
+    return ff
+
 def _register_loaders() -> None:
     """Advertise the real parsers in :mod:`fv.model.loaders` registry."""
     try:
@@ -141,6 +165,8 @@ def _register_loaders() -> None:
         loaders.register("gph", load_file)
         loaders.register("cgns", cgns_load)
         loaders.register("emt", load_file)  # EMT: fph-family binary
+        loaders.register("xmf", xdmf_load)
+        loaders.register("xdmf", xdmf_load)
     except Exception:  # pragma: no cover - registry is best-effort
         pass
 
