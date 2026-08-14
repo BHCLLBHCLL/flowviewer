@@ -143,3 +143,17 @@
 测试从 84 项增至 121 项（+37），全量回归通过。
 
 **遗留（2026-08-09 补齐后）**：Turbo/UFO/VR/COM 维持不做；其余（拖拽手柄/并排视图/Intersection/Cloth/FLD MAT 过滤/动画帧导出）已完成，见 DEV_PLAN §14。测试增至 129 项。
+
+---
+
+## 7. §16 梯队开发完成（2026-08-09）
+
+按 DEV_PLAN §16 差距排序执行，16 个功能点全部完成并逐点推送 GitHub origin/main：
+
+- **对象面**：Curve / Periodical Copy / Folder / Bar / RegionBC 五对象补齐（对象覆盖 26→31 类）。
+- **数据面**：变量微分算子 grad/div/rot/delx（scipy cKDTree 节点场中心差分）。
+- **交互面**：Measure 量测、Gradation 渐变背景、对象名气球、多对象拖拽手柄。
+- **生态面**：XDMF 读取器、Nastran 文本网格、iFLD 元数据扫描、公开查询 API。
+- **修复**：scene 新对象 dispatch 分支未接线的重大 bug；粒子 Intersection/Trim 过滤未接入 build。
+
+测试从 130 增至 131+（最终全量回归见 pytest_final2）。Marc 二进制 / FBX 维持不做。

@@ -812,3 +812,20 @@ TM/OT ✅ · XDMF/Adams/Nastran/Marc ❌ · Neutral File ❌ · FBX ❌
 **建议执行顺序**：A1→A2（对象面最大收益）→ B1→B2（微分算子）→ C2（Measure）→
 D1（XDMF，低风险）→ A3→A4→A5 → C1→C3 → E1→E2→E3 → D2→D3（D4 评估后决策）。
 每项配 headless 测试（渲染层名/actor 数量断言 + 数值断言），维持 130 项回归全绿。
+
+### 16.1 执行状态（2026-08-09，全部完成并推送 GitHub）
+
+| 梯队 | 工作项 | 提交 | 状态 |
+|---|---|---|---|
+| A | A1 Curve / A2 Periodical Copy / A3 Folder / A4 Bar / A5 RegionBC | 358a2bd, 35b1194, 7bd9697, edb2ab5, 56569dc | ✅ |
+| B | B1 delx/dely/delz / B2 grad/div/rot | f6d765b, 41abde4 | ✅ |
+| C | C2 Measure / C1 Gradation / C3 对象名气球 | 6f6c26c, fe3fa2d, 08a49fa | ✅ |
+| D | D1 XDMF / D2 Nastran / D3 iFLD 扫描 | ad8e789, cea59bc, e252514 | ✅ |
+| E | E1 查询 API / E2 粒子 Trim / E3 多对象手柄 | b5bd638, be4e0a4, cc08f5e | ✅ |
+
+**关键修复**：fe3fa2d 修复了 scene._dispatch_object —— P1.5 起所有新对象（pathline/
+cylinder/circle/text/bitmap/information/mirror/curve/periodical/bar/gradation）的 dispatch 分支
+因 CRLF 换行不匹配而从未真正接入 scene.build（测试直接调 build 函数未暴露），本次一并修复。
+
+**降级说明**：D2 仅实现 Nastran 文本网格（.nas/.bdf，GRID/CHEXA/CTETRA/CPENTA/CPYRAM）；
+Marc .t16/.t19 二进制结果格式未实现；D4 FBX 导出经评估无 VTK 原生写器，维持不做。
