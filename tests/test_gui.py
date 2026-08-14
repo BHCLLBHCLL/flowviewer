@@ -2300,6 +2300,30 @@ def test_folder_tree_hierarchy(qapp):
     assert "Plane (1)" in top
 
 
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_bar_object():
+    """Bar samples a variable along a two-point line (A4)."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import BarObject
+    from fv.render.bar import build_bar_actors, sample_bar
+    ff = load_file(FPH)
+    c0 = ff.vertices.min(axis=0)
+    c1 = ff.vertices.max(axis=0)
+    obj = BarObject(index=1)
+    obj.point1 = tuple(c0)
+    obj.point2 = tuple(c1)
+    obj.variable = "PRES"
+    obj.samples = 16
+    t, vals, var = sample_bar(ff, obj)
+    assert var == "PRES"
+    assert len(t) == 16 and len(vals) == 16
+    assert abs(t[0]) < 1e-12 and abs(t[-1] - 1.0) < 1e-12
+    out = build_bar_actors(ff, obj)
+    assert "bar" in out
+    assert out["bar"].GetMapper().GetInput().GetNumberOfPoints() == 16
+
+
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_export_animation_frames_headless(tmp_path):

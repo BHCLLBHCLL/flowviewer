@@ -562,6 +562,15 @@ class Scene:
             if not isinstance(actor, str):
                 self.register_actor_object(actor, "streamline", obj)
 
+    def _add_bar_actor(self, ff, obj) -> None:
+        """Bar line coloured by a sampled variable (A4)."""
+        from .bar import build_bar_actors
+        actors = build_bar_actors(ff, obj)
+        for key, actor in actors.items():
+            self.add_actor(f"bar:{key}", actor)
+            if not isinstance(actor, str):
+                self.register_actor_object(actor, "bar", obj)
+
     def _add_periodical_actor(self, ff, obj) -> None:
         """Periodic rotated copies of a surface sibling (A2)."""
         from .periodical import build_periodical_actors

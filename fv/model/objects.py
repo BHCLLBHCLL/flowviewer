@@ -420,6 +420,22 @@ class LightObject(PostObject):
 
 
 
+
+@dataclass
+class BarObject(PostObject):
+    """Variable distribution along a two-point bar (scPOST Bar, A4)."""
+
+    kind: str = "bar"
+    title: str = "Bar"
+    point1: tuple = (0.0, 0.0, 0.0)
+    point2: tuple = (1.0, 0.0, 0.0)
+    variable: str = ""
+    samples: int = 32
+    color: tuple = (0.2, 0.4, 0.9)
+    thickness: int = 2
+    font_name: str = "MS Gothic"
+    font_size: int = 9
+
 @dataclass
 class CurveObject(PostObject):
     """Curve through control points, sampling a variable along it (A1)."""

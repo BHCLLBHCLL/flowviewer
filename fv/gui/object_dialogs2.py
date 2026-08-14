@@ -1353,3 +1353,42 @@ class MeasureDialog(ObjectSettingsPanel):
             pts.append((float(sx.value()), float(sy.value()),
                        float(sz.value())))
         obj.points = pts
+
+class BarDialog(ObjectSettingsPanel):
+    """Bar — two points / variable (A4)."""
+
+    def __init__(self, obj, field_file=None, parent=None):
+        super().__init__(getattr(obj, "label", "Bar"), parent)
+        if not _HAS_QT:
+            self.obj = obj
+            return
+        self.obj = obj
+        self.field_file = field_file
+        page = QWidget(self)
+        form = QFormLayout()
+        x1, y1, z1 = getattr(obj, "point1", (0, 0, 0))
+        x2, y2, z2 = getattr(obj, "point2", (1, 0, 0))
+        self.p1x = _dspin(x1, -1e9, 1e9, 6); self.p1y = _dspin(y1, -1e9, 1e9, 6); self.p1z = _dspin(z1, -1e9, 1e9, 6)
+        self.p2x = _dspin(x2, -1e9, 1e9, 6); self.p2y = _dspin(y2, -1e9, 1e9, 6); self.p2z = _dspin(z2, -1e9, 1e9, 6)
+        r1 = QHBoxLayout(); r1.addWidget(self.p1x); r1.addWidget(self.p1y); r1.addWidget(self.p1z)
+        r2 = QHBoxLayout(); r2.addWidget(self.p2x); r2.addWidget(self.p2y); r2.addWidget(self.p2z)
+        form.addRow("Point 1 x/y/z:", r1)
+        form.addRow("Point 2 x/y/z:", r2)
+        self.var = _var_combo(_scalar_vars(field_file), obj.variable)
+        form.addRow("Variable:", self.var)
+        self.samples = QSpinBox(page); self.samples.setRange(2, 2000)
+        self.samples.setValue(int(getattr(obj, "samples", 32)))
+        form.addRow("Samples:", self.samples)
+        self.color = _ColorButton(getattr(obj, "color", (0.2, 0.4, 0.9)), page)
+        form.addRow("Color:", self.color)
+        lay = QVBoxLayout(page); lay.addLayout(form); lay.addStretch(1)
+        self.tabs.addTab(page, "Bar")
+
+    def apply_to(self, obj) -> None:
+        if not _HAS_QT:
+            return
+        obj.point1 = (float(self.p1x.value()), float(self.p1y.value()), float(self.p1z.value()))
+        obj.point2 = (float(self.p2x.value()), float(self.p2y.value()), float(self.p2z.value()))
+        obj.variable = self.var.currentData() or ""
+        obj.samples = int(self.samples.value())
+        obj.color = self.color.rgb()
