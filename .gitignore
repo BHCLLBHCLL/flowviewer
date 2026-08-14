@@ -2,4 +2,6 @@ __pycache__/
 *.py[cod]
 
 tests/*
+!tests/*.py
+!tests/tr03_9.fph
 .pytest_tmp/
