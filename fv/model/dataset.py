@@ -155,6 +155,24 @@ def xdmf_load(filepath: str) -> FieldFile:
         )
     return ff
 
+
+def nastran_load(filepath: str) -> FieldFile:
+    """Nastran free-field mesh loader (D2)."""
+    from ..crdl.nastran import parse_nastran
+    path = Path(filepath)
+    mesh = parse_nastran(str(path))
+    if mesh is None:
+        raise ValueError(f"not a readable Nastran mesh: {filepath}")
+    ff = FieldFile(path=str(path), kind="nastran")
+    ff.vertices = mesh["vertices"]
+    ff.n_vertices = mesh["n_vertices"]
+    ff.cell_conn = mesh["cell_conn"]
+    ff.cell_types = mesh["cell_types"]
+    ff.n_cells = mesh["n_cells"]
+    ff.volume_regions = mesh["volume_regions"]
+    ff.file_size = mesh["vertices"].nbytes
+    return ff
+
 def _register_loaders() -> None:
     """Advertise the real parsers in :mod:`fv.model.loaders` registry."""
     try:
@@ -167,6 +185,8 @@ def _register_loaders() -> None:
         loaders.register("emt", load_file)  # EMT: fph-family binary
         loaders.register("xmf", xdmf_load)
         loaders.register("xdmf", xdmf_load)
+        loaders.register("nas", nastran_load)
+        loaders.register("bdf", nastran_load)
     except Exception:  # pragma: no cover - registry is best-effort
         pass
 

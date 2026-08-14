@@ -2446,6 +2446,31 @@ def test_multi_object_drag(qapp, monkeypatch):
     assert w._move_object_to_pick(plane, 0, 0) is True
 
 
+def test_nastran_reader(tmp_path):
+    """Free-field Nastran mesh parses into a FieldFile (D2)."""
+    from fv.model.dataset import nastran_load
+    from fv.model.loaders import can_load
+    nas = tmp_path / "box.nas"
+    lines = [
+        "GRID,1,,0.0,0.0,0.0",
+        "GRID,2,,1.0,0.0,0.0",
+        "GRID,3,,1.0,1.0,0.0",
+        "GRID,4,,0.0,1.0,0.0",
+        "GRID,5,,0.0,0.0,1.0",
+        "GRID,6,,1.0,0.0,1.0",
+        "GRID,7,,1.0,1.0,1.0",
+        "GRID,8,,0.0,1.0,1.0",
+        "CHEXA,1,1,1,2,3,4,5,6,7,8",
+        "ENDDATA",
+    ]
+    nas.write_text("\n".join(lines), encoding="utf-8")
+    assert can_load(str(nas)) is True
+    ff = nastran_load(str(nas))
+    assert ff.kind == "nastran"
+    assert ff.n_vertices == 8 and ff.n_cells == 1
+    assert ff.cell_types.tolist() == [12]  # HEXAHEDRON
+
+
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_export_animation_frames_headless(tmp_path):
