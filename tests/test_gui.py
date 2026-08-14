@@ -2225,6 +2225,32 @@ def test_grad_div_rot():
     assert np.abs(r.array).max() < 0.4
 
 
+def test_measure_distance_angle():
+    """Measure computes distance and angle (C2)."""
+    from fv.model.objects import MeasureObject
+    from fv.render.measure import angle, compute, distance
+    assert abs(distance((0, 0, 0), (3, 4, 0)) - 5.0) < 1e-9
+    assert abs(angle((1, 0, 0), (0, 0, 0), (0, 1, 0)) - 90.0) < 1e-9
+    m = MeasureObject(index=1)
+    m.points = [(0, 0, 0), (3, 4, 0)]
+    assert "5" in compute(m)
+    m2 = MeasureObject(index=2, mode="Angle")
+    m2.points = [(1, 0, 0), (0, 0, 0), (0, 1, 0)]
+    assert "90" in compute(m2)
+
+def test_measure_dialog(qapp):
+    """MeasureDialog writes points/mode back (C2)."""
+    from fv.gui.object_dialogs2 import MeasureDialog
+    from fv.model.objects import MeasureObject
+    m = MeasureObject(index=1)
+    d = MeasureDialog(m)
+    d.mode.setCurrentIndex(d.mode.findData("Angle"))
+    d.spins[0][0].setValue(1.0)
+    d.apply_to(m)
+    assert m.mode == "Angle"
+    assert m.points[0][0] == 1.0
+
+
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_export_animation_frames_headless(tmp_path):

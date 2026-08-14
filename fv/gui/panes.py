@@ -312,7 +312,7 @@ class ObjectTree(QTreeWidget if _HAS_QT else object):
                          "light", "pathline", "cylinder", "circle",
                          "text", "bitmap", "information", "mirror",
                          "timeseries", "maxmin", "graph", "grouping",
-                         "curve", "periodical")
+                         "curve", "periodical", "measure")
 
     def _on_selection_changed(self) -> None:
         """Single-click a renderable object → show tiled settings (scPOST)."""

@@ -1298,3 +1298,58 @@ class PeriodicalCopyDialog(ObjectSettingsPanel):
         obj.copies = int(self.copies.value())
         obj.color = self.color.rgb()
         obj.transparent = self.transp.isChecked()
+
+class MeasureDialog(ObjectSettingsPanel):
+    """Measure — Distance / Angle between points (C2)."""
+
+    def __init__(self, obj, field_file=None, parent=None):
+        super().__init__(getattr(obj, "label", "Measure"), parent)
+        if not _HAS_QT:
+            self.obj = obj
+            return
+        self.obj = obj
+        page = QWidget(self)
+        form = QFormLayout()
+        self.mode = QComboBox(page)
+        for m in ("Distance", "Angle"):
+            self.mode.addItem(m, m)
+        self.mode.setCurrentIndex(max(0, self.mode.findData(
+            getattr(obj, "mode", "Distance"))))
+        form.addRow("Mode:", self.mode)
+        pts = list(getattr(obj, "points", None) or [])
+        while len(pts) < 3:
+            pts.append((0.0, 0.0, 0.0))
+        self.spins = []
+        for i in range(3):
+            px, py, pz = pts[i]
+            sx = _dspin(px, -1e9, 1e9, 6);
+            sy = _dspin(py, -1e9, 1e9, 6);
+            sz = _dspin(pz, -1e9, 1e9, 6)
+            row = QHBoxLayout(); row.addWidget(sx); row.addWidget(sy); row.addWidget(sz)
+            form.addRow(f"Point {i + 1} x/y/z:", row)
+            self.spins.append((sx, sy, sz))
+        self.calc = QPushButton("Calculate", page)
+        self.calc.clicked.connect(self._on_calc)
+        self.result = QLabel(" ", page)
+        self.result.setStyleSheet("font-weight:bold;")
+        lay = QVBoxLayout(page); lay.addLayout(form); lay.addWidget(self.calc); lay.addWidget(self.result); lay.addStretch(1)
+        self.tabs.addTab(page, "Measure")
+
+    def _on_calc(self) -> None:
+        self.apply_to(self.obj)
+        from ..render.measure import compute
+        self.obj.result = compute(self.obj)
+        self.result.setText(self.obj.result)
+        parent = self.parent();
+        if parent is not None and hasattr(parent, "message_win"):
+            parent.message_win.log(self.obj.result)
+
+    def apply_to(self, obj) -> None:
+        if not _HAS_QT:
+            return
+        obj.mode = self.mode.currentData() or "Distance"
+        pts = []
+        for sx, sy, sz in self.spins:
+            pts.append((float(sx.value()), float(sy.value()),
+                       float(sz.value())))
+        obj.points = pts

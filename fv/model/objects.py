@@ -502,6 +502,17 @@ class MirrorCopyObject(PostObject):
     color: tuple = (0.4, 0.4, 0.4)
     transparent: bool = False
 
+
+@dataclass
+class MeasureObject(PostObject):
+    """Distance / angle measurement (scPOST Measure, C2)."""
+
+    kind: str = "measure"
+    title: str = "Measure"
+    mode: str = "Distance"                # Distance | Angle
+    points: list = field(default_factory=list)   # picked (x,y,z) tuples
+    result: str = ""
+
 @dataclass
 class InformationObject(PostObject):
     """Probe information at a point (scPOST Information, P2.4)."""
