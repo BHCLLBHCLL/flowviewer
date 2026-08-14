@@ -656,3 +656,96 @@ EMT 别名、headless placeholder）。验证 5 项全过。
 | G3 | Particle Intersection/Cloth | particle.py：_filter_intersections（立方体区域过滤，show_intersection_regions 开关）+ _cloth_actor（索引序 polyline，special_cloth）。测试 test_particle_intersection_cloth。 |
 | G4 | FLD Surface MAT 过滤 | mesh_fld 暴露 face_cells（面顶点 tuple→cell 映射，与 faces 重排对齐）；FieldFile.face_cells；surface._fld_surface_polydata 按 cell_filter_mask 过滤边界面。测试在 test_gui.py 扩展（G4 probe 验证 9238→8422 面）。 |
 | G5 | 动画帧 PNG 序列导出 | export.export_animation_frames（逐帧 scene.animate + snapshot_png，frame_0000.png…）；File→Export Animation Frames…（帧数 + 目录对话框）。测试 test_export_animation_frames_headless（无渲染窗口返回 0 不崩溃）。 |
+
+## 15. 全面复查：功能完整度与 scPOST 差距（2026-08-09，P0–P3 + G1–G5 之后）
+
+> 对比基准：scPOST VB 接口 41 个公开类（见 analysis/vb_class_list.txt）逐项映射。
+> 当前规模：fv/ 45 文件、13,464 行、20 种 PostObject、21 个 render 模块、
+> 6 种格式 loader（fld/ifld/fph/gph/cgns/emt）、131 项测试（130 过 / 1 skip）。
+
+### 15.1 对象覆盖矩阵（41 类 → flowviewer）
+
+| scPOST 类 | 状态 | 说明 |
+|---|---|---|
+| Application (app) | ❌ | 无 COM 自动化（明确不做）；Python API 见 fv/api.py |
+| Global Window | 🟡 | 对象树"Global Objects"节点，无独立 GlobalWindow 类 |
+| Message Window | ✅ | MessageWindow 日志 |
+| Camera Object | 🟡 | 视图导航 ✅；连续截图→G5 动画帧导出；无独立 Camera 设置 |
+| Draw Window | ✅ | VTK 视口 + 拖拽手柄 + pick |
+| FLD File (fld) | ✅ | FieldFile（FPH/GPH/FLD/CGNS 统一） |
+| Object (obj) | ✅ | PostObject 基类 |
+| Surface | ✅ | 8-tab + MAT/区域过滤 + Luster/Water |
+| IsoSurface | ✅ | Contour/Line/Vector |
+| Unlimited Plane | ✅ | PlaneObject 16-tab |
+| Limited Plane | 🟡 | Trim 坐标范围语义 |
+| Colorbar | ✅ | 全局 LUT 接线 + Fix 范围 |
+| Streamline | ✅ | vtkStreamTracer + FLD Euler 回退 |
+| Plane (cutplane) | ✅ | 同 Unlimited Plane |
+| Graph | ✅ | matplotlib 1D 曲线（P2.2） |
+| Point | ✅ | 标记 + 探针 |
+| Text | ✅ | vtkTextActor（P2.3） |
+| Curve | ❌ | 无独立 Curve/Line 对象 |
+| Region | 🟡 | 数据层 Region；无独立可创建对象 |
+| Volume | ✅ | 真体渲染 raycast（P1.3） |
+| Neutral File | ❌ | 无 |
+| Pathline (pcl) | ✅ | 跨 cycle 粒子追踪（P1.5） |
+| Particle | ✅ | + Intersection/Cloth（G3） |
+| Bitmap | ✅ | vtkTexture 贴图（P2.3） |
+| Circle | ✅ | 盘面切割（P2.1） |
+| Cylinder | ✅ | 圆柱面切割（P2.1） |
+| Gradation (sky) | ❌ | 场景渐变背景近似；无独立对象 |
+| Grouping | ✅ | 成员显隐联动（P2.5） |
+| Information | ✅ | 探针 + 变量值（P2.4） |
+| Light | ✅ | vtkLight + 面板（P0.3） |
+| Mirror Copy | ✅ | 表面镜像（P2.6） |
+| Periodical Copy | ❌ | 无（Mirror 可扩展） |
+| RegionBC (rnat) | ❌ | 无（BC 名在区域列表里） |
+| UFO | ❌ | 明确不做 |
+| Compare Scales | 🟡 | Compare 并排（G2）；距离/角度测量无 |
+| Folder | ❌ | 无（Grouping 近似） |
+| Time Series (tm) | ✅ | CSV 导入（P2.10） |
+| Environment | ✅ | EnvironmentDialog |
+| Max and Min (ot) | ✅ | CSV 导入（P2.10） |
+| Bar (obj_S) | ❌ | 无 Stick/Bar |
+| Turbo | ❌ | 明确不做 |
+
+**计数**：✅ 完整 26 类、🟡 部分 5 类、❌ 缺失 10 类（其中 3 类明确不做：
+Application-COM / UFO / Turbo；7 类可做未做：Curve / NeutralFile / Gradation /
+PeriodicalCopy / RegionBC / Folder / Bar）。
+
+### 15.2 数据层（FLD 类 125 方法面）
+
+| 能力 | 状态 |
+|---|---|
+| Cycle 管理 | 🟡 FileSet 扫描 + 播放；无自定义 cycle 列表 Add/Del |
+| 变量注册表达式引擎 | ✅ + - * / ^ & @ mag(V) ifgt/ifet/ifeq（P1.1） |
+| 微分算子 grad/div/rot/delx | ❌ 未实现 |
+| 几何/区域/MAT 查询 API | 🟡 内部函数有，无公开查询 API |
+| 导出 STA/FBX/GLTF/STL/VRML | ✅ STA(私有)/STL/VRML/GLTF；FBX 无 |
+| SplitView 并排 | ✅ G2 CompareDialog（共享相机） |
+| Undo/Redo | ✅ P2.8 |
+| 对象名气球显示 | ❌ 无 |
+
+### 15.3 格式面
+
+FLD/FPH/GPH ✅ · CGNS ✅ · EMT ✅(别名) · iFLD 🟡(普通 loader) · STA ✅(私有 JSON) ·
+TM/OT ✅ · XDMF/Adams/Nastran/Marc ❌ · Neutral File ❌ · FBX ❌
+
+### 15.4 完整度结论
+
+- **对象面**：26/41 完整 + 5 部分 ≈ 76–82%（未计明确不做项）。
+- **数据面**：格式解码 + 变量注册 + 序列 + 导出 + undo 已闭环；缺微分算子与公开查询 API。
+- **渲染面**：体渲染/光照/全局色标/纹理/混合单元/拖拽手柄已闭环，达 scPOST 实用级。
+- **整体完整度约 75–80%**（较初版 45–55% 提升显著）。
+
+### 15.5 剩余差距与下一步（按价值排序，排除明确不做项）
+
+1. **Curve / Periodical Copy 对象**（价值最高：曲线抽取、圆周周期复制是旋转机械常用；
+   Bar / Folder / RegionBC 次之）。
+2. **变量微分算子** grad/div/rot/delx（delx/dely/delz 需节点场一阶差分 + 邻居拓扑；
+   FPH 单元场需经 LS_Links 邻接）。
+3. **Gradation 渐变背景对象 + Measure 距离/角度测量**（交互量测）。
+4. **XDMF/Nastran/Marc/Adams 格式 + Neutral File**（生态面）。
+5. **iFLD 局部读取 + FBX 导出**。
+6. **公开查询 API**（把内部 region/MAT/cell 查询封装成 fv/api 函数）。
+7. **对象名气球显示、粒子 Trim/Attribute 渲染、多对象手柄**（体验细节）。
