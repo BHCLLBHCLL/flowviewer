@@ -2384,6 +2384,23 @@ def test_object_name_billboard():
     assert sc2._name_actor is None
 
 
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_api_queries():
+    """fv.api exposes region/MAT/cell query helpers (E1)."""
+    import numpy as np
+    from fv import api
+    ff = api.open_file(FPH)
+    names = api.regions(ff)
+    assert len(names) > 0
+    assert all(isinstance(n, str) for n in names)
+    c = api.cell_centers(ff)
+    assert c is not None and c.shape == (ff.n_cells, 3)
+    assert np.isfinite(c).all()
+    adj = api.adjacent_cells(ff, 0)
+    assert isinstance(adj, list)
+    assert all(isinstance(x, int) for x in adj)
+
+
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_export_animation_frames_headless(tmp_path):

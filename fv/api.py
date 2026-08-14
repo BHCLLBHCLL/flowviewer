@@ -81,6 +81,57 @@ def variables(ff) -> list:
     return sorted(ff.variables)
 
 
+
+def regions(ff) -> list:
+    """Boundary region names of a FieldFile."""
+    return [r.name for r in ff.boundary_regions()]
+
+
+def materials(ff):
+    """Per-cell material id array (FLD only; None for FPH)."""
+    return getattr(ff, "material", None)
+
+
+def cell_centers(ff):
+    """Cell centre coordinates as an (n_cells, 3) array."""
+    import numpy as np
+    if ff.kind == "fph" and ff.link_data is not None:
+        ld = ff.link_data
+        face_nodes = np.asarray(ld["face_nodes"], dtype=np.int64)
+        face_offsets = np.asarray(ld["face_offsets"], dtype=np.int64)
+        verts = np.asarray(ff.vertices, dtype=np.float64)
+        out = np.zeros((ff.n_cells, 3))
+        for c, pf in ld["cell_owner_faces"].items():
+            pts = []
+            for fi in pf:
+                lo, hi = int(face_offsets[fi]), int(face_offsets[fi + 1])
+                pts.extend(face_nodes[lo:hi].tolist())
+            if pts and 0 <= c < ff.n_cells:
+                out[c] = verts[pts].mean(axis=0)
+        return out
+    if ff.cell_conn is not None and ff.vertices is not None:
+        conn = np.asarray(ff.cell_conn, dtype=np.int64)
+        verts = np.asarray(ff.vertices, dtype=np.float64)
+        return verts[conn].mean(axis=1)
+    return None
+
+
+def adjacent_cells(ff, cell_id: int) -> list:
+    """Neighbouring cell ids sharing a face (FPH; [] for FLD)."""
+    import numpy as np
+    if ff.kind != "fph" or ff.link_data is None:
+        return []
+    ld = ff.link_data
+    owner = np.asarray(ld["owner"], dtype=np.int64)
+    neighbour = np.asarray(ld["neighbour"], dtype=np.int64)
+    out = []
+    for fi in range(len(owner)):
+        if int(owner[fi]) == cell_id and int(neighbour[fi]) >= 0:
+            out.append(int(neighbour[fi]))
+        if int(neighbour[fi]) == cell_id and int(owner[fi]) >= 0:
+            out.append(int(owner[fi]))
+    return sorted(set(out))
+
 def cycles(ff) -> int:
     """Cycle id of a FieldFile (0 when absent)."""
     return ff.cycle if ff.cycle is not None else 0
