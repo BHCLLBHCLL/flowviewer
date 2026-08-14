@@ -34,6 +34,8 @@ _FUNCS = {
 
 _DELTA_FUNCS = {"delx": "X", "dely": "Y", "delz": "Z"}
 
+_VARNAME_FUNCS = {"delx", "dely", "delz", "grad", "div", "rot"}
+
 _UNARY = {"-", "+"}
 
 
@@ -164,13 +166,13 @@ class _Eval:
             return v
         if t[0] == "name":
             name = t[1]
-            if name in _DELTA_FUNCS:
+            if name in _VARNAME_FUNCS:
                 self._expect_op("(")
                 vt = self._next()
                 if vt[0] != "name":
                     raise ValueError(name + " takes a variable name")
                 self._expect_op(")")
-                return self._call_delta(name, vt[1])
+                return self._call_varname(name, vt[1])
             if name in self._vars:
                 a = self._vars[name]
                 return a if a.ndim == 1 else np.linalg.norm(a, axis=1)
@@ -185,12 +187,28 @@ class _Eval:
             raise ValueError("unknown variable or function: " + repr(name))
         raise ValueError("unexpected token " + repr(t))
 
-    def _call_delta(self, name: str, var: str):
-        """First-order central difference of a node field along an axis (B1)."""
+    def _call_varname(self, name: str, var: str):
+        """Differential operators over node fields (B1/B2)."""
         if self._ff is None:
             raise ValueError(name + " needs a field file")
-        axis = _DELTA_FUNCS[name]
-        return _axis_difference(self._ff, var, axis)
+        ff = self._ff
+        if name in _DELTA_FUNCS:
+            return _axis_difference(ff, var, _DELTA_FUNCS[name])
+        if name == "grad":
+            comps = [_axis_difference(ff, var, ax) for ax in "XYZ"]
+            return np.column_stack(comps)
+        if name == "div":
+            comps = [_axis_difference(ff, var + c, ax)
+                     for ax, c in (("X", "X"), ("Y", "Y"), ("Z", "Z"))]
+            return comps[0] + comps[1] + comps[2]
+        if name == "rot":
+            def _d(comp, ax):
+                return _axis_difference(ff, var + comp, ax)
+            rx = _d("Y", "Z") - _d("Z", "Y")
+            ry = _d("Z", "X") - _d("X", "Z")
+            rz = _d("X", "Y") - _d("Y", "X")
+            return np.column_stack([rx, ry, rz])
+        raise ValueError("unknown operator " + repr(name))
 
     def _call(self, name: str, args: list):
         expect = _FUNCS[name]

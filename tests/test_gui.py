@@ -2197,6 +2197,35 @@ def test_delx_difference():
         register_variable(fph, "BAD", "delx(PRES)")
 
 
+@pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
+def test_grad_div_rot():
+    """grad/div/rot operate on node fields (B2)."""
+    import numpy as np
+    from fv.model.dataset import FIELD_KIND_SCALAR, VarInfo
+    from fv.model.dataset import load_file
+    from fv.model.varreg import register_variable
+    ff = load_file(FLD)
+    v = ff.vertices
+    ff.variables["S"] = VarInfo(name="S", kind=FIELD_KIND_SCALAR,
+                              location="node", array=v[:, 0])
+    for c, arr in zip("XYZ", (v[:, 0], np.zeros(len(v)), np.zeros(len(v)))):
+        ff.variables["V" + c] = VarInfo(name="V" + c,
+            kind=FIELD_KIND_SCALAR, location="node", array=arr)
+    g = register_variable(ff, "GS", "grad(S)")
+    assert g.kind == "vector"
+    assert g.array.shape == (ff.n_vertices, 3)
+    nz = np.nonzero(np.abs(g.array).sum(axis=1))[0]
+    assert len(nz) > 0
+    assert np.abs(g.array[nz, 0] - 1.0).max() < 0.2
+    d = register_variable(ff, "DV", "div(V)")
+    assert d.kind == "scalar"
+    assert np.abs(d.array[nz] - 1.0).max() < 0.2  # div(x,0,0) = 1
+    r = register_variable(ff, "RV", "rot(V)")
+    assert r.kind == "vector"
+    assert np.abs(r.array).max() < 0.4
+
+
+
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_export_animation_frames_headless(tmp_path):
     """Animation exporter returns 0 written in headless mode (G5)."""
