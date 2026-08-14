@@ -1027,13 +1027,14 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         pt, _owner = self.scene.pick_actor(x, y)
         if pt is None:
             return
+        draggable = ("plane", "cylinder", "circle", "point")
         panel_obj = self.property_host.current_object
-        if getattr(panel_obj, "kind", "") == "plane":
+        if getattr(panel_obj, "kind", "") in draggable:
             self._drag_obj = panel_obj
         else:
             for o in (self.main_object.children
                       if self.main_object is not None else []):
-                if getattr(o, "kind", "") == "plane":
+                if getattr(o, "kind", "") in draggable:
                     self._drag_obj = o
                     break
         if self._drag_obj is not None:
@@ -1041,13 +1042,30 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 f"Dragging {self._drag_obj.label} — release to finish", 0)
 
     def _drag_move(self, x: int, y: int) -> None:
-        """While dragging: move the plane to the picked point (G1)."""
+        """While dragging: move the object to the picked point (G1/E3)."""
         if self._drag_obj is None or self.dataset is None:
             return
-        moved = self.scene.move_plane_to_pick(x, y,
-                                              plane_obj=self._drag_obj)
+        moved = self._move_object_to_pick(self._drag_obj, x, y)
         if moved and self._enable_3d:
             self._refresh_gl()
+
+    def _move_object_to_pick(self, obj, x: int, y: int) -> bool:
+        """Move a draggable object to the picked world point (E3)."""
+        kind = getattr(obj, "kind", "")
+        if kind == "plane":
+            return self.scene.move_plane_to_pick(x, y, plane_obj=obj)
+        pt, _owner = self.scene.pick_actor(x, y)
+        if pt is None:
+            return False
+        if kind in ("cylinder", "circle"):
+            obj.center = tuple(pt)
+            self.scene.apply_to_object(self.dataset, obj)
+            return True
+        if kind == "point":
+            obj.position = tuple(pt)
+            self.scene.apply_to_object(self.dataset, obj)
+            return True
+        return False
 
     def _drag_end(self) -> None:
         """Finish dragging; report the new position."""

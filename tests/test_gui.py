@@ -2425,6 +2425,27 @@ def test_particle_trim_filter():
     assert len(_filter_by_trim(pos, vel, obj2)) == 0
 
 
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_multi_object_drag(qapp, monkeypatch):
+    """Drag dispatches to cylinder/circle/point moves (E3)."""
+    w = _make(qapp, FPH)
+    from fv.model.objects import CylinderObject
+    cyl = CylinderObject(index=5)
+    w.main_object.children.append(cyl)
+    monkeypatch.setattr(w.scene, "pick_actor",
+                        lambda x, y: ((0.5, 0.6, 0.7), ("x", cyl)))
+    monkeypatch.setattr(w.scene, "apply_to_object",
+                        lambda ff, o: True)
+    moved = w._move_object_to_pick(cyl, 10, 20)
+    assert moved is True
+    assert cyl.center == (0.5, 0.6, 0.7)
+    # plane path uses move_plane_to_pick
+    plane = next(o for o in w.main_object.children if o.kind == "plane")
+    monkeypatch.setattr(w.scene, "move_plane_to_pick",
+                        lambda x, y, plane_obj=None: True)
+    assert w._move_object_to_pick(plane, 0, 0) is True
+
+
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_export_animation_frames_headless(tmp_path):
