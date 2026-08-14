@@ -2338,6 +2338,28 @@ def test_regionbc_dialog(qapp):
             for i in range(d.list.count()))
 
 
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_gradation_background():
+    """GradationObject drives the renderer gradient background (C1)."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import GradationObject, MainObject
+    from fv.render.scene import Scene
+    ff = load_file(FPH)
+    main = MainObject.from_field_file(ff)
+    grad = GradationObject(index=1)
+    grad.top_color = (0.1, 0.2, 0.3)
+    grad.bottom_color = (0.9, 0.8, 0.7)
+    main.children.append(grad)
+    sc = Scene(enable_3d=True)
+    sc.build(ff, main=main)
+    bg = sc.renderer.GetBackground()
+    assert abs(bg[0] - 0.1) < 1e-6 and abs(bg[2] - 0.3) < 1e-6
+    grad.enabled = False
+    sc.apply_gradation(grad)
+    assert sc.renderer.GetGradientBackground() == 0
+
+
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_export_animation_frames_headless(tmp_path):

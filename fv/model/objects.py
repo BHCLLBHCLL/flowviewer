@@ -422,6 +422,17 @@ class LightObject(PostObject):
 
 
 
+
+@dataclass
+class GradationObject(PostObject):
+    """Gradient background (scPOST Gradation/Sky, C1)."""
+
+    kind: str = "gradation"
+    title: str = "Gradation"
+    enabled: bool = True
+    top_color: tuple = (1.0, 1.0, 1.0)
+    bottom_color: tuple = (0.92, 0.94, 0.97)
+
 @dataclass
 class RegionBCObject(PostObject):
     """Boundary region names + BC attributes (scPOST RegionBC, A5)."""

@@ -1421,3 +1421,31 @@ class RegionBCDialog(ObjectSettingsPanel):
         if not _HAS_QT:
             return
         obj.show_names = True
+
+class GradationDialog(ObjectSettingsPanel):
+    """Gradation — gradient background colors (C1)."""
+
+    def __init__(self, obj, field_file=None, parent=None):
+        super().__init__(getattr(obj, "label", "Gradation"), parent)
+        if not _HAS_QT:
+            self.obj = obj
+            return
+        self.obj = obj
+        page = QWidget(self)
+        form = QFormLayout()
+        self.enabled = QCheckBox("Gradient background", page)
+        self.enabled.setChecked(bool(getattr(obj, "enabled", True)))
+        form.addRow("", self.enabled)
+        self.top = _ColorButton(getattr(obj, "top_color", (1.0, 1.0, 1.0)), page)
+        form.addRow("Top color:", self.top)
+        self.bottom = _ColorButton(getattr(obj, "bottom_color", (0.92, 0.94, 0.97)), page)
+        form.addRow("Bottom color:", self.bottom)
+        lay = QVBoxLayout(page); lay.addLayout(form); lay.addStretch(1)
+        self.tabs.addTab(page, "Gradation")
+
+    def apply_to(self, obj) -> None:
+        if not _HAS_QT:
+            return
+        obj.enabled = self.enabled.isChecked()
+        obj.top_color = self.top.rgb()
+        obj.bottom_color = self.bottom.rgb()

@@ -180,6 +180,21 @@ class Scene:
         self.apply_to_object(self._field_file, plane_obj)
         return True
 
+    def apply_gradation(self, grad_obj) -> None:
+        """Set the renderer gradient background from a GradationObject (C1)."""
+        self._gradation_obj = grad_obj
+        if not self.enable_3d or self.renderer is None:
+            return
+        if not getattr(grad_obj, "enabled", True):
+            self.renderer.GradientBackgroundOff()
+            return
+        self.renderer.GradientBackgroundOn()
+        try:
+            self.renderer.SetBackground(*getattr(grad_obj, "top_color", (1.0, 1.0, 1.0)))
+            self.renderer.SetBackground2(*getattr(grad_obj, "bottom_color", (0.92, 0.94, 0.97)))
+        except (TypeError, IndexError):
+            pass
+
     def apply_light(self, light_obj) -> None:
         """Apply a LightObject onto the renderer's key light (P0.3).
 
@@ -322,7 +337,7 @@ class Scene:
             self._layer_actors["surface"] = ["surface_1"]
             self._layer_actors["plane"] = ["plane_1"]
             for kind in ("isosurface", "point", "streamline", "volume",
-                         "colorbar", "light"):
+                         "colorbar", "light", "pathline", "cylinder", "circle", "text", "bitmap", "information", "mirror", "curve", "periodical", "bar", "gradation"):
                 if any(o.kind == kind for o in
                        getattr(main, "children", []) or []):
                     self._layer_actors[kind] = [f"{kind}_1"]
@@ -367,12 +382,34 @@ class Scene:
             self._add_streamline_actors(ff, obj)
         elif obj.kind == "volume":
             self._add_volume_actors(ff, obj)
+        elif obj.kind == "pathline":
+            self._add_pathline_actors(ff, obj)
+        elif obj.kind in ("cylinder", "circle"):
+            self._add_cut_actors(ff, obj)
+        elif obj.kind == "text":
+            self._add_text_actor(obj)
+        elif obj.kind == "bitmap":
+            self._add_bitmap_actor(obj)
+        elif obj.kind == "information":
+            self._add_information_actor(obj)
+        elif obj.kind == "mirror":
+            self._add_mirror_actor(ff, obj)
+        elif obj.kind == "curve":
+            self._add_curve_actor(ff, obj)
+        elif obj.kind == "periodical":
+            self._add_periodical_actor(ff, obj)
+        elif obj.kind == "bar":
+            self._add_bar_actor(ff, obj)
+        elif obj.kind == "gradation":
+            self.apply_gradation(obj)
         elif obj.kind == "colorbar":
             mode = getattr(obj, "range_mode", "Auto") or "Auto"
             rng = (obj.min, obj.max) if str(mode).lower() == "fix" else None
             self.build_global_colorbar(obj, range_=rng)
         elif obj.kind == "light":
             self.apply_light(obj)
+        # timeseries / maxmin / graph / grouping / measure / folder / regionbc
+        # are dialog-only (no scene actors).
 
     def apply_to_object(self, ff: FieldFile, obj) -> None:
         """Incrementally rebuild a single object without a full scene rebuild.
