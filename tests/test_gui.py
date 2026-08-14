@@ -2360,6 +2360,30 @@ def test_gradation_background():
     assert sc.renderer.GetGradientBackground() == 0
 
 
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_object_name_billboard():
+    """show_object_name sets a billboard label (C3)."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import MainObject
+    from fv.render.scene import Scene
+    ff = load_file(FPH)
+    main = MainObject.from_field_file(ff)
+    sc = Scene(enable_3d=True)
+    sc.build(ff, main=main)
+    sc.show_object_name("Surface (1)", (0.0, 0.0, 0.0))
+    assert sc._name_actor is not None
+    assert sc._name_actor.GetInput() == "Surface (1)"
+    sc.hide_object_name()
+    assert sc._name_actor is None
+    # headless records text without an actor
+    sc2 = Scene(enable_3d=False)
+    sc2.build(ff, main=main)
+    sc2.show_object_name("Plane (1)")
+    assert sc2._name_text == "Plane (1)"
+    assert sc2._name_actor is None
+
+
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_export_animation_frames_headless(tmp_path):

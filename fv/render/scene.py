@@ -43,6 +43,7 @@ class Scene:
         self._actor_object: dict = {}          # vtkActor/Prop → (kind, obj)
         self._pick_callback = None
         self._colorbar_obj = None                # global ColorbarObject (P0.2)
+        self._name_actor = None                  # object-name billboard (C3)
         self._light_obj = None                   # global LightObject (P0.3)
         if self.enable_3d:
             self.renderer = vtk.vtkRenderer()
@@ -194,6 +195,37 @@ class Scene:
             self.renderer.SetBackground2(*getattr(grad_obj, "bottom_color", (0.92, 0.94, 0.97)))
         except (TypeError, IndexError):
             pass
+
+    def show_object_name(self, text: str, position=None) -> None:
+        """Show a 3D billboard name label (scPOST ObjectNameDisplay, C3)."""
+        self._name_text = text
+        if not self.enable_3d or self.renderer is None or not text:
+            return
+        if self._name_actor is None:
+            self._name_actor = vtk.vtkBillboardTextActor3D()
+            self._name_actor.GetTextProperty().SetFontSize(12)
+            self._name_actor.GetTextProperty().SetColor(0.0, 0.0, 0.0)
+            self._name_actor.GetTextProperty().SetBold(1)
+            self.renderer.AddActor(self._name_actor)
+        self._name_actor.SetInput(text)
+        if position is not None:
+            self._name_actor.SetPosition(float(position[0]), float(position[1]), float(position[2]))
+        else:
+            lo, hi = self._bounds or ((0, 0, 0), (1, 1, 1))
+            self._name_actor.SetPosition(
+                (lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2)
+        if hasattr(self, "_refresh"):
+            self._refresh()
+
+    def hide_object_name(self) -> None:
+        """Remove the name label (C3)."""
+        self._name_text = ""
+        if self.enable_3d and self._name_actor is not None:
+            try:
+                self.renderer.RemoveActor(self._name_actor)
+            except Exception:
+                pass
+            self._name_actor = None
 
     def apply_light(self, light_obj) -> None:
         """Apply a LightObject onto the renderer's key light (P0.3).

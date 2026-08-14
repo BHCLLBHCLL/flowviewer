@@ -66,6 +66,14 @@ def _kind_for_text(text: str) -> Optional[str]:
     return _CREATE_DISPLAY.get(text)
 
 
+def _object_position(obj) -> tuple:
+    """Best-effort anchor position for an object's name label (C3)."""
+    for attr in ("position", "point", "center", "point1"):
+        v = getattr(obj, attr, None)
+        if isinstance(v, (tuple, list)) and len(v) == 3:
+            return tuple(float(x) for x in v)
+    return (0.0, 0.0, 0.0)
+
 class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
     """scPOST-style main window.
 
@@ -978,6 +986,8 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
                                        siblings=siblings)
         # Ensure the lower pane is visible after hide
         self.property_host.setVisible(True)
+        # Object-name billboard (C3)
+        self.scene.show_object_name(obj.label, _object_position(obj))
 
     # ── drag handles (G1) ─────────────────────────────────────────────────
 
