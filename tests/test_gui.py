@@ -2324,6 +2324,20 @@ def test_bar_object():
     assert out["bar"].GetMapper().GetInput().GetNumberOfPoints() == 16
 
 
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_regionbc_dialog(qapp):
+    """RegionBC lists boundary region names + face counts (A5)."""
+    from fv.gui.object_dialogs2 import RegionBCDialog
+    from fv.model.dataset import load_file
+    from fv.model.objects import RegionBCObject
+    ff = load_file(FPH)
+    obj = RegionBCObject(index=1)
+    d = RegionBCDialog(obj, field_file=ff)
+    assert d.list.count() == len(ff.surface_regions)
+    assert any("faces" in d.list.item(i).text()
+            for i in range(d.list.count()))
+
+
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_export_animation_frames_headless(tmp_path):

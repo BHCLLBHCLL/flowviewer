@@ -421,6 +421,17 @@ class LightObject(PostObject):
 
 
 
+
+@dataclass
+class RegionBCObject(PostObject):
+    """Boundary region names + BC attributes (scPOST RegionBC, A5)."""
+
+    kind: str = "regionbc"
+    title: str = "Region BC"
+    show_names: bool = False
+    font_name: str = "MS Gothic"
+    font_size: int = 9
+
 @dataclass
 class BarObject(PostObject):
     """Variable distribution along a two-point bar (scPOST Bar, A4)."""

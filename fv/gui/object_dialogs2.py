@@ -1392,3 +1392,32 @@ class BarDialog(ObjectSettingsPanel):
         obj.variable = self.var.currentData() or ""
         obj.samples = int(self.samples.value())
         obj.color = self.color.rgb()
+
+class RegionBCDialog(ObjectSettingsPanel):
+    """Region BC — boundary region name list (A5)."""
+
+    def __init__(self, obj, field_file=None, parent=None):
+        super().__init__(getattr(obj, "label", "Region BC"), parent)
+        if not _HAS_QT:
+            self.obj = obj
+            return
+        self.obj = obj
+        self.field_file = field_file
+        page = QWidget(self)
+        lay = QVBoxLayout(page)
+        lay.addWidget(QLabel("Boundary regions (name - faces):", page))
+        self.list = QListWidget(page)
+        if field_file is not None:
+            for name, ids in field_file.surface_regions:
+                self.list.addItem(f"{name} - {len(ids)} faces")
+            if not field_file.surface_regions and field_file.bc_plan:
+                for name, st, cnt in field_file.bc_plan:
+                    self.list.addItem(f"{name} - {cnt} faces")
+        lay.addWidget(self.list)
+        lay.addStretch(1)
+        self.tabs.addTab(page, "Region BC")
+
+    def apply_to(self, obj) -> None:
+        if not _HAS_QT:
+            return
+        obj.show_names = True
