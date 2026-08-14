@@ -46,6 +46,12 @@ def build_particle_actors(obj: ParticleObject,
         elif "VELP" in pvars:
             velocities = pvars["VELP"]
 
+    # Intersection + trim filtering (G3/E2)
+    positions, _sel = _filter_intersections(positions, obj)
+    positions = _filter_by_trim(positions, velocities, obj)
+    if positions.shape[0] == 0:
+        return {}
+
     points = vtk.vtkPoints()
     points.SetData(_vns.numpy_to_vtk(
         np.ascontiguousarray(positions, dtype=np.float64), deep=True))
@@ -248,3 +254,39 @@ def _filter_intersections(positions, obj):
                   & np.all(positions <= hi, axis=1))
         keep |= inside
     return positions[keep], keep
+
+
+def _parse_range(text):
+    """Parse 'a-b' / 'a,b,c' / 'a' into a set of ints (E2)."""
+    out = set()
+    for part in str(text or "").replace(";", ",").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            try:
+                lo, hi = part.split("-", 1)
+                out.update(range(int(lo), int(hi) + 1))
+            except ValueError:
+                continue
+        else:
+            try:
+                out.add(int(part))
+            except ValueError:
+                continue
+    return out
+
+
+def _filter_by_trim(positions, velocities, obj):
+    """Particle Trim tab: number / size range filtering (E2)."""
+    n = len(positions)
+    keep = np.ones(n, dtype=bool)
+    nums = _parse_range(getattr(obj, "display_particle_no", ""))
+    if nums:
+        keep &= np.array([i in nums for i in range(n)], dtype=bool)
+    sizes = _parse_range(getattr(obj, "display_particle_size", ""))
+    if sizes and velocities is not None and velocities.shape[0] == n:
+        mag = np.linalg.norm(velocities, axis=1)
+        keep &= np.array([int(round(m)) in sizes for m in mag], dtype=bool)
+    return positions[keep]
+

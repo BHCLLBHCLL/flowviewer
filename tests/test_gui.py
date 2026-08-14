@@ -2401,6 +2401,30 @@ def test_api_queries():
     assert all(isinstance(x, int) for x in adj)
 
 
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_particle_trim_filter():
+    """Trim tab number range filters particles (E2)."""
+    import numpy as np
+    from fv.crdl.fields import parse_particles
+    from fv.model.dataset import load_file
+    from fv.model.objects import ParticleObject
+    from fv.render.particle import _filter_by_trim, _parse_range
+    ff = load_file(FPH)
+    if not ff.has_particles:
+        pytest.skip("sample has no particles")
+    with open(ff.path, "rb") as fh:
+        pos, vel = parse_particles(fh.read())
+    assert _parse_range("1-5,9") == {1, 2, 3, 4, 5, 9}
+    obj = ParticleObject(index=1)
+    obj.display_particle_no = "0-9"
+    out = _filter_by_trim(pos, vel, obj)
+    assert 0 < len(out) <= 10
+    obj2 = ParticleObject(index=2)
+    obj2.display_particle_no = "999-1000"
+    assert len(_filter_by_trim(pos, vel, obj2)) == 0
+
+
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_export_animation_frames_headless(tmp_path):
