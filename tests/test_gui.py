@@ -2471,6 +2471,20 @@ def test_nastran_reader(tmp_path):
     assert ff.cell_types.tolist() == [12]  # HEXAHEDRON
 
 
+@pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
+def test_ifld_metadata_scan():
+    """scan_ifld returns counts/variables without loading arrays (D3)."""
+    from fv.crdl.ifld import scan_ifld
+    from fv.model.dataset import load_file
+    ff = load_file(FLD)
+    meta = scan_ifld(FLD)
+    assert meta is not None
+    assert meta["n_cells"] == ff.n_cells
+    assert meta["file_size"] > 0
+    assert "Pressure" in meta["variables"]
+    assert scan_ifld(r"D:\training\cgns\no_such.fld") is None
+
+
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_export_animation_frames_headless(tmp_path):
