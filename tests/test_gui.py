@@ -2174,6 +2174,29 @@ def test_periodical_copy():
                                    siblings=[surf]) == {}
 
 
+@pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
+def test_delx_difference():
+    """delx() registers a central difference of a node field (B1)."""
+    import numpy as np
+    from fv.model.dataset import load_file
+    from fv.model.varreg import register_variable
+    ff = load_file(FLD)
+    from fv.model.dataset import FIELD_KIND_SCALAR, VarInfo
+    ff.variables["XC"] = VarInfo(name="XC", kind=FIELD_KIND_SCALAR,
+                                 location="node", array=ff.vertices[:, 0])
+    vi = register_variable(ff, "DPDX", "delx(XC)")
+    assert vi.kind == "scalar"
+    assert vi.array.shape == (ff.n_vertices,)
+    assert np.isfinite(vi.array).all()
+    nz = vi.array[np.nonzero(vi.array)]
+    assert len(nz) > 0
+    assert np.abs(nz - 1.0).max() < 0.2
+    from fv.model.dataset import load_file as lf
+    fph = lf(FPH)
+    with pytest.raises(ValueError):
+        register_variable(fph, "BAD", "delx(PRES)")
+
+
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_export_animation_frames_headless(tmp_path):
     """Animation exporter returns 0 written in headless mode (G5)."""

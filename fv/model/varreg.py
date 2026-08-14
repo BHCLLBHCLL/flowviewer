@@ -32,6 +32,8 @@ _FUNCS = {
     "ifgt": 2, "ifet": 2, "ifeq": 2,
 }
 
+_DELTA_FUNCS = {"delx": "X", "dely": "Y", "delz": "Z"}
+
 _UNARY = {"-", "+"}
 
 
@@ -76,11 +78,12 @@ class _Eval:
     """Safe evaluator: the only external values are arrays from the
     variable map passed to evaluate()."""
 
-    def __init__(self, toks: list, vars_: dict, n: int):
+    def __init__(self, toks: list, vars_: dict, n: int, ff=None):
         self._toks = toks
         self._vars = vars_
         self._n = n
         self._pos = 0
+        self._ff = ff
 
     def _peek(self):
         return self._toks[self._pos]
@@ -161,6 +164,13 @@ class _Eval:
             return v
         if t[0] == "name":
             name = t[1]
+            if name in _DELTA_FUNCS:
+                self._expect_op("(")
+                vt = self._next()
+                if vt[0] != "name":
+                    raise ValueError(name + " takes a variable name")
+                self._expect_op(")")
+                return self._call_delta(name, vt[1])
             if name in self._vars:
                 a = self._vars[name]
                 return a if a.ndim == 1 else np.linalg.norm(a, axis=1)
@@ -174,6 +184,13 @@ class _Eval:
                 return self._call(name, args)
             raise ValueError("unknown variable or function: " + repr(name))
         raise ValueError("unexpected token " + repr(t))
+
+    def _call_delta(self, name: str, var: str):
+        """First-order central difference of a node field along an axis (B1)."""
+        if self._ff is None:
+            raise ValueError(name + " needs a field file")
+        axis = _DELTA_FUNCS[name]
+        return _axis_difference(self._ff, var, axis)
 
     def _call(self, name: str, args: list):
         expect = _FUNCS[name]
@@ -201,10 +218,11 @@ class _Eval:
 
 # public API
 
-def evaluate_expression(expr: str, variables: dict, n: int) -> np.ndarray:
+def evaluate_expression(expr: str, variables: dict, n: int,
+                         ff=None) -> np.ndarray:
     """Evaluate *expr* over arrays in *variables* (each (n,) or (n,3))."""
     toks = tokenize(expr)
-    return _Eval(toks, variables, n).evaluate()
+    return _Eval(toks, variables, n, ff=ff).evaluate()
 
 
 def register_variable(ff, name: str, expr: str,
@@ -223,7 +241,7 @@ def register_variable(ff, name: str, expr: str,
     if variables is None:
         variables = _resolved_vars(ff)
     n = _array_len(ff, variables)
-    arr = evaluate_expression(expr, variables, n)
+    arr = evaluate_expression(expr, variables, n, ff=ff)
     arr = np.asarray(arr, dtype=np.float64)
     if arr.ndim == 1:
         kind = FIELD_KIND_SCALAR
@@ -272,3 +290,47 @@ def _source_location(ff, variables: dict, expr: str) -> str:
     if ff.kind == "fld":
         return "node"
     return "cell"
+
+def _axis_difference(ff, name: str, axis: str):
+    """Central first difference of a node field along *axis* (B1).
+
+    Projects nodes onto the plane perpendicular to *axis* and uses a
+    cKDTree there to find, per node, the nearest same-row neighbour on
+    each side along *axis* (structured-node-field friendly), then
+    computes (v[+] - v[-]) / (x[+] - x[-]).
+    """
+    if ff.vertices is None or ff.kind == "fph":
+        raise ValueError(axis + " requires a node-centred (FLD/CGNS) field")
+    a = ff.variable_array(name)
+    if a is None or np.asarray(a).ndim != 1:
+        raise ValueError("unknown scalar variable " + repr(name))
+    a = np.asarray(a, dtype=np.float64)
+    verts = np.asarray(ff.vertices, dtype=np.float64)
+    try:
+        from scipy.spatial import cKDTree
+    except ImportError:
+        raise ValueError("scipy required for delx/dely/delz")
+    ax = {"X": 0, "Y": 1, "Z": 2}[axis]
+    other = [c for c in range(3) if c != ax]
+    tree2 = cKDTree(verts[:, other])
+    k = min(64, len(verts))
+    _d2, nbr = tree2.query(verts[:, other], k=k)
+    if len(verts) == 1:
+        nbr = nbr.reshape(1, -1)
+    out = np.zeros(len(a), dtype=np.float64)
+    for i in range(len(a)):
+        idx = np.asarray(nbr[i]).astype(np.int64)
+        idx = idx[idx != i]
+        if idx.size == 0:
+            continue
+        da = verts[idx, ax] - verts[i, ax]
+        pos = idx[da > 0]
+        neg = idx[da < 0]
+        if pos.size == 0 or neg.size == 0:
+            continue
+        p = pos[np.argmin(verts[pos, ax] - verts[i, ax])]
+        m = neg[np.argmax(verts[neg, ax] - verts[i, ax])]
+        h = verts[p, ax] - verts[m, ax]
+        if abs(h) > 1e-12:
+            out[i] = (a[p] - a[m]) / h
+    return out
