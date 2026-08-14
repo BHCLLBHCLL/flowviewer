@@ -85,6 +85,12 @@ def build_particle_actors(obj: ParticleObject,
         if glyph is not None:
             actors["vector"] = glyph
 
+    # Cloth / String (G3): connect particles in index order
+    if getattr(obj, "special_cloth", False):
+        cloth = _cloth_actor(polydata, obj)
+        if cloth is not None:
+            actors["cloth"] = cloth
+
     return actors
 
 
@@ -195,3 +201,50 @@ def _rgb(color) -> tuple[float, float, float]:
         return (float(color[0]), float(color[1]), float(color[2]))
     except (TypeError, IndexError):
         return (1.0, 0.0, 1.0)
+def _cloth_actor(polydata, obj):
+    """Polyline connecting particles in index order (Cloth/String, G3)."""
+    pts = polydata.GetPoints()
+    if pts is None or pts.GetNumberOfPoints() < 2:
+        return None
+    line = vtk.vtkPolyLine()
+    n = pts.GetNumberOfPoints()
+    line.GetPointIds().SetNumberOfIds(n)
+    for i in range(n):
+        line.GetPointIds().SetId(i, i)
+    cells = vtk.vtkCellArray();
+    cells.InsertNextCell(line)
+    pd = vtk.vtkPolyData();
+    pd.SetPoints(pts);
+    pd.SetLines(cells)
+    actor = vtk.vtkActor();
+    mapper = vtk.vtkPolyDataMapper();
+    mapper.SetInputData(pd);
+    actor.SetMapper(mapper)
+    prop = actor.GetProperty()
+    try:
+        prop.SetColor(*_rgb(obj.mono_color))
+    except (TypeError, IndexError):
+        prop.SetColor(0.3, 0.3, 0.6)
+    prop.SetLineWidth(max(1, int(getattr(obj, "size_px", 1) or 1)))
+    if getattr(obj, "transparent", False):
+        prop.SetOpacity(0.5)
+    return actor
+
+
+def _filter_intersections(positions, obj):
+    """Keep only particles inside any intersection region (G3).
+
+    Regions are (min, max) coordinate pairs; an empty region list or
+    show_intersection_regions=False keeps every particle.
+    """
+    regions = list(getattr(obj, "intersection_regions", None) or [])
+    if not regions or not getattr(obj, "show_intersection_regions", False):
+        return positions, None
+    keep = np.zeros(len(positions), dtype=bool)
+    for lo, hi in regions:
+        lo = np.asarray(lo, dtype=np.float64)
+        hi = np.asarray(hi, dtype=np.float64)
+        inside = (np.all(positions >= lo, axis=1)
+                  & np.all(positions <= hi, axis=1))
+        keep |= inside
+    return positions[keep], keep

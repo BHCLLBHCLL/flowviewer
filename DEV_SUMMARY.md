@@ -142,4 +142,4 @@
 
 测试从 84 项增至 121 项（+37），全量回归通过。
 
-**遗留**：2.7 交互器拖拽手柄、3.4 真并排视图、Particle Intersection/Cloth 渲染、FLD Surface MAT 过滤、动画帧 PNG 序列导出、Turbo/UFO/VR/COM 维持不做。
+**遗留（2026-08-09 补齐后）**：Turbo/UFO/VR/COM 维持不做；其余（拖拽手柄/并排视图/Intersection/Cloth/FLD MAT 过滤/动画帧导出）已完成，见 DEV_PLAN §14。测试增至 129 项。

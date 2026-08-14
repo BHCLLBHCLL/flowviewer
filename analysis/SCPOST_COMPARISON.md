@@ -2,7 +2,7 @@
 
 > **执行状态（2026-08-09 更新）**：P0（0.1–0.6）、P1（1.1–1.6）、P2（2.1–2.10）、P3（3.1–3.5）
 > 已按本计划全部实施，新增 35+ 项测试；全量回归通过（详见 DEV_PLAN §12/§13）。
-> 遗留：2.7 完整拖拽手柄（scene 方法已就绪）、3.4 真并排视图、P2 中 Particle Intersection/Cloth、
+> 遗留：Particle 其余细节、3D-ROM/VBS 维持不做（拖拽手柄/并排视图/Intersection/Cloth/FLD MAT/
 > FLD Surface MAT 过滤、Automove 帧导出 PNG 序列、3D-ROM/VBS 维持不做。
 
 

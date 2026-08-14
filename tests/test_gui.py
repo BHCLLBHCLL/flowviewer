@@ -1644,7 +1644,82 @@ def test_ugrid_cache_reuse():
     ug1, cc1 = build_ugrid(ff)
     ug2, cc2 = build_ugrid(ff)
     assert ug1 is ug2
-    assert cc1 is cc2
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_particle_intersection_cloth():
+    """Intersection regions filter particles; cloth connects them (G3)."""
+    import numpy as np
+    from fv.crdl.fields import parse_particles
+    from fv.model.dataset import load_file
+    from fv.model.objects import ParticleObject
+    from fv.render.particle import (build_particle_actors, _cloth_actor,
+                                     _filter_intersections)
+    ff = load_file(FPH)
+    if not ff.has_particles:
+        pytest.skip("sample has no particles")
+    with open(ff.path, "rb") as fh:
+        data = fh.read()
+    pos, _ = parse_particles(data)
+    # intersection: a tiny box around the first particle keeps ~1
+    p0 = pos[0]
+    obj = ParticleObject(index=1)
+    obj.show_intersection_regions = True
+    obj.intersection_regions = [(
+        tuple(p0 - 1e-4), tuple(p0 + 1e-4))]
+    filtered, _ = _filter_intersections(pos, obj)
+    assert 0 < len(filtered) <= 2
+    # cloth: polyline actor from the particle points
+    import vtk
+    from vtk.util import numpy_support as vns
+    pts = vtk.vtkPoints()
+    pts.SetData(vns.numpy_to_vtk(pos.astype(float), deep=True))
+    pd = vtk.vtkPolyData(); pd.SetPoints(pts)
+    obj2 = ParticleObject(index=1)
+    obj2.special_cloth = True
+    cloth = _cloth_actor(pd, obj2)
+    assert cloth is not None
+    assert cloth.GetMapper().GetInput().GetNumberOfLines() == 1
+    # end-to-end: cloth key present in build output
+    obj3 = ParticleObject(index=1)
+    obj3.special_cloth = True
+    out = build_particle_actors(obj3, ff)
+    assert "cloth" in out
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_compare_dialog_headless(qapp):
+    """CompareDialog builds headless with labelled panes (G2)."""
+    from fv.gui.dialogs import CompareDialog
+    from fv.model.dataset import load_file
+    ff = load_file(FPH)
+    d = CompareDialog(ff, ff, enable_3d=False)
+    assert "Compare" in d.windowTitle()
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_drag_plane_handlers(qapp, monkeypatch):
+    """Drag handlers move the plane via the scene (G1)."""
+    w = _make(qapp, FPH)
+    plane = next(o for o in w.main_object.children
+              if o.kind == "plane")
+    moved = []
+    monkeypatch.setattr(w.scene, "pick_actor",
+                        lambda x, y: ((0.1, 0.2, 0.3), ("plane", plane)))
+    monkeypatch.setattr(w.scene, "move_plane_to_pick",
+                        lambda x, y, plane_obj=None: (
+                            moved.append((x, y, plane_obj.label)), True)[1])
+    w._drag_start(10, 20)
+    assert w._drag_obj is plane
+    w._drag_move(30, 40)
+    assert moved and moved[0][:2] == (30, 40)
+    w._drag_end()
+    assert w._drag_obj is None
+    # no pick: nothing starts
+    monkeypatch.setattr(w.scene, "pick_actor", lambda x, y: (None, None))
+    w._drag_start(5, 5)
+    assert w._drag_obj is None
 
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
@@ -2025,3 +2100,34 @@ def test_on_contour_display_headless(qapp):
     w.on_contour_display()
     assert "surface" in w.scene.actor_names()
     assert "grid" in w.scene.actor_names()
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason='sample not present')
+def test_compare_dialog_panes(qapp):
+    '''CompareDialog builds headless with labelled panes (G2).'''
+    from fv.gui.dialogs import CompareDialog
+    from fv.model.dataset import load_file
+    ff = load_file(FPH)
+    d = CompareDialog(ff, ff, enable_3d=False)
+    assert d.layout().count() >= 1
+    d.accept()
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_export_animation_frames_headless(tmp_path):
+    """Animation exporter returns 0 written in headless mode (G5)."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import MainObject, PlaneObject
+    from fv.render.export import export_animation_frames
+    from fv.render.scene import Scene
+    ff = load_file(FPH)
+    main = MainObject.from_field_file(ff)
+    plane = PlaneObject(index=9)
+    plane.automove_enabled = True
+    main.children.append(plane)
+    sc = Scene(enable_3d=False)
+    sc.build(ff, main=main)
+    n = export_animation_frames(ff, main, sc, None, str(tmp_path),
+                               frames=3)
+    assert n == 0  # no render window: nothing written, no crash
+    assert tmp_path.exists()

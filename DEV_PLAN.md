@@ -644,3 +644,15 @@ EMT 别名、headless placeholder）。验证 5 项全过。
 | 3.5 | ugrid 缓存 | build_ugrid 按 cell_mask 键缓存最近构建的 ugrid（动画/重复调用复用）。测试 test_ugrid_cache_reuse。 |
 
 **测试**：P1 新增 15 项、P2 新增 16 项、P3 新增 4 项（部分计入 test_gui.py / test_varreg.py / test_cgns.py）。
+
+---
+
+## 14. 遗留项补齐（G1–G5，2026-08-09）
+
+| # | 项 | 实现 |
+|---|---|---|
+| G1 | 完整拖拽手柄 | main.py 交互器观察者（LeftButtonPress/MouseMove/Release）：左键按下拾取并挂接 plane，拖动实时 move_plane_to_pick（增量重建），释放结束；优先当前面板 plane。测试 test_drag_plane_handlers（monkeypatch pick/move 验证调用链）。 |
+| G2 | 真并排视图 | dialogs.CompareDialog：两个 QVTKRenderWindowInteractor 并排，共享 vtkCamera 同步导航；headless 降级标签占位。View→Compare 在 3D 模式打开对话框。测试 test_compare_dialog_headless/test_compare_dialog_panes。 |
+| G3 | Particle Intersection/Cloth | particle.py：_filter_intersections（立方体区域过滤，show_intersection_regions 开关）+ _cloth_actor（索引序 polyline，special_cloth）。测试 test_particle_intersection_cloth。 |
+| G4 | FLD Surface MAT 过滤 | mesh_fld 暴露 face_cells（面顶点 tuple→cell 映射，与 faces 重排对齐）；FieldFile.face_cells；surface._fld_surface_polydata 按 cell_filter_mask 过滤边界面。测试在 test_gui.py 扩展（G4 probe 验证 9238→8422 面）。 |
+| G5 | 动画帧 PNG 序列导出 | export.export_animation_frames（逐帧 scene.animate + snapshot_png，frame_0000.png…）；File→Export Animation Frames…（帧数 + 目录对话框）。测试 test_export_animation_frames_headless（无渲染窗口返回 0 不崩溃）。 |

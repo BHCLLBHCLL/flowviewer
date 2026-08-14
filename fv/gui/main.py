@@ -273,6 +273,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         add(m, "Export STL…", self.on_export_stl)
         add(m, "Export VRML…", self.on_export_vrml)
         add(m, "Export glTF…", self.on_export_gltf)
+        add(m, "Export Animation Frames…", self.on_export_animation_frames)
         m.addSeparator()
         add(m, "Exit", self.close)
 
@@ -681,6 +682,32 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         ok = export_scene_gltf(rw, path) if rw is not None else False
         self.message_win.log(f"Export glTF {'OK' if ok else 'failed'}: {path}")
 
+    def on_export_animation_frames(self) -> None:
+        """File > Export Animation Frames… (G5): automove PNG sequence."""
+        if not self._enable_3d or self.vtk_widget is None:
+            self.message_win.log("Animation export needs 3D mode", "WARN")
+            return
+        if self.dataset is None or self.main_object is None:
+            self.status.showMessage("Open a field file first", 4000)
+            return
+        from PyQt5.QtWidgets import QFileDialog, QInputDialog
+        frames, ok = QInputDialog.getInt(
+            self, "Export Animation Frames", "Frames:", 30, 2, 500)
+        if not ok:
+            return
+        out_dir = QFileDialog.getExistingDirectory(
+            self, "Output folder", "")
+        if not out_dir:
+            return
+        from ..render.export import export_animation_frames
+        n = export_animation_frames(
+            self.dataset, self.main_object, self.scene,
+            self.vtk_widget.GetRenderWindow(), out_dir,
+            frames=frames, fps=15)
+        self.message_win.log(
+            f"Exported {n} animation frames to {out_dir}")
+        self.status.showMessage(f"Exported {n} frames", 5000)
+
     def on_export_png(self) -> None:
         """File → Export PNG…: render the current scene to an image file."""
         if not (self._enable_3d and self.renderer is not None):
@@ -755,6 +782,12 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         common = sorted(set(a.variables) & set(b.variables))
         self.message_win.log(f"  common variables: {', '.join(common[:8]) or '-'}")
         self.status.showMessage(f"Compare: {names}", 5000)
+        if self._enable_3d:
+            from .dialogs import CompareDialog
+            dlg = CompareDialog(a, b, parent=self, enable_3d=True)
+            dlg.exec_()
+        else:
+            self.message_win.log("Compare: split view needs 3D mode", "WARN")
 
     def on_contour_display(self) -> None:
         """Display → Contour: rebuild scene showing contour colours."""
@@ -945,6 +978,74 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
                                        siblings=siblings)
         # Ensure the lower pane is visible after hide
         self.property_host.setVisible(True)
+
+    # ── drag handles (G1) ─────────────────────────────────────────────────
+
+    def _setup_drag_handlers(self) -> None:
+        """Wire the Draw Window interactor for plane drag (G1)."""
+        self._drag_obj = None
+        if not self._enable_3d or self.vtk_widget is None:
+            return
+        iren = self.vtk_widget.GetRenderWindow().GetInteractor()
+        if iren is None:
+            return
+        import vtk
+        cmd = vtk.vtkCallbackCommand()
+        cmd.SetCallback(self._on_vtk_drag_event)
+        for ev in ("LeftButtonPressEvent", "MouseMoveEvent",
+                   "LeftButtonReleaseEvent"):
+            iren.AddObserver(ev, cmd)
+
+    def _on_vtk_drag_event(self, caller, event, *args) -> None:
+        """Interactor callback: dispatch by event name."""
+        try:
+            x, y = caller.GetEventPosition()
+        except Exception:
+            return
+        if event == "LeftButtonPressEvent":
+            self._drag_start(x, y)
+        elif event == "MouseMoveEvent":
+            self._drag_move(x, y)
+        elif event == "LeftButtonReleaseEvent":
+            self._drag_end()
+
+    def _drag_start(self, x: int, y: int) -> None:
+        """Begin dragging a plane: pick, then attach to it (G1)."""
+        self._drag_obj = None
+        if self.dataset is None:
+            return
+        pt, _owner = self.scene.pick_actor(x, y)
+        if pt is None:
+            return
+        panel_obj = self.property_host.current_object
+        if getattr(panel_obj, "kind", "") == "plane":
+            self._drag_obj = panel_obj
+        else:
+            for o in (self.main_object.children
+                      if self.main_object is not None else []):
+                if getattr(o, "kind", "") == "plane":
+                    self._drag_obj = o
+                    break
+        if self._drag_obj is not None:
+            self.status.showMessage(
+                f"Dragging {self._drag_obj.label} — release to finish", 0)
+
+    def _drag_move(self, x: int, y: int) -> None:
+        """While dragging: move the plane to the picked point (G1)."""
+        if self._drag_obj is None or self.dataset is None:
+            return
+        moved = self.scene.move_plane_to_pick(x, y,
+                                              plane_obj=self._drag_obj)
+        if moved and self._enable_3d:
+            self._refresh_gl()
+
+    def _drag_end(self) -> None:
+        """Finish dragging; report the new position."""
+        if self._drag_obj is not None:
+            self.message_win.log(f"Plane moved: {self._drag_obj.label}")
+            self.status.showMessage(
+                f"Plane {self._drag_obj.label} moved", 3000)
+        self._drag_obj = None
 
     def _on_draw_clicked(self) -> None:
         """scPOST Draw (mallet) on the Control Window splitter grip.

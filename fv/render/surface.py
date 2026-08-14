@@ -94,6 +94,17 @@ def _fld_surface_polydata(ff: FieldFile, obj):
         return None, False, None
     verts = np.asarray(ff.vertices, dtype=np.float64)
     sel = _selected_faces(ff, obj)
+    # MAT filter (G4): keep faces whose owning cell survives the mask
+    from .plane import cell_filter_mask
+    mask = cell_filter_mask(ff, obj)
+    face_cells = getattr(ff, "face_cells", None)
+    if mask is not None and face_cells is not None and len(face_cells):
+        n = len(mask)
+        keep = np.zeros(len(sel), dtype=bool)
+        for i, fi in enumerate(sel):
+            c = int(face_cells[fi])
+            keep[i] = c < n and bool(mask[c])
+        sel = sel[keep]
     points = vtk.vtkPoints()
     points.SetData(_vns.numpy_to_vtk(verts, deep=True))
     quads = vtk.vtkCellArray()

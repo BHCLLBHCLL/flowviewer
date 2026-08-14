@@ -157,6 +157,7 @@ def fld_only_load(filepath: str) -> FieldFile:
     ff.n_cells = mesh["n_cells"]
     ff.faces = mesh["faces"]
     ff.bc_plan = mesh["bc_plan"]
+    ff.face_cells = mesh.get("face_cells")
     ff.volume_regions = mesh["volume_names"]
     ff.file_size = mesh["file_size"]
     for name, arr in mesh["fields"].items():

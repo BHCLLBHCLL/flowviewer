@@ -226,7 +226,15 @@ def _build_face_list_and_bcs(data, mat: np.ndarray):
         bc_plan.append((name, seg2_start, cnt))
         seg2_start += cnt
 
-    return faces, bc_plan
+    # face -> owning cell id (0-based), aligned with `faces` by vertex tuple:
+    # faces reorders quads (MAT1/MAT2 segments), so a direct index map would
+    # drift; a dict on the 4-node tuple stays aligned regardless of order.
+    cell_of = {}
+    for i in range(len(quads)):
+        cell_of.setdefault(quads[i], int(arr3[i]) - 1)
+    face_cells = np.asarray([cell_of.get(f, -1) for f in faces],
+                            dtype=np.int64)
+    return faces, bc_plan, face_cells
 
 
 def parse_fld(filepath: str) -> dict[str, Any]:
@@ -241,6 +249,7 @@ def parse_fld(filepath: str) -> dict[str, Any]:
             "n_cells": 0,
             "faces": [],
             "bc_plan": [],
+            "face_cells": [],
             "volume_names": [],
             "fields": {},
         }
@@ -257,9 +266,10 @@ def parse_fld(filepath: str) -> dict[str, Any]:
 
         result["volume_names"] = _parse_volume_names(data)
         if mat is not None:
-            faces, bc_plan = _build_face_list_and_bcs(data, mat)
+            faces, bc_plan, face_cells = _build_face_list_and_bcs(data, mat)
             result["faces"] = faces
             result["bc_plan"] = bc_plan
+        result["face_cells"] = face_cells
 
         n = n_verts or 0
         temp_blocks = _f64_field_blocks(data, "Temperature")

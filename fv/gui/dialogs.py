@@ -724,3 +724,60 @@ class VariableRegistrationDialog(QDialog):
         if self.parent() is not None and hasattr(self.parent(),
                 "status"):
             self.parent().status.showMessage(f"Registered {name}", 3000)
+
+class CompareDialog(QDialog):
+    """Side-by-side comparison of two datasets (G2).
+
+    Two render windows share one vtkCamera so navigation stays in sync;
+    headless mode falls back to labelled placeholders.
+    """
+
+    def __init__(self, dataset_a, dataset_b, parent=None,
+                 enable_3d: bool = True):
+        super().__init__(parent)
+        if not _HAS_QT:
+            self.dataset_a = dataset_a;
+            self.dataset_b = dataset_b
+            return
+        from pathlib import Path
+        self.setWindowTitle("Compare — "
+                         + Path(dataset_a.path).name
+                         + "  vs  " + Path(dataset_b.path).name)
+        self.resize(1200, 620)
+        lay = QVBoxLayout(self)
+        split = QSplitter(Qt.Horizontal, self)
+        lay.addWidget(split)
+        cam = None
+        for ff in (dataset_a, dataset_b):
+            pane = QWidget(split)
+            vbox = QVBoxLayout(pane)
+            title = QLabel(Path(ff.path).name, pane)
+            title.setStyleSheet("font-weight:bold;");
+            vbox.addWidget(title)
+            if enable_3d:
+                try:
+                    from vtk.qt.QVTKRenderWindowInteractor import (
+                        QVTKRenderWindowInteractor)
+                    from ..render.scene import Scene
+                    from ..model.objects import MainObject
+                    widget = QVTKRenderWindowInteractor(pane)
+                    sc = Scene(enable_3d=True)
+                    sc.build(ff, main=MainObject.from_field_file(ff))
+                    rw = widget.GetRenderWindow()
+                    rw.AddRenderer(sc.renderer)
+                    if cam is not None:
+                        sc.renderer.SetActiveCamera(cam)
+                    else:
+                        cam = sc.renderer.GetActiveCamera()
+                    widget.Initialize();
+                    widget.Start()
+                    vbox.addWidget(widget)
+                except Exception:  # pragma: no cover - GL unavailable
+                    vbox.addWidget(QLabel("3D unavailable", pane))
+            else:
+                vbox.addWidget(QLabel("3D disabled (headless)", pane))
+            split.addWidget(pane)
+        split.setSizes([600, 600])
+        close = QPushButton("Close", self)
+        close.clicked.connect(self.accept);
+        lay.addWidget(close, 0, Qt.AlignRight)

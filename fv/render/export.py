@@ -222,6 +222,32 @@ def export_scene_gltf(render_window, filename: str) -> bool:
     except Exception:
         return False
 
+def export_animation_frames(ff, main, scene, render_window,
+                            out_dir: str, frames: int = 30,
+                            fps: int = 15, base: str = "frame") -> int:
+    """Render automove animation frames to PNGs (G5).
+
+    Advances the scene once per frame (scene.animate) and snapshots each
+    one into *out_dir* as base_0000.png ... Returns the number written.
+    """
+    from pathlib import Path
+    out_dir = Path(out_dir)
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return 0
+    written = 0
+    for t in range(max(1, int(frames))):
+        try:
+            scene.animate(t, fps=int(fps))
+        except Exception:
+            continue
+        path = out_dir / f"{base}_{t:04d}.png"
+        if snapshot_png(render_window, str(path)):
+            written += 1
+    return written
+
+
 def print_scene(scene, parent=None) -> bool:
     """Print the current scene to the default printer (fallback PNG).
 
