@@ -562,6 +562,16 @@ class Scene:
             if not isinstance(actor, str):
                 self.register_actor_object(actor, "streamline", obj)
 
+    def _add_periodical_actor(self, ff, obj) -> None:
+        """Periodic rotated copies of a surface sibling (A2)."""
+        from .periodical import build_periodical_actors
+        siblings = list(getattr(self._main, "children", []) or [])
+        actors = build_periodical_actors(ff, obj, siblings=siblings)
+        for key, actor in actors.items():
+            self.add_actor(f"periodical:{key}", actor)
+            if not isinstance(actor, str):
+                self.register_actor_object(actor, "periodical", obj)
+
     def _add_curve_actor(self, ff, obj) -> None:
         """Curve line coloured by a sampled variable (A1)."""
         from .curve import build_curve_actors

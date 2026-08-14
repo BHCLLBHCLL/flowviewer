@@ -1254,3 +1254,47 @@ class CurveDialog(ObjectSettingsPanel):
         obj.samples = int(self.samples.value())
         obj.color = self.color.rgb()
         obj.thickness = int(self.thick.value())
+
+class PeriodicalCopyDialog(ObjectSettingsPanel):
+    """Periodical Copy — Source / Axis / Copies (A2)."""
+
+    def __init__(self, obj, field_file=None, parent=None, siblings=None):
+        super().__init__(getattr(obj, "label", "Periodical Copy"), parent)
+        if not _HAS_QT:
+            self.obj = obj
+            return
+        self.obj = obj
+        page = QWidget(self)
+        form = QFormLayout()
+        self.source = QComboBox(page)
+        for s in siblings or []:
+            if getattr(s, "kind", "") == "surface":
+                self.source.addItem(getattr(s, "label", ""), s.label)
+        idx = self.source.findData(getattr(obj, "source_label", ""))
+        if idx >= 0:
+            self.source.setCurrentIndex(idx)
+        form.addRow("Source surface:", self.source)
+        self.axis = QComboBox(page)
+        for a in ("X", "Y", "Z"):
+            self.axis.addItem(a, a)
+        self.axis.setCurrentIndex(max(0, self.axis.findData(
+            getattr(obj, "axis", "Z"))))
+        form.addRow("Axis:", self.axis)
+        self.copies = QSpinBox(page); self.copies.setRange(2, 360)
+        self.copies.setValue(int(getattr(obj, "copies", 6)))
+        form.addRow("Copies:", self.copies)
+        self.color = _ColorButton(getattr(obj, "color", (0.4, 0.4, 0.4)), page)
+        form.addRow("Color:", self.color)
+        self.transp = QCheckBox("Transparent", page)
+        self.transp.setChecked(bool(getattr(obj, "transparent", False)))
+        lay = QVBoxLayout(page); lay.addLayout(form); lay.addWidget(self.transp); lay.addStretch(1)
+        self.tabs.addTab(page, "Periodical")
+
+    def apply_to(self, obj) -> None:
+        if not _HAS_QT:
+            return
+        obj.source_label = self.source.currentData() or ""
+        obj.axis = self.axis.currentData() or "Z"
+        obj.copies = int(self.copies.value())
+        obj.color = self.color.rgb()
+        obj.transparent = self.transp.isChecked()

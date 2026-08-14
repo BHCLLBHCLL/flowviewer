@@ -475,6 +475,21 @@ class MaxMinObject(PostObject):
     file: str = ""
     values: dict = field(default_factory=dict)   # var -> (min, max)
 
+
+@dataclass
+class PeriodicalCopyObject(PostObject):
+    """Periodic copies of a surface about an axis (scPOST Periodical Copy, A2)."""
+
+    kind: str = "periodical"
+    title: str = "Periodical Copy"
+    source_label: str = ""
+    axis: str = "Z"
+    axis_point: tuple = (0.0, 0.0, 0.0)
+    copies: int = 6
+    keep_original: bool = True
+    color: tuple = (0.4, 0.4, 0.4)
+    transparent: bool = False
+
 @dataclass
 class MirrorCopyObject(PostObject):
     """Mirrored copy of a surface object (scPOST Mirror Copy, P2.6)."""

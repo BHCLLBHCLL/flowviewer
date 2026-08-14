@@ -2152,6 +2152,28 @@ def test_curve_dialog(qapp):
     assert c.samples == 50
 
 
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_periodical_copy():
+    """Periodical Copy produces rotated copies of a surface (A2)."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import PeriodicalCopyObject, SurfaceObject
+    from fv.render.periodical import build_periodical_actors
+    ff = load_file(FPH)
+    surf = SurfaceObject(index=1)
+    obj = PeriodicalCopyObject(index=1)
+    obj.source_label = "Surface (1)"
+    obj.axis = "Z"
+    obj.copies = 4
+    out = build_periodical_actors(ff, obj, siblings=[surf])
+    assert len(out) == 3  # 4 copies total = 3 rotated + original kept
+    # a 180-degree copy about Z flips X and Y
+    b0 = out["copy2"].GetMapper().GetInput().GetBounds()
+    assert b0[0] < 0 or b0[1] > 0  # bounds shifted
+    assert build_periodical_actors(ff, PeriodicalCopyObject(index=2),
+                                   siblings=[surf]) == {}
+
+
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_export_animation_frames_headless(tmp_path):
     """Animation exporter returns 0 written in headless mode (G5)."""
