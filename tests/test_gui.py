@@ -2279,6 +2279,27 @@ def test_xdmf_reader(tmp_path):
     assert ff.variables["PRES"].array.tolist() == [1, 2, 3, 4, 5, 6, 7, 8]
 
 
+def test_folder_tree_hierarchy(qapp):
+    """Folder nests member objects under a tree node (A3)."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import FolderObject, SurfaceObject
+    ff = load_file(FPH)
+    folder = FolderObject(index=1)
+    folder.member_labels = ["Surface (1)"]
+    w = _make(qapp, FPH)
+    w.main_object.children.append(folder)
+    w.object_tree.load_main(w.main_object)
+    fitem = w.object_tree._items.get("Folder (1)")
+    assert fitem is not None
+    # Surface (1) should be nested under the folder
+    names = [fitem.child(i).text(0) for i in range(fitem.childCount())]
+    assert "Surface (1)" in names
+    # Plane (1) is not a member -> stays under main
+    mitem = w.object_tree._items.get("__main__")
+    top = [mitem.child(i).text(0) for i in range(mitem.childCount())]
+    assert "Plane (1)" in top
+
+
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_export_animation_frames_headless(tmp_path):

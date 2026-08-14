@@ -436,6 +436,15 @@ class CurveObject(PostObject):
     font_name: str = "MS Gothic"
     font_size: int = 9
 
+
+@dataclass
+class FolderObject(PostObject):
+    """Folder grouping objects in the tree (scPOST Folder, A3)."""
+
+    kind: str = "folder"
+    title: str = "Folder"
+    member_labels: list = field(default_factory=list)
+
 @dataclass
 class GroupingObject(PostObject):
     """Group visibility of member objects (scPOST Grouping, P2.5)."""

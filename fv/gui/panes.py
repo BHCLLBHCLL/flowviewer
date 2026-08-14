@@ -201,8 +201,20 @@ class ObjectTree(QTreeWidget if _HAS_QT else object):
         self._items["__main__"] = file_item
         self._object_kinds[main.display_name] = "main"
 
+        # Folders first, then members under their folder (A3)
+        folder_objs = [o for o in main.children if o.kind == "folder"]
         for obj in main.children:
-            self._add_object_item(file_item, obj)
+            if obj.kind == "folder":
+                self._add_object_item(file_item, obj)
+        for obj in main.children:
+            if obj.kind == "folder":
+                continue
+            parent = file_item
+            for f in folder_objs:
+                if obj.label in (f.member_labels or []):
+                    parent = self._items.get(f.label, file_item)
+                    break
+            self._add_object_item(parent, obj)
 
         file_item.setExpanded(True)
 
@@ -312,7 +324,7 @@ class ObjectTree(QTreeWidget if _HAS_QT else object):
                          "light", "pathline", "cylinder", "circle",
                          "text", "bitmap", "information", "mirror",
                          "timeseries", "maxmin", "graph", "grouping",
-                         "curve", "periodical", "measure")
+                         "curve", "periodical", "measure", "folder")
 
     def _on_selection_changed(self) -> None:
         """Single-click a renderable object → show tiled settings (scPOST)."""
@@ -462,9 +474,10 @@ class PropertyHost(QWidget if _HAS_QT else object):
             return
         from .object_dialogs import ParticleDialog, PlaneDialog, SurfaceDialog
         from .object_dialogs2 import (
-            BitmapDialog, CircleDialog, ColorbarDialog, CylinderDialog,
-            GraphDialog, GroupingDialog, InformationDialog, IsosurfaceDialog,
-            LightDialog, MaxMinDialog, MirrorCopyDialog, PathlineDialog,
+            BitmapDialog, CircleDialog, ColorbarDialog, CurveDialog,
+            CylinderDialog, GraphDialog, GroupingDialog, InformationDialog,
+            IsosurfaceDialog, LightDialog, MaxMinDialog, MeasureDialog,
+            MirrorCopyDialog, PathlineDialog, PeriodicalCopyDialog,
             PointDialog, StreamlineDialog, TextDialog, TimeSeriesDialog,
             VolumeDialog,
         )
@@ -490,6 +503,9 @@ class PropertyHost(QWidget if _HAS_QT else object):
             "maxmin": MaxMinDialog,
             "graph": GraphDialog,
             "grouping": GroupingDialog,
+            "folder": GroupingDialog,
+            "periodical": PeriodicalCopyDialog,
+            "measure": MeasureDialog,
         }.get(kind)
         if cls is None:
             return
