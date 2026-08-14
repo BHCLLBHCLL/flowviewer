@@ -311,7 +311,8 @@ class ObjectTree(QTreeWidget if _HAS_QT else object):
                          "streamline", "volume", "colorbar", "point",
                          "light", "pathline", "cylinder", "circle",
                          "text", "bitmap", "information", "mirror",
-                         "timeseries", "maxmin", "graph", "grouping")
+                         "timeseries", "maxmin", "graph", "grouping",
+                         "curve")
 
     def _on_selection_changed(self) -> None:
         """Single-click a renderable object → show tiled settings (scPOST)."""
@@ -484,6 +485,7 @@ class PropertyHost(QWidget if _HAS_QT else object):
             "bitmap": BitmapDialog,
             "information": InformationDialog,
             "mirror": MirrorCopyDialog,
+            "curve": CurveDialog,
             "timeseries": TimeSeriesDialog,
             "maxmin": MaxMinDialog,
             "graph": GraphDialog,

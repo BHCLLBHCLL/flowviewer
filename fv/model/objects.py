@@ -419,6 +419,23 @@ class LightObject(PostObject):
 
 
 
+
+@dataclass
+class CurveObject(PostObject):
+    """Curve through control points, sampling a variable along it (A1)."""
+
+    kind: str = "curve"
+    title: str = "Curve"
+    points: list = field(default_factory=list)   # [(x,y,z), ...] control pts
+    variable: str = ""
+    samples: int = 64
+    show_curve: bool = True
+    show_values: bool = False
+    color: tuple = (0.9, 0.2, 0.2)
+    thickness: int = 2
+    font_name: str = "MS Gothic"
+    font_size: int = 9
+
 @dataclass
 class GroupingObject(PostObject):
     """Group visibility of member objects (scPOST Grouping, P2.5)."""

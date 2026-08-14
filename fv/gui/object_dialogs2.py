@@ -1189,3 +1189,68 @@ class GroupingDialog(ObjectSettingsPanel):
         if not _HAS_QT:
             return
         obj.member_labels = [i.text() for i in self.members.selectedItems()]
+
+class CurveDialog(ObjectSettingsPanel):
+    """Curve — control points / variable / display (A1)."""
+
+    def __init__(self, obj, field_file=None, parent=None):
+        super().__init__(getattr(obj, "label", "Curve"), parent)
+        if not _HAS_QT:
+            self.obj = obj
+            return
+        self.obj = obj
+        self.field_file = field_file
+        page = QWidget(self)
+        lay = QVBoxLayout(page)
+        lay.addWidget(QLabel("Control points (x,y,z):", page))
+        self.pts = QListWidget(page)
+        for p in getattr(obj, "points", []) or []:
+            self.pts.addItem(",".join(f"{v:.6g}" for v in p))
+        lay.addWidget(self.pts)
+        prow = QHBoxLayout()
+        badd = QPushButton("Add", page)
+        badd.clicked.connect(self._add)
+        bdel = QPushButton("Delete", page)
+        bdel.clicked.connect(self._del)
+        prow.addWidget(badd); prow.addWidget(bdel); prow.addStretch(1)
+        lay.addLayout(prow)
+        form = QFormLayout()
+        self.var = _var_combo(_scalar_vars(field_file), obj.variable)
+        form.addRow("Variable:", self.var)
+        self.samples = QSpinBox(page); self.samples.setRange(8, 2000)
+        self.samples.setValue(int(getattr(obj, "samples", 64)))
+        form.addRow("Samples:", self.samples)
+        self.color = _ColorButton(getattr(obj, "color", (0.9, 0.2, 0.2)), page)
+        form.addRow("Color:", self.color)
+        self.thick = QSpinBox(page); self.thick.setRange(1, 10)
+        self.thick.setValue(int(getattr(obj, "thickness", 2)))
+        form.addRow("Thickness:", self.thick)
+        lay.addLayout(form)
+        lay.addStretch(1)
+        self.tabs.addTab(page, "Curve")
+
+    def _add(self) -> None:
+        self.pts.addItem("0,0,0")
+        self.pts.setCurrentRow(self.pts.count() - 1)
+
+    def _del(self) -> None:
+        row = self.pts.currentRow()
+        if row >= 0:
+            self.pts.takeItem(row)
+
+    def apply_to(self, obj) -> None:
+        if not _HAS_QT:
+            return
+        pts = []
+        for i in range(self.pts.count()):
+            try:
+                parts = [float(x) for x in self.pts.item(i).text().split(",")]
+                if len(parts) == 3:
+                    pts.append(tuple(parts))
+            except ValueError:
+                continue
+        obj.points = pts
+        obj.variable = self.var.currentData() or ""
+        obj.samples = int(self.samples.value())
+        obj.color = self.color.rgb()
+        obj.thickness = int(self.thick.value())

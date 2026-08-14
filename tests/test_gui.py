@@ -2110,7 +2110,46 @@ def test_compare_dialog_panes(qapp):
     ff = load_file(FPH)
     d = CompareDialog(ff, ff, enable_3d=False)
     assert d.layout().count() >= 1
-    d.accept()
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_curve_object():
+    """Curve samples a variable along a control-point polyline (A1)."""
+    import numpy as np
+    from fv.model.dataset import load_file
+    from fv.model.objects import CurveObject
+    from fv.render.curve import build_curve_actors, sample_along_curve
+    ff = load_file(FPH)
+    c0 = ff.vertices.min(axis=0)
+    c1 = ff.vertices.max(axis=0)
+    obj = CurveObject(index=1)
+    obj.points = [tuple(c0), tuple(c1)]
+    obj.variable = "PRES"
+    obj.samples = 32
+    arc, vals, var = sample_along_curve(ff, obj)
+    assert var == "PRES"
+    assert len(arc) == 32 and len(vals) == 32
+    assert np.all(np.diff(arc) >= 0)
+    out = build_curve_actors(ff, obj)
+    assert "curve" in out
+    assert out["curve"].GetMapper().GetInput().GetNumberOfPoints() >= 2
+    # empty points -> no actors
+    assert build_curve_actors(ff, CurveObject(index=2)) == {}
+
+def test_curve_dialog(qapp):
+    """CurveDialog writes back points/variable (A1)."""
+    from fv.gui.object_dialogs2 import CurveDialog
+    from fv.model.objects import CurveObject
+    c = CurveObject(index=1)
+    d = CurveDialog(c)
+    d.pts.clear();
+    d.pts.addItem("0,0,0");
+    d.pts.addItem("1,1,1")
+    d.samples.setValue(50)
+    d.apply_to(c)
+    assert c.points == [(0.0, 0.0, 0.0), (1.0, 1.0, 1.0)]
+    assert c.samples == 50
 
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
