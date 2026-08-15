@@ -781,6 +781,32 @@ def test_plane_oilflow_streamlines():
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_plane_oilflow_color_var_p15():
+    """P1.5: oilflow lines coloured by a scalar variable."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import PlaneObject
+    from fv.render import plane as rp
+    ff = load_file(FPH)
+    obj = PlaneObject(index=1, axis="Z", coordinate=0.0)
+    obj.oilflow_display = True
+    obj.oilflow_var = "VEL"
+    obj.oilflow_draw_type = "Line"
+    obj.oilflow_length = 1.0
+    obj.oilflow_color_var = "PRES"
+    out = rp.build_plane_actors(ff, obj)
+    assert "oilflow" in out
+    mapper = out["oilflow"].GetMapper()
+    pd = mapper.GetInput()
+    arr = pd.GetPointData().GetArray("PRES")
+    assert arr is not None
+    assert arr.GetNumberOfTuples() == pd.GetNumberOfPoints()
+    rng = arr.GetRange()
+    mrng = mapper.GetScalarRange()
+    assert abs(mrng[0] - rng[0]) < 1e-9 and abs(mrng[1] - rng[1]) < 1e-9
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_plane_clip_region():
     """Clip tab X/Y region clips the cut and draws its frame (P2.5)."""
     import numpy as np
@@ -3161,6 +3187,32 @@ def test_camera_keyframes_and_sequence():
     # headless capture writes nothing but returns an int
     n = capture_camera_sequence(None, [kf0, kf1], 3, "tmp")
     assert isinstance(n, int) and n == 0
+
+
+def test_camera_spline_keyframes_p15():
+    """P1.5: >=3 keyframes use Catmull-Rom (passes through keyframes)."""
+    from fv.render.camera import keyframe_poses
+    kf = [{"position": (i, 0, 0), "focal_point": (0, 0, 0),
+           "view_up": (0, 1, 0), "parallel": False} for i in range(4)]
+    poses = keyframe_poses(kf, 7)
+    assert len(poses) == 7
+    # spline passes exactly through every keyframe (uniform spacing)
+    for i in (0, 2, 4, 6):
+        assert abs(poses[i]["position"][0] - (i / 2.0)) < 1e-9
+    # mid-segment value differs from linear for a curved path
+    kf2 = [{"position": (0, 0, 0), "focal_point": (0, 0, 0),
+            "view_up": (0, 1, 0), "parallel": False},
+           {"position": (1, 1, 0), "focal_point": (0, 0, 0),
+            "view_up": (0, 1, 0), "parallel": False},
+           {"position": (2, 0, 0), "focal_point": (0, 0, 0),
+            "view_up": (0, 1, 0), "parallel": False}]
+    p = keyframe_poses(kf2, 3)
+    # linear mid would be y=0.5; Catmull-Rom reaches higher
+    assert p[1]["position"][1] > 0.5
+    assert abs(p[1]["position"][0] - 1.0) < 1e-9
+    # view_up stays normalised
+    u = p[1]["view_up"]
+    assert abs((u[0] ** 2 + u[1] ** 2 + u[2] ** 2) ** 0.5 - 1.0) < 1e-9
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")

@@ -20,6 +20,20 @@ def _v3(a, b, t):
     return tuple(a[i] + (b[i] - a[i]) * t for i in range(3))
 
 
+def _cr_v3(p0, p1, p2, p3, t):
+    """Catmull-Rom spline of four 3-tuples at parameter t in [0, 1]."""
+    t2 = t * t
+    t3 = t2 * t
+    out = []
+    for i in range(3):
+        v = (0.5 * ((2.0 * p1[i])
+                    + (-p0[i] + p2[i]) * t
+                    + (2.0 * p0[i] - 5.0 * p1[i] + 4.0 * p2[i] - p3[i]) * t2
+                    + (-p0[i] + 3.0 * p1[i] - 3.0 * p2[i] + p3[i]) * t3))
+        out.append(float(v))
+    return tuple(out)
+
+
 def interpolate_pose(p0, p1, t):
     """Interpolate between two camera poses by factor t in [0, 1]."""
     t = max(0.0, min(1.0, float(t)))
@@ -31,11 +45,32 @@ def interpolate_pose(p0, p1, t):
     }
 
 
+def _spline_pose(km1, k0, k1, k2, t):
+    """Catmull-Rom pose between k0 and k1 using adjacent keyframes (P1.5)."""
+    t = max(0.0, min(1.0, float(t)))
+    up = _cr_v3(km1["view_up"], k0["view_up"], k1["view_up"], k2["view_up"], t)
+    n = (up[0] ** 2 + up[1] ** 2 + up[2] ** 2) ** 0.5
+    if n < 1e-12:
+        up = k0["view_up"]
+    else:
+        up = (up[0] / n, up[1] / n, up[2] / n)
+    return {
+        "position": _cr_v3(km1["position"], k0["position"],
+                           k1["position"], k2["position"], t),
+        "focal_point": _cr_v3(km1["focal_point"], k0["focal_point"],
+                              k1["focal_point"], k2["focal_point"], t),
+        "view_up": up,
+        "parallel": k0["parallel"] if t < 0.5 else k1["parallel"],
+    }
+
+
 def keyframe_poses(keyframes, n_frames):
     """Expand keyframes into n_frames evenly spaced camera poses.
 
-    With a single keyframe every frame repeats it; with two or more the
-    segment count is split evenly (the last frame is the final keyframe).
+    With a single keyframe every frame repeats it.  Two keyframes
+    interpolate linearly (no neighbourhood for a spline); three or more
+    use Catmull-Rom splines through every keyframe (C1-continuous, P1.5).
+    The last frame is always the final keyframe.
     """
     n_frames = max(1, int(n_frames))
     if not keyframes:
@@ -45,14 +80,23 @@ def keyframe_poses(keyframes, n_frames):
     if len(keyframes) == 1:
         return [dict(keyframes[0]) for _ in range(n_frames)]
     segs = len(keyframes) - 1
+    spline = len(keyframes) >= 3
     poses = []
     for i in range(n_frames):
         u = i * segs / float(n_frames - 1)
         k = int(u)
         if k >= segs:
             poses.append(dict(keyframes[-1]))
+            continue
+        if spline:
+            km1 = keyframes[k - 1] if k > 0 else keyframes[0]
+            k2 = keyframes[k + 2] if k + 2 < len(keyframes) \
+                else keyframes[-1]
+            poses.append(_spline_pose(km1, keyframes[k],
+                                      keyframes[k + 1], k2, u - k))
         else:
-            poses.append(interpolate_pose(keyframes[k], keyframes[k + 1], u - k))
+            poses.append(interpolate_pose(keyframes[k], keyframes[k + 1],
+                                          u - k))
     return poses
 
 

@@ -1044,6 +1044,17 @@ class PlaneDialog(_PinnedDialog):
             self.oil_var.setCurrentIndex(idx)
         var_row.addWidget(self.oil_var, 1)
         lay.addLayout(var_row)
+        color_row = QHBoxLayout()
+        color_row.addWidget(QLabel("Colour by:"))
+        self.oil_color = QComboBox(page)
+        self.oil_color.addItem("(none)", "")
+        for v in _scalar_vars(self.field_file):
+            self.oil_color.addItem(v, v)
+        ci = self.oil_color.findData(self.plane.oilflow_color_var)
+        if ci >= 0:
+            self.oil_color.setCurrentIndex(ci)
+        color_row.addWidget(self.oil_color, 1)
+        lay.addLayout(color_row)
 
         form = QFormLayout()
         self.oil_transp = QCheckBox("Transparent", page)
@@ -1688,6 +1699,7 @@ class PlaneDialog(_PinnedDialog):
         # Oil Flow
         plane.oilflow_display = self.oil_display.isChecked()
         plane.oilflow_var = self.oil_var.currentData() or ""
+        plane.oilflow_color_var = self.oil_color.currentData() or ""
         plane.oilflow_transparent = self.oil_transp.isChecked()
         plane.oilflow_thickness = float(self.oil_thick.value())
         plane.oilflow_space_u = float(self.oil_space_u.value())

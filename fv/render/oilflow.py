@@ -50,6 +50,11 @@ def build_oilflow_actor(ff: FieldFile, obj, ugrid=None,
     if vec is None:
         return None
 
+    color_var = (getattr(obj, "oilflow_color_var", "") or "").strip()
+    if color_var and ff.variable_array(color_var) is not None:
+        from ..render.plane import attach_scalar
+        attach_scalar(ugrid, ff, color_var, cell_centered, rows=rows)
+
     # Work grid with vector as point data (stream tracer needs point vectors)
     work = ugrid
     if cell_centered:
@@ -102,10 +107,20 @@ def build_oilflow_actor(ff: FieldFile, obj, ugrid=None,
         mapper = vtk.vtkPolyDataMapper()
         mapper.SetInputConnection(tube.GetOutputPort())
 
+    use_color = bool(color_var) and \
+        out.GetPointData().GetArray(color_var) is not None
+    if use_color:
+        mapper.SetScalarModeToUsePointData()
+        mapper.SelectColorArray(color_var)
+        mapper.SetScalarRange(
+            out.GetPointData().GetArray(color_var).GetRange())
+
     actor = vtk.vtkActor()
     actor.SetMapper(mapper)
     prop = actor.GetProperty()
     prop.SetLineWidth(max(1, int(getattr(obj, "oilflow_thickness", 1.0))))
+    if not use_color:
+        mapper.ScalarVisibilityOff()
     if getattr(obj, "oilflow_transparent", False):
         prop.SetOpacity(0.5)
     return actor
