@@ -48,7 +48,7 @@ def build_streamline_actors(ff: FieldFile, obj,
     # FLD hex grids crash VTK cell-locator filters (vtkProbeFilter /
     # vtkStreamTracer — heap corruption), so trace numerically instead.
     if ff.kind == "fld":
-        poly = _euler_trace_fld(ff, obj)
+        poly = _numeric_trace_fld(ff, obj)
         if poly is None:
             return out
         actor = _render_actor(poly, base, obj)
@@ -76,9 +76,12 @@ def build_streamline_actors(ff: FieldFile, obj,
     tracer.SetSourceData(seeds)
     tracer.SetInputArrayToProcess(
         0, 0, 0, vtk.vtkDataObject.FIELD_ASSOCIATION_POINTS, base)
-    method = (getattr(obj, "integration_method", "Runge-Kutta") or "")
-    if str(method).lower() == "euler":
+    method = str(getattr(obj, "integration_method", "Runge-Kutta")
+                 or "Runge-Kutta").lower()
+    if method == "euler":
         tracer.SetIntegratorTypeToEuler()
+    elif hasattr(tracer, "SetIntegratorTypeToRungeKutta4"):
+        tracer.SetIntegratorTypeToRungeKutta4()   # P1.2: real RK4
     else:
         tracer.SetIntegratorTypeToRungeKutta2()
     direction = (getattr(obj, "direction", "Forward") or "Forward")
@@ -115,13 +118,40 @@ def _attach_field(ff: FieldFile, ugrid, base: str, cell_centered: bool,
         attach_scalar(ugrid, ff, color_var, cell_centered)
 
 
-def _euler_trace_fld(ff: FieldFile, obj) -> Optional["vtk.vtkPolyData"]:
+class NodeFieldSampler:
+    """Nearest-node sampler with KD-tree acceleration (P1.2).
+
+    FLD node-centred fields are evaluated at the nearest mesh node;
+    scipy's cKDTree gives O(log n) lookups, with a vectorised brute-force
+    argmin fallback when scipy is unavailable.
+    """
+
+    def __init__(self, verts: np.ndarray):
+        self.verts = np.ascontiguousarray(verts, dtype=np.float64)
+        self._tree = None
+        try:
+            from scipy.spatial import cKDTree
+            self._tree = cKDTree(self.verts)
+        except Exception:  # pragma: no cover - scipy absent
+            self._tree = None
+
+    def nearest(self, p: np.ndarray) -> int:
+        if self._tree is not None:
+            return int(self._tree.query(p)[1])
+        d = self.verts - p
+        return int(np.argmin(np.einsum("ij,ij->i", d, d)))
+
+
+def _numeric_trace_fld(ff: FieldFile, obj) -> Optional["vtk.vtkPolyData"]:
     """Numerical streamline for FLD node-centred data (no VTK locator).
 
-    Seeds are stepped with explicit Euler through the node field, using
-    nearest-node vector lookup; the trace is bounded to the mesh box.
+    P1.2: RK4 integration when ``obj.integration_method`` is
+    "Runge-Kutta" (4 field evaluations per step) with explicit Euler as
+    the fallback; the trace honours ``length`` (arc-length cap) and
+    Forward / Backward / Both directions. When ``obj.color_var`` names a
+    node scalar it is sampled at every trace point and attached as point
+    data so lines can be coloured by it.
     """
-    import numpy as np
     verts = np.asarray(ff.vertices, dtype=np.float64)
     if verts is None or len(verts) == 0:
         return None
@@ -132,46 +162,103 @@ def _euler_trace_fld(ff: FieldFile, obj) -> Optional["vtk.vtkPolyData"]:
         comps.append(np.asarray(a, dtype=np.float64) if a is not None
                      else np.zeros(len(verts)))
     field = np.column_stack(comps)
+    color_var = (getattr(obj, "color_var", "") or "").strip()
+    color_vals = None
+    if color_var:
+        a = ff.variable_array(color_var)
+        if a is not None:
+            color_vals = np.asarray(a, dtype=np.float64)
+            if color_vals.shape[0] != len(verts):
+                color_vals = None
+
+    sampler = NodeFieldSampler(verts)
     lo = verts.min(axis=0)
     hi = verts.max(axis=0)
-    n = len(verts)
     box = (hi - lo) * 0.5
 
     seeds = _seed_centers(ff, obj)
     if not seeds:
         return None
     max_steps = int(getattr(obj, "max_steps", 200) or 200)
-    step_len = max(1e-6, float(getattr(obj, "step_size", 0.001) or 0.001))
-    direction = (getattr(obj, "direction", "Forward") or "Forward")
-    sign = 1.0
-    if str(direction).lower() == "backward":
-        sign = -1.0
+    step_len = max(1e-6, float(getattr(obj, "step_size", 0.01) or 0.01))
+    length = float(getattr(obj, "length", 0.0) or 0.0)
+    rk4 = str(getattr(obj, "integration_method", "Runge-Kutta")
+              or "Runge-Kutta").lower() != "euler"
+    direction = str(getattr(obj, "direction", "Forward")
+                    or "Forward").lower()
+
+    def velocity(p: np.ndarray, sign: float) -> np.ndarray:
+        return field[sampler.nearest(p)] * sign
+
+    def advance(p: np.ndarray, sign: float) -> np.ndarray:
+        if rk4:
+            k1 = velocity(p, sign)
+            k2 = velocity(p + 0.5 * step_len * k1, sign)
+            k3 = velocity(p + 0.5 * step_len * k2, sign)
+            k4 = velocity(p + step_len * k3, sign)
+            return p + (step_len / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+        return p + step_len * velocity(p, sign)
+
+    signs = {"backward": (-1.0,), "both": (1.0, -1.0)}.get(direction, (1.0,))
     poly = vtk.vtkPolyData()
     pts = vtk.vtkPoints()
     lines = vtk.vtkCellArray()
-    for s0 in seeds:
-        p = np.asarray(s0, dtype=np.float64)
-        ids = []
+    scalars: list[float] = []
+
+    def trace(p, sign):
+        chain = [p.copy()]
+        vals = [color_vals[sampler.nearest(p)]
+                if color_vals is not None else 0.0]
+        travel = 0.0
         for _ in range(max_steps):
-            d = verts - p
-            idx = int(np.argmin(np.einsum("ij,ij->i", d, d)))
-            if idx >= n:
-                break
-            v = field[idx] * sign
-            ids.append(pts.InsertNextPoint(*p))
-            p = p + v * step_len
+            nxt = advance(p, sign)
+            travel += float(np.linalg.norm(nxt - p))
+            p = nxt
             if not (lo - box <= p).all() or not (p <= hi + box).all():
                 break
-        if len(ids) >= 2:
-            lc = vtk.vtkPolyLine()
-            lc.GetPointIds().SetNumberOfIds(len(ids))
-            for k, i in enumerate(ids):
-                lc.GetPointIds().SetId(k, i)
-            lines.InsertNextCell(lc)
+            chain.append(p.copy())
+            if color_vals is not None:
+                vals.append(color_vals[sampler.nearest(p)])
+            if length > 0.0 and travel >= length:
+                break
+        return chain, vals
+
+    for s0 in seeds:
+        segments = []
+        all_vals: list[float] = []
+        if -1.0 in signs:  # Backward / Both: prepend reversed backward trace
+            chain, vals = trace(np.asarray(s0, dtype=np.float64), -1.0)
+            if len(chain) > 1:
+                segments.append(chain[:0:-1])
+                if color_vals is not None:
+                    all_vals.extend(vals[:0:-1])
+        chain, vals = trace(np.asarray(s0, dtype=np.float64), 1.0)
+        segments.append(chain)
+        if color_vals is not None:
+            all_vals.extend(vals)
+        total = sum(len(sg) for sg in segments)
+        if total < 2:
+            continue
+        lc = vtk.vtkPolyLine()
+        lc.GetPointIds().SetNumberOfIds(total)
+        k = 0
+        for sg in segments:
+            for p in sg:
+                lc.GetPointIds().SetId(k, pts.InsertNextPoint(*p))
+                if color_vals is not None:
+                    scalars.append(all_vals[k])
+                k += 1
+        lines.InsertNextCell(lc)
+
     if lines.GetNumberOfCells() == 0:
         return None
     poly.SetPoints(pts)
     poly.SetLines(lines)
+    if color_vals is not None and scalars:
+        arr = _vns.numpy_to_vtk(np.asarray(scalars, dtype=np.float64),
+                                deep=True)
+        arr.SetName(color_var)
+        poly.GetPointData().SetScalars(arr)
     return poly
 
 
@@ -297,6 +384,4 @@ def _data_range(pd, name: str) -> tuple[float, float]:
     if arr is None:
         return (0.0, 1.0)
     r = arr.GetRange()
-    if r[0] == r[1]:
-        r = (r[0] - 1.0, r[1] + 1.0)
     return (float(r[0]), float(r[1]))

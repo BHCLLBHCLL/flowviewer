@@ -1337,7 +1337,7 @@ def test_streamline_render_pipeline_fph():
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
 def test_streamline_render_pipeline_fld():
-    """FLD node-centred streamlines (numerical Euler tracer)."""
+    """FLD streamlines: RK4 numeric tracer with color_var (P1.2)."""
     from fv.model.dataset import load_file
     from fv.model.objects import StreamlineObject
     from fv.render import streamline as sl_render
@@ -1349,8 +1349,20 @@ def test_streamline_render_pipeline_fld():
     obj.seed_density_u = 4
     obj.seed_density_v = 4
     obj.length = 0.1
+    obj.color_var = "PRES"
     out = sl_render.build_streamline_actors(ff, obj)
-    assert out.get("streamline") is not None
+    a = out.get("streamline")
+    assert a is not None
+    pd = a.GetMapper().GetInput()
+    arr = pd.GetPointData().GetArray("PRES")
+    assert arr is not None and arr.GetNumberOfTuples() == \
+        pd.GetNumberOfPoints()  # sampled at every trace point (P1.2)
+    # Both direction yields polylines through the same seeds
+    obj.direction = "Both"
+    out2 = sl_render.build_streamline_actors(ff, obj)
+    assert out2.get("streamline") is not None
+    pd2 = out2["streamline"].GetMapper().GetInput()
+    assert pd2.GetNumberOfLines() >= pd.GetNumberOfLines()
 
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
@@ -1477,6 +1489,40 @@ def test_pathline_multi_cycle(tmp_path):
     pd = out["pathline"].GetMapper().GetInput()
     assert pd.GetNumberOfPoints() >= 9
     assert pd.GetNumberOfLines() >= 1
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
+def test_pathline_step_and_color_p12(tmp_path):
+    """P1.2: pathline honours step_size; color_var colours by point data."""
+    import shutil
+    from fv.model.dataset import load_file
+    from fv.model.objects import PathlineObject
+    from fv.render.pathline import build_pathline_actors
+    files = []
+    for cyc in (100, 200):
+        dst = tmp_path / f"ex1_{cyc}.fld"
+        shutil.copyfile(FLD, dst)
+        files.append(str(dst))
+    ff = load_file(files[0])
+    obj = PathlineObject(index=1)
+    obj.vector_var = "VECT"
+    obj.density_u = 3
+    obj.density_v = 3
+    obj.steps_per_cycle = 5
+    obj.step_size = 0.01          # parameterised (was hard-coded 0.001)
+    obj.color_var = "PRES"
+    out = build_pathline_actors(obj, files, ff0=ff)
+    assert "pathline" in out
+    actor = out["pathline"]
+    pd = actor.GetMapper().GetInput()
+    arr = pd.GetPointData().GetArray("PRES")
+    assert arr is not None
+    assert arr.GetNumberOfTuples() == pd.GetNumberOfPoints()
+    # colour path active: mapper's scalar range follows the sampled array
+    rng = arr.GetRange()
+    mrng = actor.GetMapper().GetScalarRange()
+    assert abs(mrng[0] - rng[0]) < 1e-9 and abs(mrng[1] - rng[1]) < 1e-9
 
 def test_pathline_dialog_tabs_and_apply(qapp):
     """PathlineDialog exposes Seed/Direction/Display (P1.5)."""

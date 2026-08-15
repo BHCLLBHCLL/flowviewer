@@ -784,7 +784,9 @@ class PathlineObject(PostObject):
     vector_var: str = "VEL"
     direction: str = "Forward"                # Forward | Backward
     steps_per_cycle: int = 10
+    step_size: float = 0.001                  # integration step (P1.2)
     # Display tab
+    color_var: str = ""                       # scalar var to color by (P1.2)
     draw_type: str = "Line"                   # Line | Triangle | Tube
     thickness: float = 1.0
     mono_color: tuple = (0.1, 0.1, 0.8)

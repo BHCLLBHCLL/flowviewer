@@ -38,25 +38,37 @@ def build_pathline_actors(obj, files: list, ff0: Optional[FieldFile] = None) -> 
     if ugrid is None:
         return {}
     steps = max(1, int(getattr(obj, "steps_per_cycle", 10) or 10))
+    step_len = max(1e-6, float(getattr(obj, "step_size", 0.001) or 0.001))
     direction = (getattr(obj, "direction", "Forward") or "Forward")
     reverse = str(direction).lower().startswith("back")
+    color_var = (getattr(obj, "color_var", "") or "").strip()
     cur = np.asarray(seeds, dtype=np.float64)
     n_seeds = cur.shape[0]
     chain = [[] for _ in range(n_seeds)]
+    scalar_chain = [[] for _ in range(n_seeds)]
     for fi, path in enumerate(files):
         ffc = ff if fi == 0 else load_file(path)
         if ffc is None:
             continue
         _attach_vectors(ugrid, ffc, var, cc)
-        seg, ends = _trace(ugrid, ffc, cur, steps, reverse, cc)
+        seg, ends, vals = _trace(ugrid, ffc, cur, steps, reverse, cc,
+                                 step_len=step_len, color_var=color_var)
         if seg is None:
             break
         for s in range(n_seeds):
             chain[s].append(seg[s])
+            scalar_chain[s].append(vals[s] if vals is not None else None)
         cur = ends
     lines = _assemble(chain)
     if lines is None:
         return {}
+    if color_var:
+        scalars = _assemble_scalars(chain, scalar_chain)
+        if scalars is not None:
+            arr = _vns.numpy_to_vtk(np.asarray(scalars, dtype=np.float64),
+                                    deep=True)
+            arr.SetName(color_var)
+            lines.GetPointData().SetScalars(arr)
     actor = _line_actor(lines, obj)
     return {"pathline": actor}
 
@@ -107,15 +119,18 @@ def _attach_vectors(ugrid, ff, var: str, cell_centered: bool) -> None:
 
 
 def _trace(ugrid, ff, seeds, steps: int, reverse: bool,
-             cell_centered: bool = False):
+             cell_centered: bool = False, step_len: float = 0.001,
+             color_var: str = ""):
     """Integrate each seed for *steps* through the current field.
 
     FLD grids bypass VTK locators (known heap corruption) with a numpy
-    nearest-node Euler tracer.  Returns (segments, end_points) or
-    (None, None) on failure.
+    nearest-node RK4 tracer (P1.2).  Returns (segments, end_points,
+    scalar_values) or (None, None, None) on failure; scalar_values is
+    ``None`` unless *color_var* was resolvable.
     """
     if getattr(ff, "kind", "") == "fld":
-        return _trace_fld_euler(ff, seeds, steps, reverse)
+        return _trace_fld_numeric(ff, seeds, steps, reverse,
+                                  step_len=step_len, color_var=color_var)
     pts = vtk.vtkPoints()
     pts.SetData(_vns.numpy_to_vtk(
         np.ascontiguousarray(seeds, dtype=np.float64), deep=True))
@@ -125,14 +140,14 @@ def _trace(ugrid, ff, seeds, steps: int, reverse: bool,
     tracer.SetInputData(ugrid)
     tracer.SetSourceData(src)
     tracer.SetMaximumPropagation(max(1, steps));
-    tracer.SetInitialIntegrationStep(0.001);
+    tracer.SetInitialIntegrationStep(max(1e-6, step_len));
     tracer.SetIntegrationDirectionToForward()
     if reverse:
         tracer.SetIntegrationDirectionToBackward()
     tracer.Update()
     out = tracer.GetOutput()
     if out is None or out.GetNumberOfPoints() == 0:
-        return None, None
+        return None, None, None
     segs = [];
     ends = [];
     lines = out.GetLines()
@@ -151,16 +166,23 @@ def _trace(ugrid, ff, seeds, steps: int, reverse: bool,
     while len(segs) < len(seeds):
         segs.append(np.zeros((0, 3)));
         ends.append(seeds[len(segs) - 1]);
-    return segs, np.asarray(ends, dtype=np.float64)
+    return segs, np.asarray(ends, dtype=np.float64), None
 
 
 
 
-def _trace_fld_euler(ff, seeds, steps: int, reverse: bool):
-    """Numerical pathline step for FLD node fields (no VTK locator)."""
+def _trace_fld_numeric(ff, seeds, steps: int, reverse: bool,
+                       step_len: float = 0.001, color_var: str = ""):
+    """Numerical pathline step for FLD node fields (no VTK locator).
+
+    P1.2: RK4 integration (KD-tree nearest-node sampling) with the step
+    length taken from ``obj.step_size`` instead of a hard-coded 0.001;
+    ``color_var`` is sampled at each trace point when resolvable.
+    """
+    from .streamline import NodeFieldSampler
     verts = np.asarray(ff.vertices, dtype=np.float64)
     if verts is None or len(verts) == 0:
-        return None, None
+        return None, None, None
     base = (getattr(ff, "_path_var", "") or "VECT")
     comps = []
     for suff in ("X", "Y", "Z"):
@@ -168,30 +190,68 @@ def _trace_fld_euler(ff, seeds, steps: int, reverse: bool):
         comps.append(np.asarray(a, dtype=np.float64) if a is not None
                      else np.zeros(len(verts)))
     field = np.column_stack(comps)
+    color_vals = None
+    if color_var:
+        a = ff.variable_array(color_var)
+        if a is not None:
+            color_vals = np.asarray(a, dtype=np.float64)
+            if color_vals.shape[0] != len(verts):
+                color_vals = None
+    sampler = NodeFieldSampler(verts)
     lo = verts.min(axis=0)
     hi = verts.max(axis=0)
-    n = len(verts)
     box = (hi - lo) * 0.5
-    step_len = max(1e-6, 0.001 * steps)
+    step_len = max(1e-6, float(step_len))
     sign = -1.0 if reverse else 1.0
+
+    def velocity(p):
+        return field[sampler.nearest(p)] * sign
+
+    def advance(p):
+        k1 = velocity(p)
+        k2 = velocity(p + 0.5 * step_len * k1)
+        k3 = velocity(p + 0.5 * step_len * k2)
+        k4 = velocity(p + step_len * k3)
+        return p + (step_len / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+
     segs = []
     ends = []
+    vals_out = [] if color_vals is not None else None
     for s0 in seeds:
         p = np.asarray(s0, dtype=np.float64)
         path = [p.copy()]
+        vals = [color_vals[sampler.nearest(p)]
+                if color_vals is not None else 0.0]
         for _ in range(max(1, steps)):
-            d = verts - p
-            idx = int(np.argmin(np.einsum("ij,ij->i", d, d)))
-            if idx >= n:
-                break
-            v = field[idx] * sign
-            p = p + v * step_len
+            p = advance(p)
             if not (lo - box <= p).all() or not (p <= hi + box).all():
                 break
             path.append(p.copy())
-        segs.append(np.asarray(path));
+            if color_vals is not None:
+                vals.append(color_vals[sampler.nearest(p)])
+        segs.append(np.asarray(path))
         ends.append(path[-1])
-    return segs, np.asarray(ends, dtype=np.float64)
+        if vals_out is not None:
+            vals_out.append(vals)
+    return segs, np.asarray(ends, dtype=np.float64), vals_out
+
+
+def _assemble_scalars(chain, scalar_chain):
+    """Per-point scalar values aligned with :func:`_assemble` insertion."""
+    scalars = []
+    for parts, vals in zip(chain, scalar_chain):
+        total = sum(p.shape[0] for p in parts)
+        if total < 2:
+            continue
+        seed_vals = []
+        for seg_vals in vals:
+            if seg_vals is None:
+                return None
+            seed_vals.extend(seg_vals)
+        if len(seed_vals) != total:
+            return None
+        scalars.extend(seed_vals)
+    return scalars or None
 
 
 def _assemble(chain) -> Optional["vtk.vtkPolyData"]:
@@ -220,6 +280,7 @@ def _assemble(chain) -> Optional["vtk.vtkPolyData"]:
 
 def _line_actor(pd, obj) -> Optional["vtk.vtkActor"]:
     draw = (getattr(obj, "draw_type", "Line") or "Line");
+    color_var = (getattr(obj, "color_var", "") or "").strip()
     mapper = vtk.vtkPolyDataMapper();
     if str(draw).lower() in ("tube", "triangle"):
         tube = vtk.vtkTubeFilter();
@@ -231,14 +292,23 @@ def _line_actor(pd, obj) -> Optional["vtk.vtkActor"]:
         mapper.SetInputConnection(tube.GetOutputPort());
     else:
         mapper.SetInputData(pd);
+    use_color = bool(color_var) and \
+        pd.GetPointData().GetArray(color_var) is not None
+    if use_color:
+        mapper.SetScalarModeToUsePointData()
+        mapper.SelectColorArray(color_var)
+        mapper.SetScalarRange(
+            pd.GetPointData().GetArray(color_var).GetRange())
     actor = vtk.vtkActor();
     actor.SetMapper(mapper);
     prop = actor.GetProperty();
     prop.SetLineWidth(max(1, int(getattr(obj, "thickness", 1) or 1)));
-    try:
-        prop.SetColor(*getattr(obj, "mono_color", (0.1, 0.1, 0.8)));
-    except (TypeError, IndexError):
-        prop.SetColor(0.1, 0.1, 0.8);
+    if not use_color:
+        try:
+            prop.SetColor(*getattr(obj, "mono_color", (0.1, 0.1, 0.8)));
+        except (TypeError, IndexError):
+            prop.SetColor(0.1, 0.1, 0.8);
+        mapper.ScalarVisibilityOff();
     if getattr(obj, "transparent", False):
         prop.SetOpacity(0.5);
     return actor
