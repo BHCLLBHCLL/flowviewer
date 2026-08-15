@@ -1687,7 +1687,7 @@ class TurboDialog(ObjectSettingsPanel):
         page = QWidget(self)
         form = QFormLayout()
         self.view = QComboBox(page)
-        for v in ("Meridional", "Blade-to-Blade"):
+        for v in ("Meridional", "Blade-to-Blade", "Polar"):
             self.view.addItem(v, v)
         self.view.setCurrentIndex(max(0, self.view.findData(
             getattr(obj, "view", "Meridional"))))

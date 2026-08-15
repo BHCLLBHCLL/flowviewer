@@ -3295,6 +3295,42 @@ def test_turbo_views():
     assert b2b.shape[0] > 0
 
 
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+def test_turbo_heatmap_and_polar_p13():
+    """P1.3: variable views render binned heatmaps; polar has an outlet."""
+    import numpy as np
+    from fv.model.dataset import load_file
+    from fv.model.objects import TurboObject
+    from fv.render.turbo import (blade_loading_surfaces, build_turbo_actors)
+
+    ff = load_file(FPH)
+    var = "PRES" if "PRES" in ff.variables else ff.variables[0]
+    # meridional heatmap: quad mesh coloured by binned cell data
+    obj = TurboObject(index=1)
+    obj.view = "Meridional"
+    obj.variable = var
+    obj.n_r = 16
+    obj.n_z = 16
+    out = build_turbo_actors(ff, obj)
+    assert "turbo" in out
+    pd = out["turbo"].GetMapper().GetInput()
+    assert pd.GetNumberOfCells() > 0
+    arr = pd.GetCellData().GetArray(var)
+    assert arr is not None
+    assert arr.GetNumberOfTuples() == pd.GetNumberOfCells()
+    # polar outlet: heatmap path exercises polar_view_points_from
+    obj2 = TurboObject(index=2)
+    obj2.view = "Polar"
+    obj2.variable = var
+    out2 = build_turbo_actors(ff, obj2)
+    assert "turbo" in out2
+    # blade loading PS/SS split surfaces
+    sc, ps, ss = blade_loading_surfaces(ff, var, "Z", 16)
+    assert sc is not None and len(sc) == 16
+    assert np.isfinite(ps).sum() > 0
+    assert np.isfinite(ss).sum() > 0
+
+
 def test_ufo_object(qapp):
     """UFO object + dialog build (7b)."""
     from fv.gui.object_dialogs2 import UFODialog
@@ -3497,7 +3533,8 @@ def test_turbo_analysis():
     assert np.nanmin(vals) <= np.nanmax(vals)
     span, dp = blade_loading_curve(ff, "PRES", "Z", 16)
     assert len(span) == 16 and len(dp) == 16
-    assert np.all(dp >= 0)
+    # P1.3: dp = PS - SS is signed (was unsigned max-min approximation)
+    assert np.isfinite(dp).all()
     rt = polar_view_points(ff, "Z")
     assert rt.shape == (ff.n_vertices, 2)
     assert np.all(rt[:, 0] >= 0)

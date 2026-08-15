@@ -498,11 +498,13 @@ class TurboObject(PostObject):
 
     kind: str = "turbo"
     title: str = "Turbo"
-    view: str = "Meridional"              # Meridional | Blade-to-Blade
+    view: str = "Meridional"              # Meridional | Blade-to-Blade | Polar
     axis: str = "Z"
     radius: float = 0.05
     tolerance: float = 0.005
     variable: str = ""
+    n_r: int = 64                         # heatmap grid resolution (P1.3)
+    n_z: int = 64
 
 @dataclass
 class RegionBCObject(PostObject):
