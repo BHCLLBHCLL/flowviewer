@@ -309,13 +309,61 @@ def _source_location(ff, variables: dict, expr: str) -> str:
         return "node"
     return "cell"
 
+_HEX_EDGES = (
+    (0, 1), (1, 2), (2, 3), (3, 0),
+    (4, 5), (5, 6), (6, 7), (7, 4),
+    (0, 4), (1, 5), (2, 6), (3, 7),
+)
+
+
+def _hex_node_neighbors(ff):
+    """Node -> set of edge-adjacent node ids from FLD hex connectivity (2).
+
+    FLD ``LS_Elements`` connectivity is 1-based (node ids 1..N); CGNS hex
+    grids are 0-based.  A per-node offset is detected so both indexings
+    yield valid 0-based vertex ids.
+    """
+    conn = ff.cell_conn
+    adj = {}
+    if conn is None:
+        return adj
+    conn = np.asarray(conn, dtype=np.int64)
+    offset = 0
+    if conn.size:
+        if conn.min() == 0:
+            offset = 0
+        elif conn.max() >= getattr(ff, "n_vertices", conn.max() + 1):
+            offset = 1
+    for cell in conn:
+        for a, b in _HEX_EDGES:
+            na, nb = int(cell[a]) - offset, int(cell[b]) - offset
+            if na < 0 or nb < 0 or na == nb:
+                continue
+            adj.setdefault(na, set()).add(nb)
+            adj.setdefault(nb, set()).add(na)
+    return adj
+
+
+def _fph_cell_neighbors(ff):
+    """Cell -> set of face-neighbour cell ids from LS_Links (2)."""
+    ld = ff.link_data
+    adj = {}
+    if ld is None:
+        return adj
+    owner = np.asarray(ld["owner"], dtype=np.int64)
+    neigh = np.asarray(ld["neighbour"], dtype=np.int64)
+    for o, n in zip(owner, neigh):
+        if o >= 0 and n >= 0:
+            adj.setdefault(int(o), set()).add(int(n))
+            adj.setdefault(int(n), set()).add(int(o))
+    return adj
+
 def _axis_difference(ff, name: str, axis: str):
     """Central first difference of a node field along *axis* (B1).
 
-    Projects nodes onto the plane perpendicular to *axis* and uses a
-    cKDTree there to find, per node, the nearest same-row neighbour on
-    each side along *axis* (structured-node-field friendly), then
-    computes (v[+] - v[-]) / (x[+] - x[-]).
+    Uses the mesh topology to find the true +axis / -axis neighbours per
+    node (hexahedron edges for FLD) instead of a cKDTree spatial
+    approximation, then computes (v[+] - v[-]) / (x[+] - x[-]).
     """
     if ff.vertices is None:
         raise ValueError(axis + " needs mesh vertices")
@@ -326,40 +374,33 @@ def _axis_difference(ff, name: str, axis: str):
         raise ValueError("unknown scalar variable " + repr(name))
     a = np.asarray(a, dtype=np.float64)
     verts = np.asarray(ff.vertices, dtype=np.float64)
-    try:
-        from scipy.spatial import cKDTree
-    except ImportError:
-        raise ValueError("scipy required for delx/dely/delz")
     ax = {"X": 0, "Y": 1, "Z": 2}[axis]
-    other = [c for c in range(3) if c != ax]
-    tree2 = cKDTree(verts[:, other])
-    k = min(64, len(verts))
-    _d2, nbr = tree2.query(verts[:, other], k=k)
-    if len(verts) == 1:
-        nbr = nbr.reshape(1, -1)
+    nbr = _hex_node_neighbors(ff)
     out = np.zeros(len(a), dtype=np.float64)
     for i in range(len(a)):
-        idx = np.asarray(nbr[i]).astype(np.int64)
-        idx = idx[idx != i]
-        if idx.size == 0:
+        idx = nbr.get(i)
+        if not idx:
             continue
+        idx = list(idx)
         da = verts[idx, ax] - verts[i, ax]
-        pos = idx[da > 0]
-        neg = idx[da < 0]
-        if pos.size == 0 or neg.size == 0:
+        pos = [idx[j] for j in range(len(idx)) if da[j] > 0]
+        neg = [idx[j] for j in range(len(idx)) if da[j] < 0]
+        if not pos or not neg:
             continue
-        p = pos[np.argmin(verts[pos, ax] - verts[i, ax])]
-        m = neg[np.argmax(verts[neg, ax] - verts[i, ax])]
+        p = min(pos, key=lambda j: verts[j, ax] - verts[i, ax])
+        m = max(neg, key=lambda j: verts[j, ax] - verts[i, ax])
         h = verts[p, ax] - verts[m, ax]
         if abs(h) > 1e-12:
             out[i] = (a[p] - a[m]) / h
     return out
+
+
 def _cell_axis_difference(ff, name: str, axis: str):
     """Central first difference of an FPH cell field along *axis* (2).
 
-    Computes cell centres from LS_Links owner faces, then uses a 3D
-    cKDTree to find, per cell, the nearest neighbour on each side along
-    *axis* (lateral offset bounded by the local cell size).
+    Uses LS_Links owner/neighbour faces to find the true face-neighbour
+    cells per cell instead of a 3D cKDTree approximation, then computes
+    (v[+] - v[-]) / (x[+] - x[-]) from cell centres.
     """
     a = ff.variable_array(name)
     if a is None or np.asarray(a).ndim != 1:
@@ -368,37 +409,27 @@ def _cell_axis_difference(ff, name: str, axis: str):
     centers = _cell_centers_fph(ff)
     if centers is None or centers.shape[0] != len(a):
         raise ValueError("cannot compute cell centres")
-    try:
-        from scipy.spatial import cKDTree
-    except ImportError:
-        raise ValueError("scipy required for delx/dely/delz")
     ax = {"X": 0, "Y": 1, "Z": 2}[axis]
     other = [c for c in range(3) if c != ax]
-    tree = cKDTree(centers)
-    k = min(24, len(a))
-    _d, nbr = tree.query(centers, k=k)
-    if len(a) == 1:
-        nbr = nbr.reshape(1, -1)
+    nbr = _fph_cell_neighbors(ff)
     out = np.zeros(len(a), dtype=np.float64)
-    lat_scale = max(1e-9, float(np.abs(centers[:, other]).std(axis=0).sum()))
     for i in range(len(a)):
-        idx = np.asarray(nbr[i]).astype(np.int64)
-        idx = idx[idx != i]
-        if idx.size == 0:
+        idx = nbr.get(i)
+        if not idx:
             continue
+        idx = list(idx)
         delta = centers[idx] - centers[i]
         da = delta[:, ax]
         lat = np.abs(delta[:, other]).sum(axis=1)
-        mask = lat < lat_scale * 0.05
-        pos = np.where(mask & (da > 0))[0]
-        neg = np.where(mask & (da < 0))[0]
-        if pos.size == 0 or neg.size == 0:
+        pos = [idx[j] for j in range(len(idx)) if da[j] > 0 and lat[j] < abs(da[j])]
+        neg = [idx[j] for j in range(len(idx)) if da[j] < 0 and lat[j] < abs(da[j])]
+        if not pos or not neg:
             continue
-        p = pos[np.argmin(da[pos])]
-        m = neg[np.argmax(da[neg])]
-        h = da[p] - da[m]
+        p = min(pos, key=lambda j: centers[j, ax] - centers[i, ax])
+        m = max(neg, key=lambda j: centers[j, ax] - centers[i, ax])
+        h = centers[p, ax] - centers[m, ax]
         if abs(h) > 1e-12:
-            out[i] = (a[idx[p]] - a[idx[m]]) / h
+            out[i] = (a[p] - a[m]) / h
     return out
 
 
