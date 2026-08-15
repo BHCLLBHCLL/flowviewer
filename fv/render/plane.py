@@ -52,7 +52,7 @@ def cell_filter_mask(ff: FieldFile, obj) -> Optional[np.ndarray]:
     if not mats and not regions:
         return None
 
-    if ff.kind == "fph":
+    if ff.poly:
         if not regions:
             return None
         from ..crdl.mesh_gph import classify_volume_region_cells
@@ -136,7 +136,7 @@ def build_ugrid(ff: FieldFile, cell_mask: Optional[np.ndarray] = None):
                                           int(np.count_nonzero(cell_mask)))
     if cache is not None and cache[0] == key:
         return cache[1], cache[2]
-    if ff.kind == "fph":
+    if ff.poly:
         ug = _build_fph_ugrid(ff, rows), True
     else:
         ug = _build_fld_ugrid(ff, rows), False
@@ -1166,7 +1166,7 @@ def pick_point(ff: FieldFile, obj, point, *, ugrid=None,
     if ugrid is None:
         return out
     if cell_centered is None:
-        cell_centered = (ff.kind == "fph")
+        cell_centered = ff.poly
     mask = cell_filter_mask(ff, obj)
     rows = _masked_cell_rows(ff, mask)
 

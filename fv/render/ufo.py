@@ -14,7 +14,7 @@ import numpy as np
 
 def _cell_centers(ff):
     """(n_cells, 3) cell-centre coordinates for node/cell placement (2)."""
-    if getattr(ff, "kind", "") == "fph":
+    if getattr(ff, "poly", False):
         try:
             from ..model.varreg import _cell_centers_fph
             c = _cell_centers_fph(ff)

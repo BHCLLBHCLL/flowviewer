@@ -107,7 +107,7 @@ def materials(ff):
 def cell_centers(ff):
     """Cell centre coordinates as an (n_cells, 3) array."""
     import numpy as np
-    if ff.kind == "fph" and ff.link_data is not None:
+    if ff.poly and ff.link_data is not None:
         ld = ff.link_data
         face_nodes = np.asarray(ld["face_nodes"], dtype=np.int64)
         face_offsets = np.asarray(ld["face_offsets"], dtype=np.int64)
@@ -131,7 +131,7 @@ def cell_centers(ff):
 def adjacent_cells(ff, cell_id: int) -> list:
     """Neighbouring cell ids sharing a face (FPH; [] for FLD)."""
     import numpy as np
-    if ff.kind != "fph" or ff.link_data is None:
+    if not ff.poly or ff.link_data is None:
         return []
     ld = ff.link_data
     owner = np.asarray(ld["owner"], dtype=np.int64)

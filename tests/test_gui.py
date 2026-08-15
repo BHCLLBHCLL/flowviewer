@@ -110,7 +110,7 @@ def test_open_dialog_chrome(qapp):
     para = [f for f in FILE_TYPE_FILTERS if f[0].startswith("Parasolid")][0]
     assert "x_t" in para[1]
     assert filter_extensions(0) == frozenset(
-        ("fld", "ifld", "fph", "gph", "cgns", "xmf", "xdmf"))
+        ("fld", "ifld", "fph", "gph", "pph", "cgns", "xmf", "xdmf"))
     assert _filter_label("Status files", ("sta",)) == "Status files (*.sta)"
     # Native QFileDialog filters must use ;; between groups (else *.fph hidden)
     all_f, sel = qt_file_filters(0)

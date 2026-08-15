@@ -367,7 +367,7 @@ def _axis_difference(ff, name: str, axis: str):
     """
     if ff.vertices is None:
         raise ValueError(axis + " needs mesh vertices")
-    if ff.kind == "fph":
+    if ff.poly:
         return _cell_axis_difference(ff, name, axis)
     a = ff.variable_array(name)
     if a is None or np.asarray(a).ndim != 1:
@@ -461,7 +461,7 @@ def _wall_points(ff, surface_regions=None):
     for name, face_ids in ff.surface_regions:
         if surface_regions and name not in surface_regions:
             continue
-        if getattr(ff, "kind", "") == "fph":
+        if getattr(ff, "poly", False):
             ld = ff.link_data
             fn = np.asarray(ld["face_nodes"], dtype=np.int64)
             off = np.asarray(ld["face_offsets"], dtype=np.int64)
@@ -488,7 +488,7 @@ def register_dst(ff, name="DST", surface_regions=None):
     except ImportError:
         raise ValueError("scipy required for DST")
     tree = cKDTree(wall)
-    if getattr(ff, "kind", "") == "fph":
+    if getattr(ff, "poly", False):
         centers = _cell_centers_fph(ff)
         if centers is None or centers.shape[0] != ff.n_cells:
             raise ValueError("cannot compute cell centres for DST")
@@ -518,7 +518,7 @@ def register_normal(ff, name="NORMAL", surface_regions=None):
     except ImportError:
         raise ValueError("scipy required for NORMAL")
     tree = cKDTree(wall)
-    if getattr(ff, "kind", "") == "fph":
+    if getattr(ff, "poly", False):
         pts = _cell_centers_fph(ff)
         loc = "cell"
     else:

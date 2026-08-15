@@ -29,7 +29,7 @@ except Exception:  # pragma: no cover - headless
 # (label, extensions without dot, lowercase for matching)
 FILE_TYPE_FILTERS: list[tuple[str, tuple[str, ...]]] = [
     ("Field files",
-     ("fld", "ifld", "fph", "gph", "cgns", "xmf", "xdmf")),
+     ("fld", "ifld", "fph", "gph", "pph", "cgns", "xmf", "xdmf")),
     ("Time series files", ("tm", "csv")),
     ("Status files", ("sta",)),
     ("Neutral files", ("neu", "nfb", "stl", "gbf", "obj")),
@@ -49,7 +49,7 @@ FILE_TYPE_FILTERS: list[tuple[str, tuple[str, ...]]] = [
 ]
 
 # Currently loadable by flowviewer core (others accepted in dialog, then NYI)
-LOADABLE_EXTENSIONS = frozenset({"fld", "ifld", "fph", "gph"})
+LOADABLE_EXTENSIONS = frozenset({"fld", "ifld", "fph", "gph", "pph"})
 
 
 def _filter_label(name: str, exts: tuple[str, ...]) -> str:
@@ -246,7 +246,7 @@ def file_in_summary(path) -> str:
             f"{len(ff.surface_regions) if ff.surface_regions else 0}",
             f"Variables        : {len(ff.variables)}",
         ]
-        if ff.kind in ("fph", "gph") and ff.link_data is not None:
+        if ff.poly and ff.link_data is not None:
             n_faces = max(0, len(ff.link_data.get("neighbour", [])) )
             lines.insert(4, f"Number of faces  : {n_faces:,}")
         if ff.variable_names():

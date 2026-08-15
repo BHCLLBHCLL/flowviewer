@@ -380,7 +380,7 @@ class Scene:
             self._main = main
             return
 
-        if ff.kind == "fph":
+        if ff.poly:
             self._build_fph_wireframe(ff)
         elif ff.kind == "neutral":
             self._build_neutral_wireframe(ff)

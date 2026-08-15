@@ -36,6 +36,8 @@ def probe_format(path: str) -> str:
     """Return a short diagnostic tag: 'fld' | 'fph' | 'cgns' | 'other'."""
     p = Path(path)
     suf = _suffix(p)
+    if suf == "pph":
+        return "pph"
     if suf == "cgns":
         try:
             import h5py

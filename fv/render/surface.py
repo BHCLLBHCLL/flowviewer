@@ -46,7 +46,7 @@ def build_surface_polydata(ff: FieldFile, obj):
     """
     if not _HAS_VTK:
         return None, False, None
-    if ff.kind == "fph":
+    if ff.poly:
         return _fph_surface_polydata(ff, obj)
     return _fld_surface_polydata(ff, obj)
 
@@ -138,7 +138,7 @@ def _selected_faces(ff: FieldFile, obj) -> np.ndarray:
             np.array([], dtype=np.int64)
     if ids.size == 0:
         return np.array([], dtype=np.int64)
-    if ff.kind == "fph":
+    if ff.poly:
         ld = ff.link_data
         neighbour = np.asarray(ld["neighbour"], dtype=np.int64)
         bnd = np.flatnonzero(neighbour == -1)

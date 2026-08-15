@@ -37,6 +37,9 @@ class Region:
     face_ids: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int64))
 
 
+POLY_KINDS = ("fph", "gph", "pph")   # polyhedral LS_Links topology kinds
+
+
 @dataclass
 class FieldFile:
     """Parsed mesh + variables + regions ready for the renderer.
@@ -46,6 +49,10 @@ class FieldFile:
     """
 
     path: str
+    @property
+    def poly(self) -> bool:
+        """True for polyhedral (LS_Links) topology: fph / gph / pph."""
+        return self.kind in POLY_KINDS
     kind: str = "fph"            # 'fph' | 'fld'
     vertices: Optional[np.ndarray] = None
     n_vertices: int = 0
@@ -67,6 +74,10 @@ class FieldFile:
     time: Optional[float] = None
     has_particles: bool = False
     _particle_vars: Optional[list] = field(default=None, repr=False)
+    pph_project: Optional[str] = None      # PPH main.xml project name
+    pph_members: list = field(default_factory=list)  # PPH zip member list
+    meta: dict = field(default_factory=dict)  # header metadata (GPH/FPH/FLD)
+    element_flags: Optional[np.ndarray] = None  # Element_InformationFlag
 
     @property
     def particle_vars(self) -> list:
@@ -87,7 +98,7 @@ class FieldFile:
 
     def boundary_regions(self) -> list[Region]:
         """Boundary surface regions → (name, face_ids)."""
-        if self.kind == "fph":
+        if self.poly:
             return [Region(n, ids) for n, ids in self.surface_regions]
         return [Region(n, np.arange(st, st + cnt, dtype=np.int64))
                 for n, st, cnt in self.bc_plan if cnt]
@@ -230,6 +241,27 @@ def marc_load(filepath: str) -> FieldFile:
             break
     return ff
 
+def pph_load(filepath: str) -> FieldFile:
+    """PPH (scFLOW project ZIP) loader: embedded volume mesh -> FieldFile."""
+    from ..crdl.pph import parse_pph
+    path = Path(filepath)
+    mesh = parse_pph(str(path))
+    ff = FieldFile(path=str(path), kind="pph")
+    ff.vertices = mesh["vertices"]
+    ff.n_vertices = mesh["n_vertices"]
+    ff.n_cells = mesh["n_cells"]
+    ff.link_data = mesh["link_data"]
+    ff.surface_regions = mesh["surface_regions"]
+    ff.volume_regions = mesh["volume_regions"]
+    ff.parts = mesh["parts"]
+    ff.cvol_id = mesh.get("cvol_id")
+    ff.parts_with_cvol = mesh.get("parts_with_cvol") or []
+    ff.file_size = mesh["file_size"]
+    ff.pph_project = mesh.get("pph_project")
+    ff.pph_members = mesh.get("pph_members") or []
+    return ff
+
+
 def _register_loaders() -> None:
     """Advertise the real parsers in :mod:`fv.model.loaders` registry."""
     try:
@@ -238,6 +270,7 @@ def _register_loaders() -> None:
         loaders.register("ifld", fld_only_load)
         loaders.register("fph", load_file)
         loaders.register("gph", load_file)
+        loaders.register("pph", pph_load)
         loaders.register("cgns", cgns_load)
         loaders.register("emt", load_file)  # EMT: fph-family binary
         loaders.register("xmf", xdmf_load)
@@ -333,7 +366,7 @@ def load_file(filepath: str) -> FieldFile:
         return fld_only_load(str(path))
 
     mesh = mesh_gph.parse_gph_mesh(str(path))
-    ff = FieldFile(path=str(path), kind="fph")
+    ff = FieldFile(path=str(path), kind="gph" if path.suffix.lower() == ".gph" else "fph")
     ff.vertices = mesh["vertices"]
     ff.n_vertices = mesh["n_vertices"]
     ff.n_cells = mesh["n_cells"]

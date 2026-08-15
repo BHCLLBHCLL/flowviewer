@@ -58,7 +58,7 @@ def _fld_offset(ff):
 
 def face_nodes(ff, face_id) -> list:
     """Vertex ids of a face (GetNodesOfFace)."""
-    if getattr(ff, "kind", "") == "fph":
+    if getattr(ff, "poly", False):
         return _fph_face_nodes(ff, int(face_id))
     return []  # FLD stores no face table
 
@@ -89,7 +89,7 @@ def _fld_cell_faces(cell, cell_type):
 
 def faces_of_cell(ff, cell_id) -> list:
     """Faces of a cell: FPH face ids, or FLD face vertex groups."""
-    if getattr(ff, "kind", "") == "fph":
+    if getattr(ff, "poly", False):
         ld = ff.link_data
         return [int(x) for x in ld["cell_owner_faces"].get(int(cell_id), [])]
     conn = getattr(ff, "cell_conn", None)
@@ -109,7 +109,7 @@ def face_count_of_element(ff, cell_id) -> int:
 
 def nodes_of_element(ff, cell_id) -> list:
     """Vertex ids of a cell (GetNodesOfElement)."""
-    if getattr(ff, "kind", "") == "fph":
+    if getattr(ff, "poly", False):
         ld = ff.link_data
         fn = np.asarray(ld["face_nodes"], dtype=np.int64)
         off = np.asarray(ld["face_offsets"], dtype=np.int64)
@@ -132,7 +132,7 @@ def node_count_of_element(ff, cell_id) -> int:
 
 def cells_of_face(ff, face_id):
     """(owner, neighbour) cells sharing a face (GetAdjacentElementOfFace)."""
-    if getattr(ff, "kind", "") != "fph":
+    if not getattr(ff, "poly", False):
         return (-1, -1)  # FLD stores no face table
     ld = ff.link_data
     owner = np.asarray(ld["owner"], dtype=np.int64)
@@ -149,7 +149,7 @@ def _region_cell_mask(ff, region_name):
     n = int(getattr(ff, "n_cells", 0))
     if not name or name == "FluidRegion":
         return np.ones(n, dtype=bool)
-    if getattr(ff, "kind", "") == "fph":
+    if getattr(ff, "poly", False):
         from ..crdl.mesh_gph import classify_volume_region_cells
         mask = classify_volume_region_cells(
             name, ff.parts_with_cvol, ff.cvol_id, n)
@@ -177,7 +177,7 @@ def nodes_of_surface_region(ff, region_name) -> list:
         if name != region_name:
             continue
         out = set()
-        if getattr(ff, "kind", "") == "fph":
+        if getattr(ff, "poly", False):
             for f in ids:
                 out.update(_fph_face_nodes(ff, int(f)))
         return sorted(out)
@@ -211,7 +211,7 @@ def volume_of_element(ff, cell_id) -> float:
     if not faces:
         return 0.0
     groups = []
-    if getattr(ff, "kind", "") == "fph":
+    if getattr(ff, "poly", False):
         for f in faces:
             groups.append([v[i] for i in _fph_face_nodes(ff, int(f))])
     else:
