@@ -1412,9 +1412,12 @@ def test_text_bitmap_actors():
         ba = bitmap_actor(b)
         assert ba is not None
         assert ba.GetTexture() is not None
+        # UV tiling helper
+        from fv.render.text import bitmap_uv_corners
+        assert bitmap_uv_corners((2.0, 3.0), (0.5, 0.25)) == [
+            (0.5, 0.25), (2.5, 0.25), (0.5, 3.25), (2.5, 3.25)]
     finally:
         import os; os.unlink(name)
-
 def test_text_bitmap_dialogs(qapp):
     """Text/Bitmap dialogs write back (P2.3)."""
     from fv.gui.object_dialogs2 import BitmapDialog, TextDialog
@@ -1427,9 +1430,14 @@ def test_text_bitmap_dialogs(qapp):
     b = BitmapObject(index=1)
     d2 = BitmapDialog(b)
     d2.scale.setValue(2.0)
+    d2.uvs.setValue(2.0)
+    d2.uvt.setValue(3.0)
+    d2.uvo.setValue(0.5)
+    d2.uvo2.setValue(0.25)
     d2.apply_to(b)
     assert abs(b.scale - 2.0) < 1e-9
-
+    assert b.uv_scale == (2.0, 3.0)
+    assert b.uv_offset == (0.5, 0.25)
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
@@ -2265,6 +2273,31 @@ def test_measure_distance_angle():
     m2.points = [(1, 0, 0), (0, 0, 0), (0, 1, 0)]
     assert "90" in compute(m2)
 
+def test_measure_ratio():
+    """Measure ratio compares two distances (Compare Scales, 9)."""
+    from fv.model.objects import MeasureObject
+    from fv.render.measure import compute_ratio, ratio
+    m1 = MeasureObject(points=[(0, 0, 0), (4, 0, 0)])
+    m2 = MeasureObject(points=[(0, 0, 0), (2, 0, 0)])
+    assert abs(ratio(m1, m2) - 2.0) < 1e-9
+    assert abs(ratio(m2, m1) - 0.5) < 1e-9
+    assert "2" in compute_ratio(m1, m2)
+    # zero denominator -> 0.0
+    m3 = MeasureObject(points=[(0, 0, 0), (0, 0, 0)])
+    assert ratio(m1, m3) == 0.0
+
+def test_grouping_members_hierarchy():
+    """grouping_members flattens nested subgroups (9)."""
+    from types import SimpleNamespace
+    from fv.model.objects import grouping_members
+    g1 = SimpleNamespace(label="G1", subgroups=[], member_labels=["A", "B"])
+    g2 = SimpleNamespace(label="G2", subgroups=["G1"], member_labels=["C"])
+    objmap = {"G1": g1, "G2": g2}
+    assert grouping_members(g2, objmap) == ["A", "B", "C"]
+    # cycle safety
+    cyc = SimpleNamespace(label="C1", subgroups=["C2"], member_labels=["X"])
+    cyc2 = SimpleNamespace(label="C2", subgroups=["C1"], member_labels=["Y"])
+    assert grouping_members(cyc, {"C1": cyc, "C2": cyc2}) == ["Y", "X"]
 def test_measure_dialog(qapp):
     """MeasureDialog writes points/mode back (C2)."""
     from fv.gui.object_dialogs2 import MeasureDialog

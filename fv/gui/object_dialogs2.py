@@ -890,6 +890,16 @@ class BitmapDialog(ObjectSettingsPanel):
         form.addRow("Position X/Y:", row2)
         self.scale = _dspin(getattr(obj, "scale", 1.0), 0.05, 10.0, 2)
         form.addRow("Scale:", self.scale)
+        us, vs = getattr(obj, "uv_scale", (1.0, 1.0))
+        uo, vo = getattr(obj, "uv_offset", (0.0, 0.0))
+        self.uvs = _dspin(us, 0.01, 100.0, 2)
+        self.uvt = _dspin(vs, 0.01, 100.0, 2)
+        uv_row = QHBoxLayout(); uv_row.addWidget(self.uvs); uv_row.addWidget(self.uvt)
+        form.addRow("UV scale (u/v):", uv_row)
+        self.uvo = _dspin(uo, -10.0, 10.0, 2)
+        self.uvo2 = _dspin(vo, -10.0, 10.0, 2)
+        uv2_row = QHBoxLayout(); uv2_row.addWidget(self.uvo); uv2_row.addWidget(self.uvo2)
+        form.addRow("UV offset (u/v):", uv2_row)
         self.transp = QCheckBox("Transparent", page)
         self.transp.setChecked(bool(getattr(obj, "transparent", False)))
         lay = QVBoxLayout(page); lay.addLayout(form); lay.addWidget(self.transp); lay.addStretch(1)
@@ -908,6 +918,8 @@ class BitmapDialog(ObjectSettingsPanel):
         obj.file = self.file.text()
         obj.position = (float(self.px.value()), float(self.py.value()))
         obj.scale = float(self.scale.value())
+        obj.uv_scale = (float(self.uvs.value()), float(self.uvt.value()))
+        obj.uv_offset = (float(self.uvo.value()), float(self.uvo2.value()))
         obj.transparent = self.transp.isChecked()
 
 class InformationDialog(ObjectSettingsPanel):
@@ -1198,10 +1210,23 @@ class GroupingDialog(ObjectSettingsPanel):
         self.members = QListWidget(page)
         self.members.setSelectionMode(QAbstractItemView.MultiSelection)
         for s in self.siblings:
+            if getattr(s, "kind", "") == "grouping":
+                continue
             item = QListWidgetItem(getattr(s, "label", ""), self.members)
             if getattr(s, "label", "") in getattr(obj, "member_labels", []):
                 item.setSelected(True)
         lay.addWidget(self.members)
+        lay.addWidget(QLabel("Nested groups (subgroupings):", page))
+        self.subgroups = QListWidget(page)
+        self.subgroups.setSelectionMode(QAbstractItemView.MultiSelection)
+        self.subgroups.setMaximumHeight(60)
+        for s in self.siblings:
+            if getattr(s, "kind", "") != "grouping":
+                continue
+            item = QListWidgetItem(getattr(s, "label", ""), self.subgroups)
+            if getattr(s, "label", "") in getattr(obj, "subgroups", []):
+                item.setSelected(True)
+        lay.addWidget(self.subgroups)
         lay.addStretch(1)
         self.tabs.addTab(page, "Grouping")
 
@@ -1209,6 +1234,7 @@ class GroupingDialog(ObjectSettingsPanel):
         if not _HAS_QT:
             return
         obj.member_labels = [i.text() for i in self.members.selectedItems()]
+        obj.subgroups = [i.text() for i in self.subgroups.selectedItems()]
 
 class CurveDialog(ObjectSettingsPanel):
     """Curve — control points / variable / display (A1)."""
@@ -1328,14 +1354,15 @@ class PeriodicalCopyDialog(ObjectSettingsPanel):
         obj.transparent = self.transp.isChecked()
 
 class MeasureDialog(ObjectSettingsPanel):
-    """Measure — Distance / Angle between points (C2)."""
+    """Measure — Distance / Angle between points (C2) + ratio (9)."""
 
-    def __init__(self, obj, field_file=None, parent=None):
+    def __init__(self, obj, field_file=None, parent=None, siblings=None):
         super().__init__(getattr(obj, "label", "Measure"), parent)
         if not _HAS_QT:
             self.obj = obj
             return
         self.obj = obj
+        self._siblings = siblings or []
         page = QWidget(self)
         form = QFormLayout()
         self.mode = QComboBox(page)
@@ -1360,7 +1387,21 @@ class MeasureDialog(ObjectSettingsPanel):
         self.calc.clicked.connect(self._on_calc)
         self.result = QLabel(" ", page)
         self.result.setStyleSheet("font-weight:bold;")
-        lay = QVBoxLayout(page); lay.addLayout(form); lay.addWidget(self.calc); lay.addWidget(self.result); lay.addStretch(1)
+        self.compare = QComboBox(page)
+        self.compare.addItem("(none)", "")
+        for s in siblings or []:
+            if getattr(s, "kind", "") == "measure" and s is not obj:
+                self.compare.addItem(getattr(s, "label", ""), s.label)
+        idx = self.compare.findData(getattr(obj, "compare_label", ""))
+        if idx >= 0:
+            self.compare.setCurrentIndex(idx)
+        self.ratio_btn = QPushButton("Compute ratio", page)
+        self.ratio_btn.clicked.connect(self._on_ratio)
+        self.ratio_result = QLabel(" ", page)
+        self.ratio_result.setStyleSheet("font-weight:bold;")
+        lay = QVBoxLayout(page); lay.addLayout(form); lay.addWidget(self.calc); lay.addWidget(self.result)
+        lay.addWidget(QLabel("Compare with:", page)); lay.addWidget(self.compare)
+        lay.addWidget(self.ratio_btn); lay.addWidget(self.ratio_result); lay.addStretch(1)
         self.tabs.addTab(page, "Measure")
 
     def _on_calc(self) -> None:
@@ -1381,6 +1422,23 @@ class MeasureDialog(ObjectSettingsPanel):
             pts.append((float(sx.value()), float(sy.value()),
                        float(sz.value())))
         obj.points = pts
+        obj.compare_label = self.compare.currentData() or ""
+
+    def _on_ratio(self) -> None:
+        self.apply_to(self.obj)
+        from ..render.measure import compute_ratio
+        other = None
+        for s in getattr(self, "_siblings", []):
+            if getattr(s, "label", "") == self.obj.compare_label:
+                other = s
+                break
+        if other is None:
+            self.ratio_result.setText("Select a measure to compare")
+            return
+        from ..render.measure import ratio
+        self.obj.ratio_value = ratio(self.obj, other)
+        self.obj.result = compute_ratio(self.obj, other)
+        self.ratio_result.setText(self.obj.result)
 
 class BarDialog(ObjectSettingsPanel):
     """Bar — two points / variable (A4)."""

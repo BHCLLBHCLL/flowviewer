@@ -555,6 +555,34 @@ class GroupingObject(PostObject):
     kind: str = "grouping"
     title: str = "Grouping"
     member_labels: list = field(default_factory=list)
+    subgroups: list = field(default_factory=list)   # nested grouping labels (9)
+
+
+def grouping_members(grouping, objects_by_label: dict):
+    """Recursively resolve a grouping tree into ordered leaf labels (9).
+
+    ``objects_by_label`` maps an object label to its object.  Nested
+    groupings (``grouping.subgroups``) are expanded in order, and each
+    direct ``member_labels`` entry is appended (deduplicated, first-wins).
+    """
+    seen = set()
+    out = []
+
+    def _walk(g, stack):
+        key = getattr(g, "label", None) or id(g)
+        if key in stack:
+            return
+        for sub in getattr(g, "subgroups", []) or []:
+            child = objects_by_label.get(sub)
+            if child is not None:
+                _walk(child, stack | {key})
+        for m in getattr(g, "member_labels", []) or []:
+            if m not in seen:
+                seen.add(m)
+                out.append(m)
+
+    _walk(grouping, set())
+    return out
 
 @dataclass
 class GraphObject(PostObject):
@@ -627,6 +655,8 @@ class MeasureObject(PostObject):
     mode: str = "Distance"                # Distance | Angle
     points: list = field(default_factory=list)   # picked (x,y,z) tuples
     result: str = ""
+    compare_label: str = ""               # other Measure to ratio against (9)
+    ratio_value: float = 0.0
 
 @dataclass
 class InformationObject(PostObject):
@@ -664,6 +694,8 @@ class BitmapObject(PostObject):
     position: tuple = (0.05, 0.05)        # normalized display coords
     scale: float = 1.0
     transparent: bool = False
+    uv_scale: tuple = (1.0, 1.0)          # texture tiling (u, v) (9)
+    uv_offset: tuple = (0.0, 0.0)         # texture offset (u, v) (9)
 
 @dataclass
 class CylinderObject(PostObject):

@@ -32,6 +32,18 @@ def text_actor(obj) -> Optional["vtk.vtkActor2D"]:
     return a
 
 
+def bitmap_uv_corners(scale, offset):
+    """Four (u, v) texture coordinates for a bitmap quad with UV tiling (9).
+
+    vtkPlaneSource emits four points in order (origin, point1, point2,
+    opposite corner); each maps to a texture coordinate scaled by ``scale``
+    and shifted by ``offset``.
+    """
+    us, vs = (float(scale[0]), float(scale[1])) if scale else (1.0, 1.0)
+    uo, vo = (float(offset[0]), float(offset[1])) if offset else (0.0, 0.0)
+    return [(uo, vo), (uo + us, vo), (uo, vo + vs), (uo + us, vo + vs)]
+
+
 def bitmap_actor(obj) -> Optional[object]:
     """Textured quad for a BitmapObject; None when the file is missing."""
     path = getattr(obj, "file", "") or ""
@@ -57,6 +69,16 @@ def bitmap_actor(obj) -> Optional[object]:
     plane.SetPoint1(float(pos[0]) + w, float(pos[1]), 0.0)
     plane.SetPoint2(float(pos[0]), float(pos[1]) + h, 0.0)
     plane.Update()
+    uv = bitmap_uv_corners(
+        getattr(obj, "uv_scale", (1.0, 1.0)),
+        getattr(obj, "uv_offset", (0.0, 0.0)))
+    tcoords = vtk.vtkFloatArray()
+    tcoords.SetNumberOfComponents(2)
+    tcoords.SetNumberOfTuples(4)
+    for i, (u, v) in enumerate(uv):
+        tcoords.SetTuple2(i, u, v)
+    plane.GetOutput().GetPointData().SetTCoords(tcoords)
+    tex.SetRepeat(True)
     mapper = vtk.vtkPolyDataMapper()
     mapper.SetInputConnection(plane.GetOutputPort())
     actor = vtk.vtkActor()
