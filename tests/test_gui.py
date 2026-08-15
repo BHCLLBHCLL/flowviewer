@@ -1629,6 +1629,29 @@ def test_api_facade():
     except ValueError:
         pass
 
+def test_api_post_processing_facade():
+    """fv.api exposes turbo post-processing quantities (①)."""
+    import numpy as np
+    from fv import api
+    ff = api.open_file(FPH)
+    r, z, vals = api.circumferential_average(ff, "PRES", "Z", 16, 16)
+    assert r is not None and vals.shape == (16, 16)
+    r, z, cm = api.circumferential_mass_average(ff, "PRES", "Z", 16, 16)
+    assert cm.shape == (16, 16)
+    span, dp = api.blade_loading_curve(ff, "PRES", "Z", 16)
+    assert len(span) == 16 and np.all(np.asarray(dp) >= 0)
+    rt = api.polar_view_points(ff, "Z")
+    assert rt.shape == (ff.n_vertices, 2)
+    mr = api.meridional_points(ff, "Z")
+    assert mr.shape == (ff.n_vertices, 2) and np.all(mr[:, 0] >= 0)
+    b2b = api.blade_to_blade_points(ff, float(np.median(mr[:, 0])), "Z", 0.01)
+    assert b2b.shape[1] == 2
+    cp = api.pressure_coefficient(ff, 0.5, 10.0, 1.2)
+    assert cp.shape == ff.variables["PRES"].array.shape
+    zc, av = api.area_average(ff, "PRES", "Z", 16)
+    assert zc.shape == (16,) and av.shape == (16,)
+    m = api.mass_flow_average(ff, "PRES", "Z")
+    assert isinstance(m, float) and np.isfinite(m)
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_export_stl(tmp_path):
