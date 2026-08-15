@@ -424,3 +424,71 @@ def surface_scalar_array(ff, var: str, surface_region: str):
     if not nodes or max(nodes) >= len(a):
         return np.array([], dtype=np.float64)
     return a[np.asarray(nodes, dtype=np.int64)]
+
+# ── material / region / volume-region lookups (P0.4) ───────────────────
+
+def material_id_at(ff, cell_id: int):
+    """Material id of a cell (GetMATNOfElement); None when absent."""
+    mat = getattr(ff, "material", None)
+    if mat is None:
+        return None
+    i = int(cell_id)
+    if i < 0 or i >= len(mat):
+        raise IndexError("cell_id out of range")
+    return int(mat[i])
+
+
+def material_ids(ff) -> list:
+    """Sorted unique material ids (GetMATNumFLD face)."""
+    import numpy as np
+    mat = getattr(ff, "material", None)
+    if mat is None:
+        return []
+    return [int(x) for x in np.unique(np.asarray(mat, dtype=np.int64))]
+
+
+def volume_region_names(ff) -> list:
+    """Volume-region names in file order (GetVOLorgnameAsArray)."""
+    return [str(n) for n in (getattr(ff, "volume_regions", None) or [])]
+
+
+def surface_region_names(ff) -> list:
+    """Boundary region names in file order (alias of regions)."""
+    return regions(ff)
+
+
+def region_count(ff) -> int:
+    """Number of boundary regions (GetRgnNum)."""
+    return len(ff.boundary_regions())
+
+
+def region_name(ff, index: int) -> str:
+    """Name of the index-th boundary region (GetRgnName)."""
+    brs = ff.boundary_regions()
+    i = int(index)
+    if i < 0 or i >= len(brs):
+        raise IndexError("region index out of range")
+    return brs[i].name
+
+
+def cell_volume_region_id(ff, cell_id: int):
+    """Volume-region id (cvol_id) of a cell (GetVOLIDbyElement)."""
+    cvol = getattr(ff, "cvol_id", None)
+    if cvol is None:
+        return None
+    i = int(cell_id)
+    if i < 0 or i >= len(cvol):
+        raise IndexError("cell_id out of range")
+    return int(cvol[i])
+
+
+def cells_of_part(ff, part_name: str) -> list:
+    """Cell ids of a named part / volume region (parts + cvol_id)."""
+    for name, spec in (getattr(ff, "parts_with_cvol", None) or []):
+        if name != part_name:
+            continue
+        from ..crdl.mesh_gph import part_cvol_cell_mask
+        mask = part_cvol_cell_mask(getattr(ff, "cvol_id", None), spec)
+        import numpy as np
+        return [int(i) for i in np.flatnonzero(mask)]
+    return elements_of_region(ff, part_name)

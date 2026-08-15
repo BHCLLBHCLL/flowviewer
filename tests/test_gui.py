@@ -1726,6 +1726,27 @@ def test_api_variable_queries():
                                     array=ff.vertices[:, 0])
     sfa = api.surface_scalar_array(ff, "NODEV", br.name)
     assert len(sfa) > 0
+
+def test_api_material_region_lookups():
+    """fv.api exposes MAT/VOL/RGN name lookups (P0.4)."""
+    from fv import api
+    ff = api.open_file(FPH)
+    assert api.region_count(ff) == len(ff.boundary_regions())
+    assert api.region_name(ff, 0) == ff.boundary_regions()[0].name
+    assert api.surface_region_names(ff) == api.regions(ff)
+    vrn = api.volume_region_names(ff)
+    assert isinstance(vrn, list)
+    if ff.cvol_id is not None:
+        vid = api.cell_volume_region_id(ff, 0)
+        assert isinstance(vid, int)
+    parts = api.cells_of_part(ff, "FluidRegion")
+    assert len(parts) == ff.n_cells
+    # FLD material ids
+    fld = api.open_file(FLD)
+    mids = api.material_ids(fld)
+    assert len(mids) > 0
+    assert api.material_id_at(fld, 0) in mids
+
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_export_stl(tmp_path):
