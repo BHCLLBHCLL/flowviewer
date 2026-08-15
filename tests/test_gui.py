@@ -2609,6 +2609,40 @@ def test_com_interface():
     assert app.variables() == []
     assert isinstance(_HAS_COM, bool)
 
+def test_com_properties_events_lifecycle():
+    """COM Application exposes read-only props, events and context mgmt (3)."""
+    from fv.com import FlowviewerApplication, VERSION
+    app = FlowviewerApplication()
+    assert app.version == VERSION
+    assert app.has_file is False
+    assert app.file_path == ""
+    assert app.n_cells == 0 and app.n_vertices == 0
+    events = []
+    class Sink:
+        def on_open(self, path):
+            events.append(("open", path))
+        def on_close(self):
+            events.append(("close", None))
+    sink = Sink()
+    assert app.subscribe(sink) == 1
+    meta = app.open_file(FPH)
+    assert meta["kind"] == "fph"
+    assert app.has_file is True
+    assert app.file_path == FPH
+    assert app.kind == "fph"
+    assert app.n_cells > 0 and app.n_vertices > 0
+    assert app.cycle == 9
+    assert "PRES" in app.variable_names
+    assert events == [("open", FPH)]
+    app.close()
+    assert app.has_file is False
+    assert events[-1] == ("close", None)
+    assert app.unsubscribe(sink) == 0
+    with FlowviewerApplication() as app2:
+        app2.open_file(FPH)
+        assert app2.has_file is True
+    assert app2.has_file is False
+
 def test_vr_detection():
     """VR availability detection returns a bool (7d)."""
     from fv.render.vr import vr_available, vr_render_window_supported
