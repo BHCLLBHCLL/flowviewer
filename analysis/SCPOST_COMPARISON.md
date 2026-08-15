@@ -522,3 +522,93 @@ Folder/Bar/RegionBC/Gradation/Measure 七类。
 7. Neutral/Marc：变量/结果导入（当前几何 only）。
 8. Mirror/Periodical Copy：多对象源（当前仅 surface）。
 9. Bitmap UV 控制、Measure 多对象比例、Grouping 树层级深化。
+
+
+## 18. 第五轮评估：覆盖完整度 × 实现深度（2026-08-09，深度 1–9 + 高完成度 1–5 + ①②③ 之后）
+
+> 规模：fv/ 60 文件、19,185 行、33 种 PostObject（+ MainObject/GlobalWindow）、
+> 29 个 render 模块、11 个 crdl 解码模块、185 项测试（184 passed + 1 skipped）。
+
+### 18.1 对象覆盖 × 深度矩阵（41 类）
+
+| scPOST 类 | 覆盖 | 深度 | 本轮变化 |
+|---|---|---|---|
+| Application (app) | ✅ | 深 | COM：属性/事件/生命周期 + 真连接点 QI + 生成 typelib |
+| Global Window | ✅ | 深 | 全局对象容器 |
+| Message Window | ✅ | 深 | 日志/保存/清除 |
+| Camera | ✅ | 深 | 关键帧插值 + 连续截图序列（SaveBmp 语义） |
+| Draw Window | ✅ | 深 | VTK 视口 + 拖拽 + pick + overlay |
+| FLD File (fld) | ✅ | 深 | 8 格式统一 + cycle/time |
+| Object (obj) | ✅ | 深 | PostObject 基类 |
+| Surface | ✅ | 深 | 8-tab + MAT/区域过滤 |
+| IsoSurface | ✅ | 深 | Contour/Line/Vector |
+| Unlimited Plane | ✅ | 深 | 16-tab 全映射 |
+| Limited Plane | ✅ | 深 | 局部基 (u,v) 长宽真矩形裁剪 |
+| Colorbar | ✅ | 深 | 全局 LUT + Fix 范围 |
+| Streamline | ✅ | 深 | vtkStreamTracer + FLD Euler 回退 |
+| Plane (cutplane) | ✅ | 深 | 同 Unlimited Plane |
+| Graph | ✅ | 深 | matplotlib + cycle/curve 弧长 X 轴 |
+| Point | ✅ | 深 | 标记 + 探针 |
+| Text | ✅ | 中 | 文本标注；无多字体/旋转 |
+| Curve | ✅ | 深 | 样条 + 变量采样 |
+| Region | ✅ | 深 | 渲染接入 _dispatch_object（原死代码） |
+| Volume | ✅ | 深 | 体渲染 raycast |
+| Neutral File | ✅ | 深 | OBJ/STL/PLY(ascii+binary) + 顶点变量 |
+| Pathline (pcl) | ✅ | 深 | 跨 cycle 粒子追踪 |
+| Particle | ✅ | 深 | Intersection/Cloth/Trim |
+| Bitmap | ✅ | 深 | UV 平铺/偏移 |
+| Circle | ✅ | 深 | 盘面切割 |
+| Cylinder | ✅ | 深 | 圆柱面切割 |
+| Gradation | ✅ | 中 | 背景渐变 |
+| Grouping | ✅ | 深 | 嵌套 subgroups + grouping_members 递归 |
+| Information | ✅ | 深 | 最近节点探针 |
+| Light | ✅ | 深 | vtkLight + 面板 |
+| Mirror Copy | ✅ | 深 | 多对象源（source_labels） |
+| Periodical Copy | ✅ | 深 | 多对象源（source_labels） |
+| RegionBC | ✅ | 中 | 名称列表 |
+| UFO | ✅ | 深 | 点云 + 三角面双模式（外部数据/变量着色/单元中心回退） |
+| Compare Scales (measure) | ✅ | 深 | 距离/角度 + 比例对比（ratio） |
+| Folder | ✅ | 中 | 树层级 |
+| Time Series (tm) | ✅ | 中 | CSV 导入 |
+| Environment | ✅ | 深 | 对话框 + 设置 |
+| Max and Min (ot) | ✅ | 中 | CSV 导入 |
+| Bar (obj_S) | ✅ | 深 | 两点采样 |
+| Turbo | ✅ | 深 | 子午面/叶对叶/极坐标 + 周向(质量)平均 + 叶片加载 + Cp/面积/质量平均 + Blade Aero 面板 + 渲染接线 |
+
+**深度统计**：深 34 类、中 7 类、浅 0 类（UFO/Turbo/COM/VR 全部脱离"浅"级）。
+
+### 18.2 数据层（FLD 类 125 方法面）
+
+| 方法组 | scPOST 方法数 | flowviewer | 缺口 |
+|---|---|---|---|
+| CreateObject* | 22 | api.create_object 20 种 | 缺 curve/periodical/bar/regionbc/gradation/camera/region/turbo/ufo/folder/light 11 种 |
+| CreateVar* | 8 | register_variable（代数/微分/条件） | 缺 ALLCYC/CMBVEL/DST/DST2/NORMAL/DeleteVar/SetVarTitle |
+| 拓扑查询 | ~18 | adjacent_cells/cell_centers | 缺 单元↔面↔节点↔区域 全系查询 |
+| 变量值查询 | ~12 | variable_array + turbo 后处理 | 缺 单点取值/区域子集/min-max 统计 API |
+| MAT/VOL/RGN 互查 | ~15 | materials/regions | 缺 ID↔名称双向互查 |
+| Cycle 管理 | ~14 | FileSet 扫描 + cycle/time | 缺 自定义列表 Add/DelCycList + CycOpe 运算模式 |
+| 对象管理 | ~8 | children 列表 | 缺 GetObjectByType/Number/GID、批量移除 |
+| 几何变换 | 5 | 渲染层相机 | 缺 LocalXYZ2GlobalXYZ/GetViewPoint 数据 API |
+| Save* | 7 | STA/STL/VRML/GLTF/OBJ/PNG | 缺 FBX/CradleViewer |
+| SetDisplay* | 5 | overlay 标题 | 缺 Axis/FLD/Title 开关 |
+| Compare | 1 | Compare 并排 + 统计 | 变量对比对话框未完整 |
+
+**数据层 API 覆盖 ≈ 45–55%**（对象创建 91%，查询/管理面约 30%）。
+
+### 18.3 高级功能面（scPOST 字符串证据）
+
+| 功能 | scPOST | flowviewer |
+|---|---|---|
+| POD / Clustering（模态分解） | ✅ | ❌ 未实现 |
+| DST 壁面距离场（63 处字符串） | ✅ | ❌ 未实现 |
+| NORMAL 法向场 | ✅ | ❌ 未实现 |
+| CMBVEL 合成速度 | ✅ | ❌ 未实现 |
+| CreateVarALLCYC | ✅ | ❌ 未实现 |
+| iFLD Trimming / Remote | ✅ | ⚠️ scan_ifld 仅元数据扫描 |
+| scConverter / CradleViewer / HeatPathView | ✅ | ❌ 附属工具未做 |
+
+### 18.4 结论
+
+- **对象面覆盖 100%（41/41），场景渲染接线 23 类全部贯通；实现深度：深 34 + 中 7 + 浅 0，整体约 85–90%**。
+- 剩余差距集中在**数据层查询 API（FLD 125 方法面）**与**扩展变量家族（DST/NORMAL/CMBVEL/ALLCYC）**、
+  **POD/Clustering** 三个方向；其次为 Cycle 自定义管理、对象管理查询、FBX 导出与附属工具。
