@@ -369,7 +369,7 @@ class Scene:
             self._layer_actors["surface"] = ["surface_1"]
             self._layer_actors["plane"] = ["plane_1"]
             for kind in ("isosurface", "point", "streamline", "volume",
-                         "colorbar", "light", "pathline", "cylinder", "circle", "text", "bitmap", "information", "mirror", "curve", "periodical", "bar", "gradation"):
+                         "colorbar", "light", "pathline", "cylinder", "circle", "text", "bitmap", "information", "mirror", "curve", "periodical", "bar", "gradation", "turbo", "region"):
                 if any(o.kind == kind for o in
                        getattr(main, "children", []) or []):
                     self._layer_actors[kind] = [f"{kind}_1"]
@@ -442,6 +442,10 @@ class Scene:
             self.build_global_colorbar(obj, range_=rng)
         elif obj.kind == "light":
             self.apply_light(obj)
+        elif obj.kind == "turbo":
+            self._add_turbo_actor(ff, obj)
+        elif obj.kind == "region":
+            self._add_region_actor(ff, obj)
         # timeseries / maxmin / graph / grouping / measure / folder / regionbc
         # are dialog-only (no scene actors).
 

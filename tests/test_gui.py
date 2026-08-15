@@ -2654,6 +2654,19 @@ def test_region_object():
     sc._add_region_actor(ff, obj)
     assert "region" in sc.actor_names()
 
+def test_dispatch_routes_turbo_region():
+    """_dispatch_object wires turbo/region to their actor builders (fix 1)."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import RegionObject, TurboObject
+    from fv.render.scene import Scene
+    ff = load_file(FPH)
+    sc = Scene(enable_3d=False)
+    calls = []
+    sc._add_turbo_actor = lambda f, o: calls.append("turbo")
+    sc._add_region_actor = lambda f, o: calls.append("region")
+    sc._dispatch_object(ff, TurboObject(index=1))
+    sc._dispatch_object(ff, RegionObject(index=1))
+    assert calls == ["turbo", "region"]
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
