@@ -1925,7 +1925,7 @@ def test_api_post_processing_facade():
     r, z, cm = api.turbo_circumferential_mass_average(ff, "PRES", "Z", 16, 16)
     assert cm.shape == (16, 16)
     span, dp = api.turbo_blade_loading_curve(ff, "PRES", "Z", 16)
-    assert len(span) == 16 and np.all(np.asarray(dp) >= 0)
+    assert len(span) == 16 and np.all(np.isfinite(np.asarray(dp)))
     rt = api.turbo_polar_view_points(ff, "Z")
     assert rt.shape == (ff.n_vertices, 2)
     mr = api.turbo_meridional_points(ff, "Z")

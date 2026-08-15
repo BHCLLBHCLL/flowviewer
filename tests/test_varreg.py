@@ -98,3 +98,96 @@ def test_variable_registration_dialog(qapp):
     d.expr.setText("PRES +")
     d._update_preview()
     assert "Error" in d.preview.text()
+
+
+# ── P2.2: differential operators on non-hex cells + mismatch errors ──────
+
+def _ff_with(cells, types, verts, field=None, name="F"):
+    """Synthetic node-field FieldFile with given connectivity."""
+    from fv.model.dataset import FIELD_KIND_SCALAR, FieldFile, VarInfo
+    verts = np.asarray(verts, dtype=np.float64)
+    conn = np.full((len(cells), max(len(c) for c in cells)), -1,
+                   dtype=np.int64)
+    for r, c in enumerate(cells):
+        conn[r, :len(c)] = c
+    ff = FieldFile(path="synthetic", kind="cgns")
+    ff.vertices = verts
+    ff.n_vertices = len(verts)
+    ff.cell_conn = conn
+    ff.cell_types = np.asarray(types, dtype=np.int64)
+    ff.n_cells = len(cells)
+    arr = verts[:, 0] if field is None else field
+    ff.variables[name] = VarInfo(name=name, kind=FIELD_KIND_SCALAR,
+                                 location="node",
+                                 array=np.asarray(arr, dtype=np.float64))
+    return ff
+
+
+def test_delx_hex_grid_linear():
+    """FLD-style hex path still differentiates f=x to 1 (P2.2)."""
+    from fv.model.varreg import evaluate_expression
+    cells = [[0, 1, 2, 3, 4, 5, 6, 7], [4, 5, 6, 7, 8, 9, 10, 11]]
+    verts = [(x, y, z) for x in (0.0, 1.0, 2.0)
+             for y in (0.0, 1.0) for z in (0.0, 1.0)]
+    # vertex order: idx = x*4 + y*2 + z
+    cells = [[0, 2, 6, 4, 1, 3, 7, 5], [4, 6, 10, 8, 5, 7, 11, 9]]
+    ff = _ff_with(cells, [12, 12], verts)
+    out = evaluate_expression("delx(F)", {"F": ff.variables["F"].array},
+                              ff.n_vertices, ff=ff)
+    assert out.shape == (12,)
+    assert abs(out[4] - 1.0) < 1e-9   # interior plane x=1
+
+
+def test_delx_tet_wedge_pyra_mixed():
+    """tet/wedge/pyra cells build correct adjacency (P2.2).
+
+    Two tet + one wedge + one pyra chained along x; interior nodes
+    must give df/dx = 1 for the linear field F = x.
+    """
+    from fv.model.varreg import evaluate_expression
+    verts = np.array([
+        [0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.5, 1.0, 0.0], [0.5, 0.5, 1.0],  # tets
+        [2.0, 0.0, 0.0], [1.5, 1.0, 0.0],                                     # tet2
+        [2.5, 0.0, 0.0], [2.5, 1.0, 0.0], [2.5, 0.5, 1.0],                    # wedge cap
+        [3.5, 0.5, 0.0],                                                      # pyra apex
+    ])
+    tets = [[0, 1, 2, 3], [1, 4, 5, 3]]
+    wedge = [[1, 4, 5, 3, 6, 8]]              # bottom tri (1,4,5), top (3,6,8)
+    pyra = [[6, 8, 3, 5, 9]]                  # degenerate-ish quad + apex
+    ff = _ff_with(tets + wedge + pyra, [10, 10, 13, 14], verts)
+    out = evaluate_expression("delx(F)", {"F": ff.variables["F"].array},
+                              ff.n_vertices, ff=ff)
+    assert out.shape == (10,)
+    assert abs(out[1] - 1.0) < 1e-9   # tet interior node
+    assert abs(out[6] - 1.0) < 1e-9   # wedge/pyra interior node
+
+
+def test_mismatch_explicit_errors():
+    """Missing/shifted/unknown connectivity raises explicit errors (P2.2)."""
+    from fv.model.varreg import evaluate_expression
+
+    verts = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.5, 1.0, 0.0), (0.5, 0.5, 1.0)]
+    cells = [[0, 1, 2, 3]]
+    f = np.array([0.0, 1.0, 0.5, 0.5])
+
+    # no connectivity at all
+    ff0 = _ff_with(cells, [10], verts, field=f)
+    ff0.cell_conn = None
+    with pytest.raises(ValueError, match="connectivity"):
+        evaluate_expression("delx(F)", {"F": f}, ff0.n_vertices, ff=ff0)
+
+    # ids out of vertex range (index-base detection fails)
+    ff1 = _ff_with([[2, 3, 4, 5]], [10], verts, field=f)
+    with pytest.raises(ValueError, match="mismatch"):
+        evaluate_expression("delx(F)", {"F": f}, ff1.n_vertices, ff=ff1)
+
+    # unsupported cell type (vtk line = 3)
+    ff2 = _ff_with([[0, 1]], [3], verts, field=f)
+    with pytest.raises(ValueError, match="unsupported cell type"):
+        evaluate_expression("delx(F)", {"F": f}, ff2.n_vertices, ff=ff2)
+
+    # field length != n_vertices
+    ff3 = _ff_with(cells, [10], verts, field=f)
+    ff3.variables["F"].array = f[:3]
+    with pytest.raises(ValueError, match="vertices"):
+        evaluate_expression("delx(F)", {"F": f[:3]}, ff3.n_vertices, ff=ff3)

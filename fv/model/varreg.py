@@ -8,7 +8,10 @@ expression over existing variables:
 - logic  &  (and)  @  (or)  -> 1.0 / 0.0 element-wise;
 - functions  abs(x)  sqrt(x)  min(a,b)  max(a,b)  mag(VEC)  (vector
   magnitude over the VECX/VECY/VECZ components);
-- comparisons  ifgt(a,b)  ifet(a,b)  ifeq(a,b)  -> 1.0 / 0.0.
+- comparisons  ifgt(a,b)  ifet(a,b)  ifeq(a,b)  -> 1.0 / 0.0;
+- differential operators  delx(V)  dely(V)  delz(V)  grad(V)  div(VEC)
+  rot(VEC)  over node fields, with edge adjacency from hexa/penta/
+  pyra/tetra cells and explicit mismatch errors (P2.2).
 
 The parser is a small recursive-descent evaluator with an explicit
 token whitelist - no code execution, no attribute access.
@@ -315,32 +318,83 @@ _HEX_EDGES = (
     (0, 4), (1, 5), (2, 6), (3, 7),
 )
 
+# edge tables per vtk cell type (node-index pairs inside one cell), P2.2
+_CELL_EDGES = {
+    10: ((0, 1), (1, 2), (2, 0), (0, 3), (1, 3), (2, 3)),            # TETRA_4
+    12: _HEX_EDGES,                                                    # HEXA_8
+    13: ((0, 1), (1, 2), (2, 0), (3, 4), (4, 5), (5, 3),              # PENTA_6
+         (0, 3), (1, 4), (2, 5)),
+    14: ((0, 1), (1, 2), (2, 3), (3, 0),                               # PYRA_5
+         (0, 4), (1, 4), (2, 4), (3, 4)),
+}
 
-def _hex_node_neighbors(ff):
-    """Node -> set of edge-adjacent node ids from FLD hex connectivity (2).
 
-    FLD ``LS_Elements`` connectivity is 1-based (node ids 1..N); CGNS hex
-    grids are 0-based.  A per-node offset is detected so both indexings
-    yield valid 0-based vertex ids.
+def _node_neighbors(ff):
+    """Node -> set of edge-adjacent node ids from element connectivity.
+
+    Supports HEXA_8 / PENTA_6 / PYRA_5 / TETRA_4 cells: FLD hex grids
+    (no ``cell_types`` -> all hex) and CGNS/XDMF mixed unstructured
+    grids (per-cell vtk types, -1 padded rows) alike (P2.2).
+
+    FLD ``LS_Elements`` connectivity is 1-based (node ids 1..N); CGNS
+    grids are 0-based.  The base is detected so both indexings yield
+    valid 0-based vertex ids; a mismatch (ids outside the vertex range
+    after offsetting, or unknown cell types) raises an explicit error
+    instead of silently returning wrong differentials.
     """
     conn = ff.cell_conn
-    adj = {}
     if conn is None:
-        return adj
+        raise ValueError(
+            "differential operators need element connectivity "
+            "(no LS_Elements/cell_conn on this file)")
     conn = np.asarray(conn, dtype=np.int64)
+    if conn.ndim != 2 or conn.shape[0] == 0:
+        raise ValueError("element connectivity is empty")
+    types = getattr(ff, "cell_types", None)
+    if types is None:
+        types = np.full(conn.shape[0], 12, dtype=np.int64)  # FLD hex8
+    types = np.asarray(types, dtype=np.int64)
+    if types.shape[0] != conn.shape[0]:
+        raise ValueError(
+            "cell_types length %d does not match %d connectivity rows"
+            % (types.shape[0], conn.shape[0]))
+    bad = set(int(t) for t in np.unique(types)) - set(_CELL_EDGES)
+    if bad:
+        raise ValueError(
+            "unsupported cell type(s) %s for differential operators "
+            "(supported: hexa/penta/pyra/tetra)"
+            % sorted(int(t) for t in bad))
+    # detect 0- vs 1-based indexing from the valid (non-pad) entries
+    valid = conn[conn >= 0]
+    if valid.size == 0:
+        raise ValueError("element connectivity has no valid node ids")
+    n_vertices = int(getattr(ff, "n_vertices", 0)) or int(conn.max()) + 1
     offset = 0
-    if conn.size:
-        if conn.min() == 0:
-            offset = 0
-        elif conn.max() >= getattr(ff, "n_vertices", conn.max() + 1):
-            offset = 1
-    for cell in conn:
-        for a, b in _HEX_EDGES:
-            na, nb = int(cell[a]) - offset, int(cell[b]) - offset
+    if valid.min() > 0 and valid.max() >= n_vertices:
+        offset = 1
+    shifted = valid - offset
+    if shifted.min() < 0 or shifted.max() >= n_vertices:
+        raise ValueError(
+            "connectivity/vertex mismatch: node ids span [%d, %d] but "
+            "the mesh has %d vertices (index-base detection failed)"
+            % (int(valid.min()), int(valid.max()), n_vertices))
+    adj = {}
+    for row, t in zip(conn, types):
+        edges = _CELL_EDGES[int(t)]
+        for a, b in edges:
+            if a >= row.shape[0] or b >= row.shape[0]:
+                break  # row narrower than this type needs (mixed grid)
+            na, nb = int(row[a]), int(row[b])
             if na < 0 or nb < 0 or na == nb:
                 continue
+            na -= offset
+            nb -= offset
             adj.setdefault(na, set()).add(nb)
             adj.setdefault(nb, set()).add(na)
+    if not adj:
+        raise ValueError(
+            "no node adjacency built from %d elements "
+            "(degenerate connectivity)" % conn.shape[0])
     return adj
 
 
@@ -374,8 +428,12 @@ def _axis_difference(ff, name: str, axis: str):
         raise ValueError("unknown scalar variable " + repr(name))
     a = np.asarray(a, dtype=np.float64)
     verts = np.asarray(ff.vertices, dtype=np.float64)
+    if len(a) != verts.shape[0]:
+        raise ValueError(
+            "variable %s has %d values but the mesh has %d vertices"
+            % (repr(name), len(a), verts.shape[0]))
     ax = {"X": 0, "Y": 1, "Z": 2}[axis]
-    nbr = _hex_node_neighbors(ff)
+    nbr = _node_neighbors(ff)
     out = np.zeros(len(a), dtype=np.float64)
     for i in range(len(a)):
         idx = nbr.get(i)
