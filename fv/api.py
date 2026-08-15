@@ -254,3 +254,88 @@ def area_average(ff, var, axis="Z", n_bins=64):
 def mass_flow_average(ff, var, axis="Z"):
     """Deprecated alias of turbo_mass_flow_average."""
     return turbo_mass_flow_average(ff, var, axis)
+
+# ── topology queries (scPOST FLD-class accessors, P0.2) ────────────────
+
+def node_count(ff) -> int:
+    """Number of vertices (GetNodeCount)."""
+    from .model import topology
+    return topology.node_count(ff)
+
+
+def element_count(ff) -> int:
+    """Number of cells (GetElementCount)."""
+    from .model import topology
+    return topology.element_count(ff)
+
+
+def node_xyz(ff, node_id):
+    """(x, y, z) of a vertex (GetNodeXYZ)."""
+    from .model import topology
+    return topology.node_xyz(ff, node_id)
+
+
+def nodes_of_element(ff, cell_id) -> list:
+    """Vertex ids of a cell (GetNodesOfElement)."""
+    from .model import topology
+    return topology.nodes_of_element(ff, cell_id)
+
+
+def node_count_of_element(ff, cell_id) -> int:
+    """Number of vertices of a cell (GetNodeCountOfElement)."""
+    from .model import topology
+    return topology.node_count_of_element(ff, cell_id)
+
+
+def faces_of_cell(ff, cell_id) -> list:
+    """Faces of a cell: FPH face ids / FLD face vertex groups."""
+    from .model import topology
+    return topology.faces_of_cell(ff, cell_id)
+
+
+def face_count_of_element(ff, cell_id) -> int:
+    """Number of faces of a cell (GetFaceCountOfElement)."""
+    from .model import topology
+    return topology.face_count_of_element(ff, cell_id)
+
+
+def face_nodes(ff, face_id) -> list:
+    """Vertex ids of a face (GetNodesOfFace)."""
+    from .model import topology
+    return topology.face_nodes(ff, face_id)
+
+
+def cells_of_face(ff, face_id):
+    """(owner, neighbour) cells sharing a face (GetAdjacentElementOfFace)."""
+    from .model import topology
+    return topology.cells_of_face(ff, face_id)
+
+
+def elements_of_region(ff, region_name) -> list:
+    """Cell ids in a volume region (GetElementsOfVolumeRegion)."""
+    from .model import topology
+    return topology.elements_of_region(ff, region_name)
+
+
+def nodes_of_region(ff, region_name) -> list:
+    """Vertex ids used by a volume region (GetNodesOfVolumeRegion)."""
+    from .model import topology
+    return topology.nodes_of_region(ff, region_name)
+
+
+def nodes_of_surface_region(ff, region_name) -> list:
+    """Vertex ids of a boundary region (GetNodesOfSurfaceRegion)."""
+    from .model import topology
+    return topology.nodes_of_surface_region(ff, region_name)
+
+
+def area_of_face(ff, face_id) -> float:
+    """Area of a face (GetAreaOfFace)."""
+    from .model import topology
+    return topology.area_of_face(ff, face_id)
+
+
+def volume_of_element(ff, cell_id) -> float:
+    """Volume of a cell (GetVolumeOfElement)."""
+    from .model import topology
+    return topology.volume_of_element(ff, cell_id)

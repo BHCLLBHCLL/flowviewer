@@ -1669,6 +1669,35 @@ def test_api_post_processing_facade():
     zc2, av2 = api.area_average(ff, "PRES", "Z", 8)
     assert zc2.shape == (8,)
     assert api.mass_flow_average(ff, "PRES", "Z") == m
+
+def test_api_topology_queries():
+    """fv.api exposes scPOST FLD-class topology accessors (P0.2)."""
+    import numpy as np
+    from fv import api
+    ff = api.open_file(FPH)
+    assert api.node_count(ff) == ff.n_vertices
+    assert api.element_count(ff) == ff.n_cells
+    xyz = api.node_xyz(ff, 0)
+    assert len(xyz) == 3
+    ns = api.nodes_of_element(ff, 100)
+    assert len(ns) == api.node_count_of_element(ff, 100) > 0
+    fs = api.faces_of_cell(ff, 100)
+    assert len(fs) == api.face_count_of_element(ff, 100) > 0
+    assert len(api.face_nodes(ff, 0)) > 0
+    o, n = api.cells_of_face(ff, 0)
+    assert o >= 0
+    assert api.area_of_face(ff, 0) > 0
+    assert api.volume_of_element(ff, 100) > 0
+    assert len(api.elements_of_region(ff, "FluidRegion")) == ff.n_cells
+    br = ff.boundary_regions()[0]
+    assert len(api.nodes_of_surface_region(ff, br.name)) > 0
+    # FLD hex topology (1-based connectivity normalised)
+    fld = api.open_file(FLD)
+    fns = api.nodes_of_element(fld, 0)
+    assert fns and max(fns) < fld.n_vertices
+    assert api.face_count_of_element(fld, 0) == 6
+    assert api.volume_of_element(fld, 0) > 0
+
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_export_stl(tmp_path):
