@@ -520,9 +520,16 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         from PyQt5.QtWidgets import QFileDialog
         from .dialogs import qt_file_filters
 
-        start = str(Path.cwd())
-        if self.dataset is not None and getattr(self.dataset, "path", None):
+        # Start where the user last opened/saved (P0.6): options.last_dir,
+        # then the current dataset's folder, then cwd.
+        start = None
+        last = self.options.last_dir
+        if last and Path(last).is_dir():
+            start = str(last)
+        if start is None and self.dataset is not None \
+                and getattr(self.dataset, "path", None):
             start = str(Path(self.dataset.path).parent)
+        start = start or str(Path.cwd())
         filters, selected = qt_file_filters(0)  # Field files (*.fld *.fph …)
         path, _ = QFileDialog.getOpenFileName(
             self, "Open Field File", start, filters, selected)
@@ -594,6 +601,11 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.dataset = ff
         if ff not in self.datasets:
             self.datasets.append(ff)
+        # Remember the folder for the next Open dialog (P0.6)
+        try:
+            self.options.last_dir = str(Path(ff.path).parent)
+        except Exception:  # pragma: no cover - options are best-effort
+            pass
         # scPOST Magic-open defaults: Surface(1) / Plane(1) [/ Particle(1)]
         self.main_object = MainObject.from_field_file(ff, magic=True)
         self.scene.build(ff, main=self.main_object)
@@ -633,7 +645,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.timeline.set_step(cyc)
         self._cycle_label.setText(f"Cycle {cyc}")
         if ff.time is not None:
-            self.timeline.edit_time.setText(f"{ff.time:.6g}")
+            self.timeline.edit_time.setText(self.timeline.format_time(ff.time))
         self.setWindowTitle(f"flowviewer — {Path(ff.path).name}")
         kids = ", ".join(o.label for o in self.main_object.children)
         msg = (f"{ff.kind.upper()}: {ff.n_cells:,} cells, "
@@ -1293,7 +1305,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
                     self.scene.fit()
                     self._refresh_gl()
                 self.timeline.edit_time.setText(
-                    f"{loaded.time:.6g}" if loaded.time is not None else "")
+                    self.timeline.format_time(loaded.time))
                 msg = (f"{loaded.kind.upper()}: {loaded.n_cells:,} cells, "
                        f"{loaded.n_vertices:,} vertices, "
                        f"{len(loaded.variables)} variables"

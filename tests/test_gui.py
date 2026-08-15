@@ -3569,3 +3569,43 @@ def test_export_animation_frames_headless(tmp_path):
                                frames=3)
     assert n == 0  # no render window: nothing written, no crash
     assert tmp_path.exists()
+
+
+@pytest.mark.skipif(not _HAS_QT, reason="PyQt5 unavailable")
+def test_p06_detail_sweep(qapp, tmp_path):
+    """P0.6: extensions honest, timeline Scale wired, msg save, last_dir."""
+    # 1. loadable_extensions mirrors the live loader registry (.emt!).
+    from fv.gui.dialogs import loadable_extensions
+    exts = loadable_extensions()
+    assert {"fld", "ifld", "fph", "gph", "pph", "emt", "cgns"} <= exts
+
+    # 2. BMP/TIF have native VTK writers on this build (export honesty).
+    if _VTK:
+        import vtk
+        assert hasattr(vtk, "vtkBMPWriter")
+        assert hasattr(vtk, "vtkTIFFWriter")
+
+    # 3. Timeline: unbacked Sync/Ver controls removed; Scale wired.
+    from fv.gui.panes import TimelineWindow
+    tl = TimelineWindow()
+    assert not hasattr(tl, "chk_sync") and not hasattr(tl, "edit_ver")
+    tl.edit_scale.setText("2.5")
+    assert tl.time_scale() == 2.5
+    assert tl.format_time(2.0) == "5"
+    tl.edit_scale.setText("junk")
+    assert tl.time_scale() == 1.0
+    assert tl.format_time(None) == ""
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_p06_message_save_and_last_dir(qapp, tmp_path):
+    """P0.6: message log persists to file; open records options.last_dir."""
+    w = _make(qapp, FPH)
+    # message window save (button slot's non-dialog core)
+    w.message_win.log("hello P0.6")
+    out = tmp_path / "messages.log"
+    assert w.message_win.save_log(str(out))
+    assert "hello P0.6" in out.read_text(encoding="utf-8")
+    assert hasattr(w.message_win, "btn_save")  # UI entry point exists
+    # last_dir recorded from the loaded dataset's folder
+    assert w.options.last_dir == str(Path(FPH).parent)

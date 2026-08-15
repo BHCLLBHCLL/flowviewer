@@ -48,8 +48,27 @@ FILE_TYPE_FILTERS: list[tuple[str, tuple[str, ...]]] = [
     ("Parasolid files", ("xmt_txt", "x_t", "xmt_bin", "x_b")),
 ]
 
-# Currently loadable by flowviewer core (others accepted in dialog, then NYI)
+# Currently loadable by flowviewer core (others accepted in dialog, then NYI).
+# Kept for backward compatibility; prefer :func:`loadable_extensions`, which
+# derives the set from the live loader registry (P0.6: .emt/.cgns/… drift).
 LOADABLE_EXTENSIONS = frozenset({"fld", "ifld", "fph", "gph", "pph"})
+
+
+def loadable_extensions() -> frozenset[str]:
+    """Extensions with real loaders, from :mod:`fv.model.loaders`.
+
+    Importing :mod:`fv.model.dataset` triggers loader registration, so the
+    dialog's info pane and the registry can never drift apart again.
+    """
+    try:
+        from ..model import dataset  # noqa: F401  (registers loaders)
+        from ..model import loaders
+        exts = loaders.loaders()
+        if exts:
+            return exts
+    except Exception:  # pragma: no cover - registry is best-effort
+        pass
+    return LOADABLE_EXTENSIONS
 
 
 def _filter_label(name: str, exts: tuple[str, ...]) -> str:
@@ -224,7 +243,7 @@ def file_in_summary(path) -> str:
     """File info preview for the Open dialog (scPOST File-Open info pane)."""
     p = Path(path)
     ext = _suffix_key(p)
-    if ext not in LOADABLE_EXTENSIONS:
+    if ext not in loadable_extensions():
         return "\n".join([
             f"File name        : {p.name}",
             f"File size        : {stat_quiet(p)}",

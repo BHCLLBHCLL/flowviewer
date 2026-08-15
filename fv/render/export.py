@@ -45,24 +45,24 @@ def snapshot_png(renderer_or_window, filename: str) -> bool:
         base, ext = os.path.splitext(filename)
         if ext.lower() not in (".png", ".jpg", ".jpeg", ".bmp", ".tif"):
             filename = base + ".png"
-        if str(ext).lower() in (".jpg", ".jpeg"):
-            w2i = vtk.vtkWindowToImageFilter()
-            w2i.SetInput(win)
-            w2i.SetInputBufferTypeToRGB()
-            w2i.Update()
+        w2i = vtk.vtkWindowToImageFilter()
+        w2i.SetInput(win)
+        w2i.SetInputBufferTypeToRGB()
+        w2i.Update()
+        # Honest writers per extension (P0.6): BMP/TIF get their native
+        # VTK writers instead of PNG bytes in a mismatched container.
+        ext_l = ext.lower()
+        if ext_l in (".jpg", ".jpeg"):
             writer = vtk.vtkJPEGWriter()
-            writer.SetFileName(filename)
-            writer.SetInputConnection(w2i.GetOutputPort())
-            writer.Write()
+        elif ext_l == ".bmp":
+            writer = vtk.vtkBMPWriter()
+        elif ext_l == ".tif":
+            writer = vtk.vtkTIFFWriter()
         else:
-            w2i = vtk.vtkWindowToImageFilter()
-            w2i.SetInput(win)
-            w2i.SetInputBufferTypeToRGB()
-            w2i.Update()
             writer = vtk.vtkPNGWriter()
-            writer.SetFileName(str(filename))
-            writer.SetInputConnection(w2i.GetOutputPort())
-            writer.Write()
+        writer.SetFileName(str(filename))
+        writer.SetInputConnection(w2i.GetOutputPort())
+        writer.Write()
         return os.path.exists(filename) and os.path.getsize(filename) > 0
     except Exception:  # pragma: no cover
         return False

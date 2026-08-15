@@ -78,6 +78,17 @@ class MessageWindow(QWidget if _HAS_QT else object):
             return
         v = QVBoxLayout(self)
         v.setContentsMargins(2, 2, 2, 2)
+        # Save / Clear row (P0.6: message log can be persisted to file)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        self.btn_save = QPushButton("Save…", self)
+        self.btn_save.setToolTip("Save the message log to a file")
+        self.btn_save.clicked.connect(self.save_log_dialog)
+        row.addWidget(self.btn_save)
+        self.btn_clear = QPushButton("Clear", self)
+        self.btn_clear.clicked.connect(self.clear)
+        row.addWidget(self.btn_clear)
+        v.addLayout(row)
         self.text = QPlainTextEdit(self)
         self.text.setReadOnly(True)
         self.text.setMaximumBlockCount(4000)
@@ -96,6 +107,32 @@ class MessageWindow(QWidget if _HAS_QT else object):
     def write(self, text: str) -> None:
         """Backward-compatible plain append."""
         self.log(text.rstrip("\n"), "INFO")
+
+    def save_log_dialog(self) -> bool:
+        """Ask for a path and write the current log text to it (P0.6)."""
+        if not _HAS_QT:
+            return False
+        from pathlib import Path as _P
+
+        from PyQt5.QtWidgets import QFileDialog
+        start = str(_P.home() / "flowviewer_messages.log")
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save Message Log", start,
+            "Log files (*.log *.txt);;All files (*)")
+        return self.save_log(path) if path else False
+
+    def save_log(self, path: str) -> bool:
+        """Write the log buffer to *path*; returns True on success."""
+        if not _HAS_QT or not path:
+            return False
+        from pathlib import Path as _P
+        try:
+            _P(path).write_text(self.text.toPlainText(), encoding="utf-8")
+            self.log(f"Message log saved: {path}")
+            return True
+        except Exception as exc:  # noqa: BLE001
+            self.log(f"Message log save failed: {exc}", "ERROR")
+            return False
 
     def clear(self) -> None:
         if _HAS_QT:
@@ -601,9 +638,8 @@ class TimelineWindow(QWidget if _HAS_QT else object):
         row1.addSpacing(12)
         self.chk_preview = QCheckBox("Preview", self)
         self.chk_preview.setChecked(True)
-        self.chk_sync = QCheckBox("Sync", self)
         self.chk_loop = QCheckBox("Loop", self)
-        for w in (self.chk_preview, self.chk_sync, self.chk_loop):
+        for w in (self.chk_preview, self.chk_loop):
             row1.addWidget(w)
         row1.addStretch(1)
         root.addLayout(row1)
@@ -642,17 +678,16 @@ class TimelineWindow(QWidget if _HAS_QT else object):
         self.edit_step = QLineEdit("0", self)
         self.edit_step.setFixedWidth(56)
         row3.addWidget(self.edit_step)
-        row3.addWidget(QLabel("Ver", self))
-        self.edit_ver = QLineEdit("0", self)
-        self.edit_ver.setFixedWidth(48)
-        row3.addWidget(self.edit_ver)
         row3.addWidget(QLabel("Time", self))
         self.edit_time = QLineEdit("0", self)
         self.edit_time.setFixedWidth(72)
         row3.addWidget(self.edit_time)
+        # Scale multiplies the displayed/engineering time (P0.6 wiring;
+        # the unbacked "Ver" field was removed with this change).
         row3.addWidget(QLabel("Scale", self))
         self.edit_scale = QLineEdit("1", self)
         self.edit_scale.setFixedWidth(48)
+        self.edit_scale.setToolTip("Time display scale factor")
         row3.addWidget(self.edit_scale)
         self.btn_set = QPushButton("Set", self)
         self.btn_set.clicked.connect(self._on_set)
@@ -692,6 +727,21 @@ class TimelineWindow(QWidget if _HAS_QT else object):
         if not _HAS_QT:
             return 0
         return int(self.slider.value())
+
+    def time_scale(self) -> float:
+        """Display scale factor for the Time field (default 1.0, P0.6)."""
+        if not _HAS_QT:
+            return 1.0
+        try:
+            return float(self.edit_scale.text().strip() or 1.0)
+        except ValueError:
+            return 1.0
+
+    def format_time(self, time) -> str:
+        """Format a raw result time with the current scale applied."""
+        if time is None:
+            return ""
+        return f"{time * self.time_scale():.6g}"
 
     def mode(self) -> str:
         if not _HAS_QT:
