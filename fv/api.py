@@ -523,3 +523,8 @@ def set_variable_title(ff, name, title):
     """Store a display title for a variable (SetVarTitle)."""
     from .model.varreg import set_variable_title as _f
     return _f(ff, name, title)
+
+def register_var_all_cycles(file_set, name, expr):
+    """Register an expression on every cycle of a FileSet (CreateVarALLCYC)."""
+    from .model.varreg import register_var_all_cycles as _f
+    return _f(file_set, name, expr)

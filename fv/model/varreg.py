@@ -566,3 +566,20 @@ def set_variable_title(ff, name, title):
         raise ValueError("unknown variable " + repr(name))
     vi.title = title
     return vi
+
+def register_var_all_cycles(file_set, name, expr):
+    """Register *expr* on every cycle file of a FileSet (CreateVarALLCYC).
+
+    Returns [(cycle, VarInfo), ...] for the files that loaded and
+    registered successfully; each FieldFile keeps its own copy.
+    """
+    from .dataset import load_file
+    out = []
+    for m in getattr(file_set, "members", []) or []:
+        try:
+            ff = load_file(m.path)
+            vi = register_variable(ff, name, expr)
+            out.append((int(m.cycle), vi))
+        except Exception:
+            continue
+    return out

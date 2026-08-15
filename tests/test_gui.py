@@ -1769,6 +1769,24 @@ def test_api_extended_variables():
     assert ff.variables["CMBVEL"].title == "Combined speed"
     assert api.delete_variable(ff, "CMBVEL") is not None
     assert "CMBVEL" not in ff.variables
+
+def test_api_create_var_all_cycles(tmp_path):
+    """CreateVarALLCYC registers an expression on every cycle (P1.2)."""
+    import shutil
+    from pathlib import Path
+    from fv import api
+    from fv.model.fileset import scan_sequence
+    base = Path(tmp_path)
+    for cyc in (1, 2, 3):
+        shutil.copyfile(FPH, str(base / f"flow_{cyc}.fph"))
+    fs = scan_sequence(str(base / "flow_1.fph"))
+    assert len(fs) == 3
+    results = api.register_var_all_cycles(fs, "PP2", "PRES + 1.0")
+    assert len(results) == 3
+    assert [c for c, _ in results] == [1, 2, 3]
+    for _, vi in results:
+        assert vi.name == "PP2" and vi.array.shape[0] > 0
+
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_export_stl(tmp_path):
