@@ -1630,28 +1630,32 @@ def test_api_facade():
         pass
 
 def test_api_post_processing_facade():
-    """fv.api exposes turbo post-processing quantities (①)."""
+    """fv.api exposes turbo_ post-processing quantities (①)."""
     import numpy as np
     from fv import api
     ff = api.open_file(FPH)
-    r, z, vals = api.circumferential_average(ff, "PRES", "Z", 16, 16)
+    r, z, vals = api.turbo_circumferential_average(ff, "PRES", "Z", 16, 16)
     assert r is not None and vals.shape == (16, 16)
-    r, z, cm = api.circumferential_mass_average(ff, "PRES", "Z", 16, 16)
+    r, z, cm = api.turbo_circumferential_mass_average(ff, "PRES", "Z", 16, 16)
     assert cm.shape == (16, 16)
-    span, dp = api.blade_loading_curve(ff, "PRES", "Z", 16)
+    span, dp = api.turbo_blade_loading_curve(ff, "PRES", "Z", 16)
     assert len(span) == 16 and np.all(np.asarray(dp) >= 0)
-    rt = api.polar_view_points(ff, "Z")
+    rt = api.turbo_polar_view_points(ff, "Z")
     assert rt.shape == (ff.n_vertices, 2)
-    mr = api.meridional_points(ff, "Z")
+    mr = api.turbo_meridional_points(ff, "Z")
     assert mr.shape == (ff.n_vertices, 2) and np.all(mr[:, 0] >= 0)
-    b2b = api.blade_to_blade_points(ff, float(np.median(mr[:, 0])), "Z", 0.01)
+    b2b = api.turbo_blade_to_blade_points(ff, float(np.median(mr[:, 0])), "Z", 0.01)
     assert b2b.shape[1] == 2
-    cp = api.pressure_coefficient(ff, 0.5, 10.0, 1.2)
+    cp = api.turbo_pressure_coefficient(ff, 0.5, 10.0, 1.2)
     assert cp.shape == ff.variables["PRES"].array.shape
-    zc, av = api.area_average(ff, "PRES", "Z", 16)
+    zc, av = api.turbo_area_average(ff, "PRES", "Z", 16)
     assert zc.shape == (16,) and av.shape == (16,)
-    m = api.mass_flow_average(ff, "PRES", "Z")
+    m = api.turbo_mass_flow_average(ff, "PRES", "Z")
     assert isinstance(m, float) and np.isfinite(m)
+    # deprecated unprefixed aliases still resolve
+    zc2, av2 = api.area_average(ff, "PRES", "Z", 8)
+    assert zc2.shape == (8,)
+    assert api.mass_flow_average(ff, "PRES", "Z") == m
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_export_stl(tmp_path):
@@ -2847,8 +2851,8 @@ def test_com_interface():
     """COM Application object loads a file and reports metadata (7c)."""
     from fv.com import FlowviewerApplication, _HAS_COM
     app = FlowviewerApplication()
-    meta = app.open_file(FPH)
-    assert meta["kind"] == "fph"
+    app.open_file(FPH)
+    assert app.kind == "fph"
     assert "PRES" in app.variables()
     assert app.cycles() == 9
     app.quit()
@@ -2871,8 +2875,8 @@ def test_com_properties_events_lifecycle():
             events.append(("close", None))
     sink = Sink()
     assert app.subscribe(sink) == 1
-    meta = app.open_file(FPH)
-    assert meta["kind"] == "fph"
+    app.open_file(FPH)
+    assert app.kind == "fph"
     assert app.has_file is True
     assert app.file_path == FPH
     assert app.kind == "fph"
@@ -2891,17 +2895,16 @@ def test_com_properties_events_lifecycle():
 
 def test_com_connection_points():
     """COM exposes IConnectionPointContainer semantics (3)."""
-    from fv.com import (EVENTS_IID, ConnectionPoint, FlowviewerApplication,
-                        _iid_matches)
+    from fv.com import (EVENTS_IID, FlowviewerApplication, _iid_matches)
     app = FlowviewerApplication()
-    # container -> single connection point for the event IID
+    # COM-facing container methods return a wrapped connection point
     cps = app.EnumConnectionPoints()
-    assert len(cps) == 1 and isinstance(cps[0], ConnectionPoint)
-    assert app.FindConnectionPoint(EVENTS_IID) is cps[0]
+    assert len(cps) == 1 and cps[0] is not None
+    assert app.FindConnectionPoint(EVENTS_IID) is not None
     assert app.FindConnectionPoint("{00000000-0000-0000-0000-000000000000}") is None
     assert _iid_matches(EVENTS_IID, EVENTS_IID.lower().strip("{}"))
-    # Advise/Unadvise cookie semantics
-    cp = cps[0]
+    # Python-side cookie semantics on the underlying point
+    cp = app._cp
     events = []
     class Sink:
         def on_open(self, path):
@@ -2927,8 +2930,59 @@ def test_com_connection_points():
     assert ("open", FPH) in events and ("close", None) in events
     app.unsubscribe(None)
     app.release()
-    assert len(app.EnumConnectionPoints()[0].EnumConnections()) == 0
+    assert len(cp.EnumConnections()) == 0
 
+def test_com_simple_connection():
+    """Real COM link: QI IConnectionPointContainer -> Advise -> Invoke (②)."""
+    try:
+        import win32com.client.dynamic
+        import win32com.client.connect
+        import win32com.server.util
+    except ImportError:
+        pytest.skip("pywin32 unavailable")
+    from fv.com import EVENTS_IID, FlowviewerApplication
+    app = FlowviewerApplication()
+    server = win32com.client.dynamic.Dispatch(
+        win32com.server.util.wrap(app))
+    class COMSink:
+        _public_methods_ = ["on_open", "on_close"]
+        def __init__(self):
+            self.opened = []
+            self.closed = 0
+        def _query_interface_(self, iid):
+            if str(iid).strip("{}").lower() == EVENTS_IID.strip("{}").lower():
+                return win32com.server.util.wrap(self)
+            return None
+        def on_open(self, path):
+            self.opened.append(path)
+        def on_close(self):
+            self.closed += 1
+    sink = COMSink()
+    conn = win32com.client.connect.SimpleConnection()
+    conn.Connect(server, sink, EVENTS_IID)
+    server.open_file(FPH)
+    server.close()
+    conn.Disconnect()
+    assert FPH in sink.opened and sink.closed == 1
+
+def test_com_typelib():
+    """COM typelib builds and loads with coclass + source interface (②)."""
+    import os
+    import tempfile
+    from fv import com, com_typelib
+    import pythoncom
+    p = os.path.join(tempfile.mkdtemp(), "fv.tlb")
+    com_typelib.build_typelib(p)
+    lt = pythoncom.LoadTypeLib(p)
+    assert lt.GetTypeInfoCount() == 3
+    kinds = [lt.GetTypeInfo(k).GetTypeAttr()[5] for k in range(3)]
+    assert kinds.count(pythoncom.TKIND_DISPATCH) == 2
+    assert kinds.count(pythoncom.TKIND_COCLASS) == 1
+    # bundled typelib is wired for registration (but not set as _typelib_guid_,
+    # which would force universal-interface loading at wrap time)
+    assert getattr(com.FlowviewerApplication, "_reg_typelib_filename_", None)
+    assert not hasattr(com.FlowviewerApplication, "_typelib_guid_") or \
+        com.FlowviewerApplication._typelib_guid_ is None
 def test_com_events_smoke_inproc():
     """COM events smoke script runs in-process (②)."""
     from scripts.com_events_smoke import Sink, run_inproc

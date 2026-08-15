@@ -5,10 +5,10 @@ Exposes a flowviewer.Application COM class with:
 * lifecycle  - open_file / close / quit / release and context-manager use;
 * properties - version, file_path, kind, n_cells, n_vertices, cycle, time,
   variable_names, has_file (read-only attributes);
-* events     - a standard IConnectionPointContainer / IConnectionPoint pair
-  (Advise/Unadvise/EnumConnections) so a VBS client can connect a sink via
-  app.FindConnectionPoint(iid).Advise(sink), plus subscribe/unsubscribe as a
-  thin Python-friendly alias.
+* events     - a real IConnectionPointContainer / IConnectionPoint pair
+  (QueryInterface-visible, following the pywin32 ConnectableServer pattern)
+  so both VBS WithEvents clients and win32com.client.connect.SimpleConnection
+  can receive on_open / on_close.
 
 Requires pywin32; registration writes to the Windows registry (run
 register_server() with the right privileges).
@@ -28,6 +28,13 @@ except Exception:
 VERSION = "1.0.0"
 EVENTS_IID = "{E1A2B3C4-5D6E-4F7A-8B9C-0D1E2F3A4B5C}"
 
+try:
+    from .com_typelib import ensure_typelib, TYPELIB_GUID
+    _TYPLIB_FILE = ensure_typelib()
+except Exception:
+    TYPELIB_GUID = "{F1A2B3C4-5D6E-4F7A-8B9C-0D1E2F3A4B5D}"
+    _TYPLIB_FILE = None
+
 
 class FlowviewerApplicationEvents:
     """COM event (outgoing) interface contract for VBS WithEvents (3).
@@ -42,31 +49,87 @@ class FlowviewerApplicationEvents:
     _public_methods_ = ["on_open", "on_close"]
 
 
+def _iid_matches(a, b):
+    """Compare GUIDs (str or PyIID), ignoring case and optional braces."""
+    a = str(a or "").strip().strip("{}").lower()
+    b = str(b or "").strip().strip("{}").lower()
+    return a == b
+
+
 class ConnectionPoint:
-    """IConnectionPoint semantics: Advise / Unadvise / EnumConnections (3)."""
+    """IConnectionPoint + IConnectionPointContainer in one object (3).
+
+    Follows the pywin32 ConnectableServer pattern: the same object answers
+    both interfaces, _connect_interfaces_ names the outgoing event interface,
+    and the owning application forwards QI via its _query_interface_.
+    Advise accepts a COM sink (QueryInterface to the event IID) and falls
+    back to a plain Python callable for the non-COM smoke tests.
+    """
 
     _public_methods_ = [
-        "Advise", "Unadvise", "EnumConnections", "GetConnectionInterface",
+        "EnumConnectionPoints", "FindConnectionPoint",
+        "EnumConnections", "Unadvise", "Advise",
+        "GetConnectionPointContainer", "GetConnectionInterface",
     ]
+    _connect_interfaces_ = [EVENTS_IID]
+    _DISPIDS = {"on_open": 1000, "on_close": 1001}
 
     def __init__(self, owner):
         self._owner = owner
         self._lock = threading.RLock()
         self._sinks = {}
         self._next = 1
+        if _HAS_COM:
+            try:
+                import pythoncom as _pc
+                self._com_interfaces_ = [
+                    _pc.IID_IConnectionPoint,
+                    _pc.IID_IConnectionPointContainer,
+                ]
+            except Exception:
+                pass
+
+    # IConnectionPointContainer
+
+    def EnumConnectionPoints(self):
+        """The single outgoing connection point (COM-facing, wrapped)."""
+        import win32com.server.util
+        return [win32com.server.util.wrap(self)]
+
+    def FindConnectionPoint(self, iid):
+        """Return the connection point for the event IID (COM-facing)."""
+        if not _iid_matches(iid, EVENTS_IID):
+            return None
+        import win32com.server.util
+        return win32com.server.util.wrap(self)
+
+    # IConnectionPoint
 
     def GetConnectionInterface(self):
         """The IID of the outgoing event interface."""
         return EVENTS_IID
 
+    def GetConnectionPointContainer(self):
+        """The container owning this point (the point itself here)."""
+        import win32com.server.util
+        return win32com.server.util.wrap(self)
+
     def Advise(self, sink):
         """Register a sink; returns an opaque connection cookie."""
         if sink is None:
             return 0
+        stored = sink
+        if _HAS_COM:
+            try:
+                import pythoncom as _pc
+                stored = sink.QueryInterface(
+                    self._connect_interfaces_[0], _pc.IID_IDispatch)
+            except Exception:
+                stored = sink  # plain Python sink fallback
         with self._lock:
             cookie = self._next
             self._next += 1
-            self._sinks[cookie] = sink
+            self._sinks[cookie] = stored
             return cookie
 
     def Unadvise(self, cookie):
@@ -75,12 +138,14 @@ class ConnectionPoint:
             return self._sinks.pop(cookie, None) is not None
 
     def EnumConnections(self):
-        """Snapshot of currently advised sinks (IEnumConnections flavour)."""
+        """Snapshot of currently advised sinks (IEnumConnections)."""
         with self._lock:
             return list(self._sinks.values())
 
+    # event dispatch
+
     def sinks(self):
-        """Alias of EnumConnections for the Python event dispatcher."""
+        """Alias of EnumConnections for the Python dispatcher."""
         return self.EnumConnections()
 
     def clear(self):
@@ -88,31 +153,38 @@ class ConnectionPoint:
         with self._lock:
             self._sinks.clear()
 
-
-class ConnectionPointContainer:
-    """IConnectionPointContainer semantics (3)."""
-
-    _public_methods_ = ["EnumConnectionPoints", "FindConnectionPoint"]
-
-    def __init__(self, cp):
-        self._cp = cp
-
-    def EnumConnectionPoints(self):
-        """The single outgoing connection point (IEnumConnectionPoints)."""
-        return [self._cp]
-
-    def FindConnectionPoint(self, iid):
-        """Return the connection point for the event IID (or None)."""
-        if _iid_matches(iid, EVENTS_IID):
-            return self._cp
-        return None
-
-
-def _iid_matches(a, b):
-    """Compare GUID strings, ignoring case and optional braces."""
-    a = (a or "").strip().strip("{}").lower()
-    b = (b or "").strip().strip("{}").lower()
-    return a == b
+    def fire(self, event_name, *args):
+        """Deliver an event to every sink without one breaking others."""
+        dispid = self._DISPIDS.get(event_name)
+        with self._lock:
+            targets = list(self._sinks.values())
+        for sink in targets:
+            try:
+                if dispid is not None and hasattr(sink, "Invoke"):
+                    # COM IDispatch sink: DISPATCH_METHOD with reversed args
+                    import pythoncom as _pc
+                    if args:
+                        sink.Invoke(dispid, 0, _pc.DISPATCH_METHOD,
+                                    len(args), *reversed(args))
+                    else:
+                        sink.Invoke(dispid, 0, _pc.DISPATCH_METHOD, 0)
+                else:
+                    handler = getattr(sink, event_name, None)
+                    if handler is None:
+                        # VBS case-insensitive fallback (OnOpen / OnClose)
+                        for cand in dir(sink):
+                            if cand.lower() == event_name.replace("_", "").lower():
+                                handler = getattr(sink, cand, None)
+                                break
+                    if handler is not None:
+                        handler(*args)
+                    else:
+                        payload = {"event": event_name}
+                        if args:
+                            payload["args"] = args
+                        sink(payload)
+            except Exception:
+                continue
 
 
 class FlowviewerApplication:
@@ -122,9 +194,10 @@ class FlowviewerApplication:
     on_open; close()/quit() release the file and fire on_close; the object
     also works as a context manager (with) and releases in __del__.
 
-    Events: a VBS client may connect via
-    app.FindConnectionPoint(iid).Advise(sink); subscribe/unsubscribe are a
-    Python-friendly alias over the same connection point.
+    Events: real COM connection points - a client may
+    QueryInterface(IConnectionPointContainer) and Advise a sink, or call
+    app.FindConnectionPoint(iid).Advise(sink) through IDispatch;
+    subscribe/unsubscribe are a Python-friendly alias.
     """
 
     _reg_clsid_ = "{A1B2C3D4-5E6F-4A7B-8C9D-0E1F2A3B4C5D}"
@@ -148,13 +221,26 @@ class FlowviewerApplication:
         self._ff = None
         self._lock = threading.RLock()
         self._cp = ConnectionPoint(self)
-        self._cpc = ConnectionPointContainer(self._cp)
         if _HAS_COM:
             try:
                 import pythoncom as _pc
-                self._com_interfaces_ = [_pc.IID_IConnectionPointContainer]
+                self._com_interfaces_ = [
+                    _pc.IID_IConnectionPoint,
+                    _pc.IID_IConnectionPointContainer,
+                ]
             except Exception:
                 pass
+
+    def _query_interface_(self, iid):
+        """Answer QI for the connection-point interfaces (COM events)."""
+        if not _HAS_COM:
+            return None
+        import pythoncom as _pc
+        import win32com.server.util
+        if iid in (_pc.IID_IConnectionPoint,
+                   _pc.IID_IConnectionPointContainer):
+            return win32com.server.util.wrap(self._cp)
+        return None
 
     # lifecycle
 
@@ -172,13 +258,14 @@ class FlowviewerApplication:
             pass
 
     def open_file(self, path):
-        """Load a field file and return a metadata dict (fires on_open)."""
+        """Load a field file (fires on_open).  Returns None; the metadata
+        is exposed through the read-only properties (COM-VARIANT safe)."""
         from .model.dataset import load_file
         ff = load_file(path)
         with self._lock:
             self._ff = ff
-        self._emit("on_open", path=str(path))
-        return self._metadata()
+        self._cp.fire("on_open", str(path))
+        return None
 
     def close(self):
         """Release the loaded file (fires on_close)."""
@@ -186,7 +273,7 @@ class FlowviewerApplication:
             had = self._ff is not None
             self._ff = None
         if had:
-            self._emit("on_close")
+            self._cp.fire("on_close")
 
     def quit(self):
         """Alias of close (scPOST VBS compatibility)."""
@@ -252,11 +339,11 @@ class FlowviewerApplication:
 
     def EnumConnectionPoints(self):
         """Return the outgoing event connection points (IConnectionPointContainer)."""
-        return self._cpc.EnumConnectionPoints()
+        return self._cp.EnumConnectionPoints()
 
     def FindConnectionPoint(self, iid):
         """Return the connection point for an event IID (or None)."""
-        return self._cpc.FindConnectionPoint(iid)
+        return self._cp.FindConnectionPoint(iid)
 
     def subscribe(self, callback):
         """Register a sink; returns the connection cookie (Python alias)."""
@@ -279,36 +366,25 @@ class FlowviewerApplication:
             "variables": self.variable_names,
         }
 
-    def _emit(self, event, **data):
-        """Deliver event to every advised sink without one breaking others."""
-        for cb in self._cp.sinks():
-            try:
-                handler = getattr(cb, event, None)
-                if handler is None:
-                    # VBS/IDispatch case-insensitive fallback (OnOpen/OnClose)
-                    for cand in dir(cb):
-                        if cand.lower() == event.replace("_", "").lower():
-                            handler = getattr(cb, cand, None)
-                            break
-                if handler is not None:
-                    if data:
-                        handler(**data)
-                    else:
-                        handler()
-                else:
-                    payload = {"event": event}
-                    payload.update(data)
-                    cb(payload)
-            except Exception:
-                continue
+
+# _reg_typelib_filename_ makes UseCommandLine register the bundled typelib.
+# _typelib_guid_ is deliberately NOT set: DesignatedWrapPolicy would try to
+# load the typelib at wrap time (universal interfaces), which fails before
+# registration.
+if _TYPLIB_FILE:
+    FlowviewerApplication._reg_typelib_filename_ = _TYPLIB_FILE
 
 
 def register_server() -> bool:
-    """Register the COM class in the Windows registry (7c)."""
+    """Register the COM class (and the bundled typelib) in the registry (7c)."""
     if not _HAS_COM:
         return False
     try:
+        import pythoncom
         import win32com.server.register
+        if _TYPLIB_FILE:
+            tlb = pythoncom.LoadTypeLib(_TYPLIB_FILE)
+            pythoncom.RegisterTypeLib(tlb, _TYPLIB_FILE)
         win32com.server.register.UseCommandLine(FlowviewerApplication)
         return True
     except Exception:

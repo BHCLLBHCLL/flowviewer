@@ -27,11 +27,19 @@ from fv.com import EVENTS_IID, FlowviewerApplication, register_server
 
 
 class Sink:
-    """VBS-style event sink (case-insensitive IDispatch dispatch)."""
+    """COM event sink: wrap-able (public methods) + event-IID QI."""
+
+    _public_methods_ = ["OnOpen", "OnClose"]  # first method -> DISPID 1000
 
     def __init__(self):
         self.opened = []
         self.closed = 0
+
+    def _query_interface_(self, iid):
+        import win32com.server.util
+        if str(iid).strip("{}").lower() == EVENTS_IID.strip("{}").lower():
+            return win32com.server.util.wrap(self)
+        return None
 
     def OnOpen(self, path):
         self.opened.append(path)
@@ -40,26 +48,29 @@ class Sink:
         self.closed += 1
 
 
-def _run_with_app(app, path):
-    """Connect a sink via the connection point and fire events."""
-    cp = app.FindConnectionPoint(EVENTS_IID)
-    if cp is None:
-        return {"ok": False, "reason": "FindConnectionPoint returned None"}
+def run_inproc(path):
+    """Smoke without COM registration via a real connection-point link.
+
+    Wraps the Python application as a COM gateway and links a COM sink
+    through SimpleConnection (QI IConnectionPointContainer ->
+    FindConnectionPoint -> Advise), exercising the genuine COM path.
+    """
+    import win32com.client.dynamic
+    import win32com.client.connect
+    import win32com.server.util
+    app = FlowviewerApplication()
+    server = win32com.client.dynamic.Dispatch(
+        win32com.server.util.wrap(app))
     sink = Sink()
-    cookie = cp.Advise(sink)
-    if not cookie:
-        return {"ok": False, "reason": "Advise returned no cookie"}
-    app.open_file(path)
-    app.close()
-    cp.Unadvise(cookie)
+    conn = win32com.client.connect.SimpleConnection()
+    try:
+        conn.Connect(server, sink, EVENTS_IID)
+        server.open_file(path)
+        server.close()
+    finally:
+        conn.Disconnect()
     ok = path in sink.opened and sink.closed == 1
     return {"ok": ok, "opened": sink.opened, "closed": sink.closed}
-
-
-def run_inproc(path):
-    """Smoke without COM registration (direct Python instance)."""
-    app = FlowviewerApplication()
-    return _run_with_app(app, path)
 
 
 def run_com(path):
@@ -81,9 +92,18 @@ def run_com(path):
             result["dispatch_with_events"] = "unavailable: " + str(exc)[:80]
         # Manual connection-point fallback (Dispatch + FindConnectionPoint)
         app = win32com.client.Dispatch("flowviewer.Application")
-        out = _run_with_app(app, path)
-        out["dispatch_with_events"] = result["dispatch_with_events"]
-        return out
+        cp = app.FindConnectionPoint(EVENTS_IID)
+        if cp is None:
+            return {"ok": False, "reason": "FindConnectionPoint returned None",
+                    "dispatch_with_events": result["dispatch_with_events"]}
+        sink = Sink()
+        cookie = cp.Advise(sink)
+        app.open_file(path)
+        app.close()
+        cp.Unadvise(cookie)
+        ok = path in sink.opened and sink.closed == 1
+        return {"ok": ok, "opened": sink.opened, "closed": sink.closed,
+                "dispatch_with_events": result["dispatch_with_events"]}
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "reason": str(exc),
                 "dispatch_with_events": result.get("dispatch_with_events")}

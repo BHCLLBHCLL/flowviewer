@@ -138,59 +138,107 @@ def cycles(ff) -> int:
 
 # ── turbomachinery / blade post-processing (script facade) ─────────────
 
-def circumferential_average(ff, var: str, axis: str = "Z", n_r: int = 64,
-                            n_z: int = 64):
+def turbo_circumferential_average(ff, var: str, axis: str = "Z",
+                                  n_r: int = 64, n_z: int = 64):
     """Circumferential (theta) average of *var* onto (r, z) (r, z, values)."""
     from .render.turbo import circumferential_average as _f
     return _f(ff, var, axis, n_r, n_z)
 
 
-def circumferential_mass_average(ff, var: str, axis: str = "Z",
-                                 n_r: int = 64, n_z: int = 64):
+def turbo_circumferential_mass_average(ff, var: str, axis: str = "Z",
+                                       n_r: int = 64, n_z: int = 64):
     """Circumferential mass-flow-weighted (rho |V|) average onto (r, z)."""
     from .render.turbo import circumferential_mass_average as _f
     return _f(ff, var, axis, n_r, n_z)
 
 
-def blade_loading_curve(ff, var: str, axis: str = "Z", n_span: int = 32):
+def turbo_blade_loading_curve(ff, var: str, axis: str = "Z",
+                             n_span: int = 32):
     """Blade loading curve: pressure-side minus suction-side vs span."""
     from .render.turbo import blade_loading_curve as _f
     return _f(ff, var, axis, n_span)
 
 
-def polar_view_points(ff, axis: str = "Z"):
+def turbo_polar_view_points(ff, axis: str = "Z"):
     """(r, theta) polar coordinates of all vertices."""
     from .render.turbo import polar_view_points as _f
     return _f(ff, axis)
 
 
-def meridional_points(ff, axis: str = "Z"):
+def turbo_meridional_points(ff, axis: str = "Z"):
     """(r, z) meridional coordinates of all vertices."""
     from .render.turbo import meridional_points as _f
     return _f(ff, axis)
 
 
-def blade_to_blade_points(ff, radius: float, axis: str = "Z",
-                          tol: float = 0.005):
+def turbo_blade_to_blade_points(ff, radius: float, axis: str = "Z",
+                                tol: float = 0.005):
     """(r*theta, z) blade-to-blade unwrap near *radius*."""
     from .render.turbo import blade_to_blade_points as _f
     return _f(ff, radius, axis, tol)
 
 
-def pressure_coefficient(ff, p_ref: float, v_ref: float = 1.0,
-                         rho: float = 1.0):
+def turbo_pressure_coefficient(ff, p_ref: float, v_ref: float = 1.0,
+                               rho: float = 1.0):
     """Pressure coefficient Cp = (p - p_ref) / (0.5 rho v_ref^2)."""
     from .render.turbo import pressure_coefficient as _f
     return _f(ff, p_ref, v_ref, rho)
 
 
-def area_average(ff, var: str, axis: str = "Z", n_bins: int = 64):
+def turbo_area_average(ff, var: str, axis: str = "Z", n_bins: int = 64):
     """Average of *var* in bins along the axis (axis_centres, values)."""
     from .render.turbo import area_average as _f
     return _f(ff, var, axis, n_bins)
 
 
-def mass_flow_average(ff, var: str, axis: str = "Z"):
+def turbo_mass_flow_average(ff, var: str, axis: str = "Z"):
     """Mass-flow weighted average of *var* (scalar)."""
     from .render.turbo import mass_flow_average as _f
     return _f(ff, var, axis)
+
+
+# ── deprecated unprefixed aliases (kept for backwards compatibility) ──
+
+def circumferential_average(ff, var, axis="Z", n_r=64, n_z=64):
+    """Deprecated alias of turbo_circumferential_average."""
+    return turbo_circumferential_average(ff, var, axis, n_r, n_z)
+
+
+def circumferential_mass_average(ff, var, axis="Z", n_r=64, n_z=64):
+    """Deprecated alias of turbo_circumferential_mass_average."""
+    return turbo_circumferential_mass_average(ff, var, axis, n_r, n_z)
+
+
+def blade_loading_curve(ff, var, axis="Z", n_span=32):
+    """Deprecated alias of turbo_blade_loading_curve."""
+    return turbo_blade_loading_curve(ff, var, axis, n_span)
+
+
+def polar_view_points(ff, axis="Z"):
+    """Deprecated alias of turbo_polar_view_points."""
+    return turbo_polar_view_points(ff, axis)
+
+
+def meridional_points(ff, axis="Z"):
+    """Deprecated alias of turbo_meridional_points."""
+    return turbo_meridional_points(ff, axis)
+
+
+def blade_to_blade_points(ff, radius, axis="Z", tol=0.005):
+    """Deprecated alias of turbo_blade_to_blade_points."""
+    return turbo_blade_to_blade_points(ff, radius, axis, tol)
+
+
+def pressure_coefficient(ff, p_ref, v_ref=1.0, rho=1.0):
+    """Deprecated alias of turbo_pressure_coefficient."""
+    return turbo_pressure_coefficient(ff, p_ref, v_ref, rho)
+
+
+def area_average(ff, var, axis="Z", n_bins=64):
+    """Deprecated alias of turbo_area_average."""
+    return turbo_area_average(ff, var, axis, n_bins)
+
+
+def mass_flow_average(ff, var, axis="Z"):
+    """Deprecated alias of turbo_mass_flow_average."""
+    return turbo_mass_flow_average(ff, var, axis)
