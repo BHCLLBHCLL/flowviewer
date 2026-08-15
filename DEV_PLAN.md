@@ -887,6 +887,7 @@ Bitmap UV / Measure 比例 / Grouping 树层级。
 | 8 | Mirror/Periodical 多对象源 | 24f096b | source_labels 多选；构建器按源逐一产出 actor；对话框改为多选列表 |
 | 9 | Bitmap UV / Measure 比例 / Grouping 树层级 | 70cb982 | bitmap_uv_corners + UV scale/offset；measure.ratio（Compare Scales）；grouping_members 递归展开嵌套分组 |
 
-**回归说明**：本机 base Anaconda 环境当前缺 ``vtk``（`import vtk` 失败），
-导致依赖 VTK 的窗口/渲染/VR 相关测试跳过或报错；与改动无关。无 VTK 路径的
-逻辑测试（微分算子、COM、Camera 关键帧、PLY/Marc、镜像/周期多源、Bitmap/Measure/Grouping）全部通过。
+**回归说明**：恢复 base Anaconda 的 ``vtk==9.3.1`` 后全量回归
+**171 passed, 1 skipped, 0 failed**（约 14.6 分钟）。其中 VTK VR 类为
+``vtkVRRenderWindow`` 存在、``vtkOpenVRRenderWindow`` 不存在（与文档一致），
+VR 后端构建在无 HMD 驱动时优雅返回 None。
