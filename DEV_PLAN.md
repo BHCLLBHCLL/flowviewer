@@ -972,6 +972,8 @@ VR 后端构建在无 HMD 驱动时优雅返回 None。
 |---|---|---|
 | 样例变体解析 | a176b90 | ① face_cells UnboundLocalError（result-only 文件无网格时崩溃）；② LS_Nodes 描述符引导的 f64/f32 双类型 + 最大频次轴块选择（修 Klein_1 的 4 节点误读）；③ result-only 文件从同 stem 兄弟文件继承网格（scSTREAM_200/300、Klein_300）；④ 字段长度匹配放宽（网格缺失时接受首块）；⑤ _build_face_list_and_bcs 布局不匹配时优雅降级；⑥ minimumHexa f32 坐标（8 节点） |
 | tet 单元解码 | fde8ecc | LS_Elements 连通性按 n_cells×nnodes 前缀匹配（Klein_1: 686497 tet4、SCTeta: 361868 tet4，cell_types=[10]）；纯 hex 保持 cell_types=None 走旧快速路径 |
+| 2cars 混合单元解码 | a114fd5 | LS_Elements 类型码数组分段累积：`[12,bc][payload][bc]` 标准块 + 裸续块 `[I4=bc][payload]`（与 GPH LS_Links 超 1GiB 续块同构）；34/35/36→VTK 10/14/13，连通性按 max_nnodes=6 补 -1 对齐；2cars 实测 1671037 单元（tet4 1548396 / wedge6 121022 / pyr5 1619），Klein/SCTeta 亦为混合（Klein: tet 574271+wedge 112119+pyr 107；SCTeta: tet 230090+wedge 131580+pyr 198） |
+| minimumHexa 描述符编码 | c59ddb4 | 描述符密集的最小 hex 文件：LS_Elements 类型码 `[12,4,38,4]`+节点数 `[12,4,8,4/1]` 描述符链 + 32B i4 连通块（1-based）；LS_MatOfElements 仅描述符无数据块；面上 BC 无 LS_SurfaceGeometryArray 时 _build_face_list_and_bcs 早退统一 3 元组；实测 1 hex（VTK 12）+ material 1 |
 
 ### 24.1 样例解析现状
 
@@ -982,9 +984,9 @@ VR 后端构建在无 HMD 驱动时优雅返回 None。
 | Klein_1 | 686497 tet ✓ | 164343 ✓ | PRES ✓ | tet4 前缀解码 |
 | Klein_300 | 0（继承 Klein_1） | 164343 ✓ | PRES ✓ | result-only |
 | SCTeta_tutorial | 361868 tet ✓ | 116691 ✓ | 5 ✓ | tet4 |
-| 2cars | 0（已知限制） | 338713 ✓ | PRES ✓ | 混合单元 NGON 变体，逐单元连通性布局未解 |
-| minimumHexa | 0（描述符密集） | 8 ✓(f32) | — | 单 hex 元数据编码在描述符链，字段 f32 |
+| 2cars | 1671037 混合 ✓ | 338713 ✓ | PRES ✓ | tet4 1548396 / wedge6 121022 / pyr5 1619，段累积+裸续块解码 |
+| minimumHexa | 1 hex ✓ | 8 ✓(f32) | — | 类型码+节点数描述符链解码（VTK 12, material 1） |
 
-**已知限制**：2cars 的混合单元（类型码 34/35/36）逐单元连通性块布局与
-minimumHexa 的描述符密集元数据编码，留待后续逆向。
+**已解限制**：2cars 混合单元与 minimumHexa 描述符密集编码均已解码（见上表），
+8 个官方样例现已全部解析出完整网格（单元、连通性、材料）。
 **回归说明**：全量回归 **201 passed, 1 skipped, 0 failed**（约 16 分钟，含 7 项 scPOST 官方样例测试）。
