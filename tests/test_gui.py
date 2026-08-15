@@ -316,6 +316,51 @@ def test_create_object_menu_wiring(qapp):
     assert any(o.kind == "vector" for o in w.main_object.children) is False
 
 
+def test_create_menu_all_kinds_wired(qapp):
+    """P0.1/P0.4: every Create-menu entry maps to a real kind (no None)."""
+    from fv.gui import main as gmain
+    for name, kind in gmain._CREATE_MENU:
+        assert kind, f"Create menu '{name}' has kind=None"
+    for name, kind in gmain._CREATE_MORE:
+        assert kind, f"More-objects menu '{name}' has kind=None"
+    # Vector maps to the Plane pipeline (most complete vector tab)
+    assert dict(gmain._CREATE_MENU)["Vector"] == "plane"
+    # Renderable kinds aligned between main and panes (single-click wiring)
+    assert set(gmain._RENDERABLE_KINDS) >= {
+        k for _, k in gmain._CREATE_MENU + gmain._CREATE_MORE}
+
+
+def _tree_texts(tree) -> set:
+    """Collect all item texts (recursively) from the object tree widget."""
+    texts = set()
+
+    def walk(item):
+        texts.add(item.text(0))
+        for j in range(item.childCount()):
+            walk(item.child(j))
+
+    for i in range(tree.topLevelItemCount()):
+        walk(tree.topLevelItem(i))
+    return texts
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_create_object_secondary_kinds(qapp):
+    """P0.1: secondary objects (previously unreachable) now create + panel."""
+    w = _make(qapp, FPH)
+    for kind in ("pathline", "cylinder", "text", "graph", "curve", "bar",
+                 "information", "mirror", "measure", "ufo"):
+        n0 = len(w.main_object.children)
+        w._create_object(kind)
+        assert len(w.main_object.children) == n0 + 1, f"{kind} not created"
+        obj = w.main_object.children[-1]
+        assert obj.kind == kind
+        assert obj.label in _tree_texts(w.object_tree)
+    # Cylinder maps to the cylinder pipeline (was kind=None stub)
+    w._create_object("cylinder")
+    assert any(o.kind == "cylinder" for o in w.main_object.children)
+
+
 def test_surface_dialog_all_tabs_and_filter(qapp):
     from fv.model.dataset import load_file
     from fv.model.objects import SurfaceObject

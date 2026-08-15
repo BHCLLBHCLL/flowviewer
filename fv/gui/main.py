@@ -30,35 +30,67 @@ except Exception:  # pragma: no cover - headless
 
 
 _RENDERABLE_KINDS = ("surface", "plane", "particle", "isosurface",
-                     "streamline", "volume", "colorbar", "point")
+                     "streamline", "volume", "colorbar", "point",
+                     "light", "pathline", "cylinder", "circle",
+                     "text", "bitmap", "information", "mirror",
+                     "timeseries", "maxmin", "graph", "grouping",
+                     "curve", "periodical", "measure", "folder",
+                     "bar", "regionbc", "gradation", "camera", "region",
+                     "turbo", "ufo")
 
-# Create-menu entry: (label, object kind). Non-core kinds map to interop
-# objects that reuse a render pipeline (vector → isosurface vector tab).
+# Create-menu entry: (label, object kind). "Vector" maps to a Plane —
+# scPOST has no standalone vector object; the Plane Vector tab is the
+# most complete glyph pipeline (positions/projection/fixed length).
 _CREATE_MENU = (
     ("Surface", "surface"),
     ("Plane", "plane"),
-    ("Cylinder", None),
-    ("Circle", None),
+    ("Cylinder", "cylinder"),
+    ("Circle", "circle"),
     ("Point", "point"),
     ("Volume", "volume"),
     ("Isosurface", "isosurface"),
     ("Streamline", "streamline"),
-    ("Vector", None),
+    ("Pathline", "pathline"),
+    ("Vector", "plane"),
     ("Colorbar", "colorbar"),
     ("Light", "light"),
-    ("Text", None),
-    ("Graph", None),
+    ("Text", "text"),
+    ("Graph", "graph"),
+)
+
+# Secondary objects (scPOST Create-menu tail) offered under a submenu.
+_CREATE_MORE = (
+    ("Bar", "bar"),
+    ("Bitmap", "bitmap"),
+    ("Curve", "curve"),
+    ("Folder", "folder"),
+    ("Gradation", "gradation"),
+    ("Grouping", "grouping"),
+    ("Information", "information"),
+    ("Max and Min", "maxmin"),
+    ("Measure", "measure"),
+    ("Mirror Copy", "mirror"),
+    ("Periodical Copy", "periodical"),
+    ("Region", "region"),
+    ("Region BC", "regionbc"),
+    ("Time Series", "timeseries"),
+    ("Turbo", "turbo"),
+    ("UFO", "ufo"),
 )
 
 _CREATE_DISPLAY = {
     "Iso": "isosurface",
     "Stream": "streamline",
     "Volume": "volume",
-    "Vector": None,
+    "Vector": "plane",
     "Colorbar": "colorbar",
     "Point": "point",
     "Surface": "surface",
     "Plane": "plane",
+    "Cylinder": "cylinder",
+    "Circle": "circle",
+    "Text": "text",
+    "Graph": "graph",
 }
 
 
@@ -297,6 +329,10 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         m = mb.addMenu("Create")
         for name, _kind in _CREATE_MENU:
             add(m, name, lambda _=False, k=_kind: self._create_object(k))
+        m.addSeparator()
+        sub = m.addMenu("More Objects")
+        for name, _kind in _CREATE_MORE:
+            add(sub, name, lambda _=False, k=_kind: self._create_object(k))
 
         # Display
         m = mb.addMenu("Display")
@@ -1185,6 +1221,28 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             "isosurface": objmod.IsosurfaceObject,
             "streamline": objmod.StreamlineObject,
             "colorbar": objmod.ColorbarObject,
+            "particle": objmod.ParticleObject,
+            "cylinder": objmod.CylinderObject,
+            "circle": objmod.CircleObject,
+            "text": objmod.TextObject,
+            "graph": objmod.GraphObject,
+            "pathline": objmod.PathlineObject,
+            "bitmap": objmod.BitmapObject,
+            "information": objmod.InformationObject,
+            "mirror": objmod.MirrorCopyObject,
+            "timeseries": objmod.TimeSeriesObject,
+            "maxmin": objmod.MaxMinObject,
+            "grouping": objmod.GroupingObject,
+            "curve": objmod.CurveObject,
+            "periodical": objmod.PeriodicalCopyObject,
+            "measure": objmod.MeasureObject,
+            "bar": objmod.BarObject,
+            "regionbc": objmod.RegionBCObject,
+            "gradation": objmod.GradationObject,
+            "region": objmod.RegionObject,
+            "turbo": objmod.TurboObject,
+            "ufo": objmod.UFOObject,
+            "folder": objmod.FolderObject,
         }
         maker = makers.get(kind)
         if maker is None:
