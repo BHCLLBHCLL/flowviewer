@@ -869,3 +869,24 @@ OpenVR/SteamVR SDK（当前后端不可用，提供 vr_available 检测）；7a 
 深度差距（价值序）：Turbo 完整叶片后处理 → 微分算子精确差分 → COM 接口补全 → VR 渲染后端 →
 Camera 关键帧 → Limited Plane 真有限面 → Neutral/Marc 变量导入 → Mirror/Periodical 多对象源 →
 Bitmap UV / Measure 比例 / Grouping 树层级。
+
+
+## 20. 深度差距 1–9 补全（2026-08-09，第五轮执行）
+
+按 §19 深度差距清单逐项深化，每项完成后推送远程。
+
+| # | 项 | 提交 | 说明 |
+|---|---|---|---|
+| 1 | Turbo 完整叶片后处理 | 0dc8687 | circumferential_average / blade_loading_curve / polar_view_points + TurboDialog 变量选择 |
+| 2 | 微分算子精确差分 | 9a25c82 | delx/dely/delz 改为拓扑邻接：FLD hex 边邻接（含 1-based 检测）+ FPH LS_Links owner/neighbour 面邻接，替代 cKDTree 空间近似 |
+| 3 | COM 接口补全 | e6a2eae | Application 增加只读属性（version/file_path/kind/n_cells/n_vertices/cycle/time/variable_names/has_file）、事件 subscribe/unsubscribe、上下文管理器与 release 生命周期 |
+| 4 | VR 渲染后端 | d62f15e | create_vr_window（OpenVR 优先 + 通用 vtkVRRenderWindow 回退）/release_vr_window/vr_backend；View→VR Mode 菜单 |
+| 5 | Camera 关键帧 | 9c8df6c | fv/render/camera.py：interpolate_pose/keyframe_poses/capture_camera_sequence；CameraDialog 增加 Sequence 标签页 |
+| 6 | Limited Plane 真有限面 | eb2e46a | 以平面局部基 (u,v) 裁剪 width×height 矩形（替代轴对齐立方体）；PlaneDialog 增加 Limited 标签页 |
+| 7 | Neutral/Marc 变量导入 | 605dc38 | Neutral 增加 PLY（ascii/binary）顶点标量→节点变量；Marc 增加 .res/.csv 节点结果 sidecar 导入 |
+| 8 | Mirror/Periodical 多对象源 | 24f096b | source_labels 多选；构建器按源逐一产出 actor；对话框改为多选列表 |
+| 9 | Bitmap UV / Measure 比例 / Grouping 树层级 | 70cb982 | bitmap_uv_corners + UV scale/offset；measure.ratio（Compare Scales）；grouping_members 递归展开嵌套分组 |
+
+**回归说明**：本机 base Anaconda 环境当前缺 ``vtk``（`import vtk` 失败），
+导致依赖 VTK 的窗口/渲染/VR 相关测试跳过或报错；与改动无关。无 VTK 路径的
+逻辑测试（微分算子、COM、Camera 关键帧、PLY/Marc、镜像/周期多源、Bitmap/Measure/Grouping）全部通过。
