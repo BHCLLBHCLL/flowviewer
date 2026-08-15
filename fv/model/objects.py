@@ -484,8 +484,9 @@ class UFOObject(PostObject):
 
     kind: str = "ufo"
     title: str = "UFO"
-    data: dict = field(default_factory=dict)   # optional {"points":Nx3, "values":N}
-    variable: str = ""                          # colour-by variable at nodes
+    data: dict = field(default_factory=dict)   # {"points":Nx3, "values":N, "cells":Mx3}
+    variable: str = ""                          # colour-by variable at nodes/cells
+    mode: str = "points"                        # "points" (scatter) | "surface" (triangles)
     point_size: float = 3.0
     color: tuple = (0.2, 0.2, 0.8)
 

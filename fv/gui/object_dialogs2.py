@@ -1760,7 +1760,7 @@ class TurboDialog(ObjectSettingsPanel):
         obj.variable = self.var.currentData() or ""
 
 class UFODialog(ObjectSettingsPanel):
-    """UFO — universal field object (point cloud) settings (7b)."""
+    """UFO — universal field object (point cloud / surface) settings (7b)."""
 
     def __init__(self, obj, field_file=None, parent=None):
         super().__init__(getattr(obj, "label", "UFO"), parent)
@@ -1771,6 +1771,12 @@ class UFODialog(ObjectSettingsPanel):
         self.field_file = field_file
         page = QWidget(self)
         form = QFormLayout()
+        self.mode = QComboBox(page)
+        for m, d in (("Points", "points"), ("Surface", "surface")):
+            self.mode.addItem(m, d)
+        self.mode.setCurrentIndex(max(0, self.mode.findData(
+            getattr(obj, "mode", "points"))))
+        form.addRow("Render mode:", self.mode)
         self.variable = QComboBox(page)
         self.variable.addItem("(none)", "")
         for n in _scalar_vars(field_file):
@@ -1784,15 +1790,17 @@ class UFODialog(ObjectSettingsPanel):
         self.color = _ColorButton(getattr(obj, "color", (0.2, 0.2, 0.8)), page)
         form.addRow("Color:", self.color)
         lay = QVBoxLayout(page); lay.addLayout(form)
-        lay.addWidget(QLabel("UFO renders as a point cloud:", page))
-        lay.addWidget(QLabel("- external data points/values, or", page))
-        lay.addWidget(QLabel("- a field-file variable at nodes.", page))
+        lay.addWidget(QLabel("Points mode: scatter of data points /", page))
+        lay.addWidget(QLabel("field-file variable at nodes/cells.", page))
+        lay.addWidget(QLabel("Surface mode: triangle mesh from data", page))
+        lay.addWidget(QLabel("cells or the neutral FieldFile faces.", page))
         lay.addStretch(1)
         self.tabs.addTab(page, "UFO")
 
     def apply_to(self, obj) -> None:
         if not _HAS_QT:
             return
+        obj.mode = self.mode.currentData() or "points"
         obj.variable = self.variable.currentData() or ""
         obj.point_size = float(self.psize.value())
         obj.color = self.color.rgb()

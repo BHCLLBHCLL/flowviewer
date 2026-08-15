@@ -2733,9 +2733,25 @@ def test_ufo_dialog(qapp):
     d = UFODialog(u, field_file=ff)
     d.variable.setCurrentIndex(d.variable.findData("PRES"))
     d.psize.setValue(6.0)
+    d.mode.setCurrentIndex(d.mode.findData("surface"))
     d.apply_to(u)
     assert u.variable == "PRES"
     assert u.point_size == 6.0
+    assert u.mode == "surface"
+
+def test_ufo_triangulate():
+    """UFO fan-triangulates polygon faces (③)."""
+    import numpy as np
+    from fv.model.objects import UFOObject
+    from fv.render.ufo import triangulate, ufo_triangles
+    tris = triangulate([[0, 1, 2, 3]])
+    assert np.asarray(tris).tolist() == [[0, 1, 2], [0, 2, 3]]
+    u = UFOObject(index=1)
+    u.data = {"cells": [[0, 1, 2], [0, 2, 3]]}
+    assert ufo_triangles(None, u).tolist() == [[0, 1, 2], [0, 2, 3]]
+    # Mx3 array passthrough
+    u.data = {"cells": np.array([[0, 1, 2]], dtype=np.int64)}
+    assert ufo_triangles(None, u).shape == (1, 3)
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_limited_plane_clip():
@@ -2812,6 +2828,21 @@ def test_ufo_object(qapp):
     d = UFODialog(u)
     assert d.tabs.tabText(0) == "UFO"
 
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+def test_ufo_surface_actor():
+    """UFO surface mode builds a triangle mesh (③)."""
+    import numpy as np
+    from fv.model.objects import UFOObject
+    from fv.render.ufo import build_ufo_actors
+    u = UFOObject(index=1)
+    u.data = {"points": np.array([[0,0,0],[1,0,0],[1,1,0],[0,1,0]], dtype=np.float64),
+              "cells": [[0,1,2],[0,2,3]]}
+    u.mode = "surface"
+    out = build_ufo_actors(None, u)
+    assert "ufo" in out
+    pd = out["ufo"].GetMapper().GetInput()
+    assert pd.GetNumberOfCells() == 2
+    assert pd.GetNumberOfPoints() == 4
 def test_com_interface():
     """COM Application object loads a file and reports metadata (7c)."""
     from fv.com import FlowviewerApplication, _HAS_COM
