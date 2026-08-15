@@ -858,3 +858,14 @@ Graph-Curve 联动 →（明确不做 Turbo/UFO/COM/VR）。
 **运行时依赖说明**：7c COM 注册需 pywin32 + 管理员权限（register_server）；7d VR 真渲染需
 OpenVR/SteamVR SDK（当前后端不可用，提供 vr_available 检测）；7a Turbo 为几何变换 2D 视图
 （子午面 r-z / 叶对叶 θ-z 展开），非完整叶片气动后处理。
+
+## 19. 第四轮覆盖×深度复查（2026-08-09）
+
+规模：fv/ 57 文件 15,222 行、31 PostObject、26 render 模块、14 loader、163 测试。
+
+- **覆盖完整度 ≈ 100%**：scPOST 41 类全部覆盖。
+- **实现深度 ≈ 65–75%**：深 22 类 + 中 16 类 + 浅 3 类。
+
+深度差距（价值序）：Turbo 完整叶片后处理 → 微分算子精确差分 → COM 接口补全 → VR 渲染后端 →
+Camera 关键帧 → Limited Plane 真有限面 → Neutral/Marc 变量导入 → Mirror/Periodical 多对象源 →
+Bitmap UV / Measure 比例 / Grouping 树层级。

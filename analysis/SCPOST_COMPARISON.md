@@ -428,3 +428,97 @@ Folder/Bar/RegionBC/Gradation/Measure 七类。
    Limited Plane 真语义（有限平面裁剪）、Region 独立可创建对象。
 6. **Graph 的 Curve 数据源联动** —— Graph 已可沿 cycle，但未接 Curve 弧长作为 X 轴。
 7. **明确不做** —— Turbo 机械、UFO、COM 自动化、VR。
+
+## 17. 第四轮评估：覆盖完整度 × 实现深度（2026-08-09，差距 1–7 补全后）
+
+> 规模：fv/ 57 文件、15,222 行、31 种 PostObject（+ MainObject/GlobalWindow）、
+> 26 个 render 模块、14 种 loader、163 项测试。
+> 深度分级：深=完整管线+参数+测试对齐 scPOST 行为；中=有实质实现但降级/近似/部分参数；
+> 浅=占位/最小实现。
+
+### 17.1 对象覆盖 × 深度矩阵（41 类）
+
+| scPOST 类 | 覆盖 | 深度 | 说明 |
+|---|---|---|---|
+| Application (app) | ✅ COM | 浅 | FlowviewerApplication：open_file/variables/cycles/quit；无完整事件/属性/生命周期 |
+| Global Window | ✅ | 中 | GlobalWindow 容器；树"Global Objects"节点承载全局对象 |
+| Message Window | ✅ | 深 | 日志/保存/清除 |
+| Camera | ✅ | 中 | 位置/焦点/投影设置；无连续截图/关键帧动画 |
+| Draw Window | ✅ | 深 | VTK 视口+拖拽手柄+pick+overlay+对象名气球 |
+| FLD File (fld) | ✅ | 深 | FieldFile：FPH/GPH/FLD/CGNS/XDMF/Nastran/Marc/Neutral 统一 |
+| Object (obj) | ✅ | 深 | PostObject 基类 |
+| Surface | ✅ | 深 | 8-tab+MAT/区域过滤+Luster/Water |
+| IsoSurface | ✅ | 深 | Contour/Line/Vector |
+| Unlimited Plane | ✅ | 深 | 16-tab 全映射 |
+| Limited Plane | ✅ | 中 | limited 字段+坐标框裁剪（近似真有限平面） |
+| Colorbar | ✅ | 深 | 全局 LUT 接线+Fix 范围 |
+| Streamline | ✅ | 深 | vtkStreamTracer+FLD Euler 回退 |
+| Plane (cutplane) | ✅ | 深 | 同 Unlimited Plane |
+| Graph | ✅ | 深 | matplotlib+cycle/curve 弧长 X 轴 |
+| Point | ✅ | 深 | 标记+探针 |
+| Text | ✅ | 中 | 文本标注；无多字体/旋转 |
+| Curve | ✅ | 深 | 控制点样条+变量采样 |
+| Region | ✅ | 中 | 单区域显示（RegionObject） |
+| Volume | ✅ | 深 | 体渲染 raycast |
+| Neutral File | ✅ | 中 | OBJ/STL 几何 only；无变量 |
+| Pathline (pcl) | ✅ | 深 | 跨 cycle 粒子追踪 |
+| Particle | ✅ | 深 | Intersection/Cloth/Trim |
+| Bitmap | ✅ | 中 | 贴图；无 UV 控制 |
+| Circle | ✅ | 深 | 盘面切割 |
+| Cylinder | ✅ | 深 | 圆柱面切割 |
+| Gradation | ✅ | 中 | 背景渐变 |
+| Grouping | ✅ | 中 | 成员显隐联动 |
+| Information | ✅ | 深 | 最近节点探针 |
+| Light | ✅ | 深 | vtkLight+面板 |
+| Mirror Copy | ✅ | 中 | surface only |
+| Periodical Copy | ✅ | 中 | surface only |
+| RegionBC | ✅ | 中 | 名称列表 |
+| UFO | ✅ | 浅 | 占位容器 |
+| Compare Scales (measure) | ✅ | 中 | 距离/角度；无多对象比例对比 |
+| Folder | ✅ | 中 | 树层级 |
+| Time Series (tm) | ✅ | 中 | CSV 导入 |
+| Environment | ✅ | 深 | 对话框+部分设置 |
+| Max and Min (ot) | ✅ | 中 | CSV 导入 |
+| Bar (obj_S) | ✅ | 深 | 两点采样 |
+| Turbo | ✅ | 浅 | 几何变换 2D 视图（子午面 r-z/叶对叶 θ-z）；非完整叶片气动后处理 |
+
+**深度统计**：深 22 类、中 16 类、浅 3 类。
+
+### 17.2 数据/渲染/自动化深度
+
+| 维度 | 深度 | 说明 |
+|---|---|---|
+| 格式解码 | 深 | FPH/GPH/FLD/CGNS 完整；XDMF 单 zone；Nastran 文本网格；Marc 启发式；Neutral 几何 only；EMT 别名 |
+| 变量注册 | 深 | 代数+微分+条件算子 |
+| 微分算子 | 中 | cKDTree 邻接近似（非精确结构网格差分） |
+| 序列/cycle | 中 | FileSet 扫描播放；无 Add/Del 自定义列表 |
+| 查询 API | 中 | regions/materials/cell_centers/adjacent_cells 部分封装 |
+| 体渲染 | 深 | 非结构 raycast+传递函数 |
+| 光照 | 深 | Luster/Water+Light |
+| 纹理 | 中 | plane cut+bitmap；无 UV 生成 |
+| 导出 | 深 | PNG/STL/OBJ/VRML/GLTF/动画帧；FBX 降级 OBJ |
+| Python API | 深 | fv/api.py 脚本接口 |
+| COM 自动化 | 浅 | 基础方法；无完整注册/事件 |
+| VR | 浅 | 检测 only；无 OpenVR 渲染 |
+
+### 17.3 结论：覆盖完整度 ≈ 100%，实现深度 ≈ 65–75%
+
+- **覆盖完整度**：41/41 类全部覆盖（31 PostObject + MainObject + GlobalWindow + 对话框映射），
+  含附属工具外无功能空白。
+- **实现深度**：深 22 + 中 16 + 浅 3，加权约 65–75%。主要深度缺口集中在：
+  ① 浅项（Turbo/COM/UFO/VR 需从最小实现深化）；
+  ② 16 个中项的具体深化（Camera 关键帧、Limited Plane 真有限面、Neutral 变量、
+  Bitmap UV、Mirror/Periodical 多对象源、Measure 比例对比等）；
+  ③ 微分算子的精确结构网格差分（当前 cKDTree 邻接近似）。
+
+### 17.4 深度差距清单（按深化价值排序）
+
+1. Turbo：从几何 2D 视图深化为完整叶片后处理（子午面平均、叶对叶展开、极坐标、叶片加载图）。
+2. 微分算子：从 cKDTree 邻接近似改为精确结构网格差分 / FPH 邻接拓扑 cell 差分。
+3. COM：补全 Application 属性/事件/生命周期（与 scPOST VBS 接口对齐）。
+4. VR：接入 OpenVR 渲染后端（当前仅检测）。
+5. Camera：连续截图序列/关键帧动画（savebitmaps 语义）。
+6. Limited Plane：真有限平面（长宽裁剪，非坐标框）。
+7. Neutral/Marc：变量/结果导入（当前几何 only）。
+8. Mirror/Periodical Copy：多对象源（当前仅 surface）。
+9. Bitmap UV 控制、Measure 多对象比例、Grouping 树层级深化。
