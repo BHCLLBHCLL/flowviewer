@@ -105,6 +105,52 @@ def _parse_ls_nodes_f32(data):
     return np.column_stack(axes), n_vertices
 
 
+def _parse_mixed_connectivity(data, sec_elem, sec_end, n_cells, type_codes,
+                              node_counts):
+    """Mixed-cell connectivity: per-type node counts + segmented conn.
+
+    scFLOW type codes 34/35/36 map to tet(4)/pyramid(5)/wedge(6).  The
+    connectivity array may be split into a standard block plus bare
+    continuation blocks (same pattern as GPH LS_Links conn >1 GiB).
+    Returns (conn padded to 6 nodes, vtk type codes).
+    """
+    from ..crdl.mesh_gph import _read_conn_continuations
+    blocks = list(iter_data_blocks(data, sec_elem, sec_end))
+    expected = int(sum(node_counts[int(x)] for x in type_codes))
+    type_bc = n_cells * 4
+    conn_parts = []
+    got = 0
+    conn_p = None
+    for p, bc in sorted(blocks, key=lambda b: -b[1]):
+        if bc == type_bc:
+            continue
+        if bc >= 12 and bc % 4 == 0:
+            part = np.frombuffer(data, dtype=">i4", count=bc // 4, offset=p)
+            part = part.astype(np.int64).copy()
+            conn_parts.append(part)
+            got += part.size
+            conn_p = p + bc + 4  # p is the payload start; +trailer
+            break
+    if conn_p is None:
+        return None, None
+    if got < expected:
+        got, _, _ = _read_conn_continuations(
+            data, conn_p, sec_end, got, expected, conn_parts)
+    if got < expected:
+        return None, None
+    conn = np.concatenate(conn_parts)[:expected]
+    _VTK = {34: 10, 35: 14, 36: 13}
+    out = np.full((n_cells, 6), -1, dtype=np.int64)
+    ctypes = np.zeros(n_cells, dtype=np.int64)
+    pos = 0
+    for i, tc in enumerate(type_codes):
+        nn = node_counts[int(tc)]
+        out[i, :nn] = conn[pos:pos + nn]
+        ctypes[i] = _VTK[int(tc)]
+        pos += nn
+    return out, ctypes
+
+
 def _parse_hex_cells(data) -> tuple[Optional[np.ndarray], Optional[np.ndarray],
                                    Optional[np.ndarray]]:
     """Return ``(cell_conn (n_cells, nn), cell_types, material_id)``.
@@ -127,6 +173,18 @@ def _parse_hex_cells(data) -> tuple[Optional[np.ndarray], Optional[np.ndarray],
     n_cells = mat.size
     if n_cells == 0:
         return None, None, None
+    # mixed-cell variant: a per-cell type-code block (34/35/36) drives a
+    # segmented connectivity accumulation
+    for p, bc in elem_blocks:
+        if bc == n_cells * 4:
+            tarr = np.frombuffer(data, dtype=">i4", count=n_cells, offset=p)
+            uniq = set(np.unique(tarr).tolist())
+            if uniq and uniq <= {34, 35, 36}:
+                conn, ctypes = _parse_mixed_connectivity(
+                    data, sec_elem, section_end(data, sec_elem),
+                    n_cells, tarr, {34: 4, 35: 5, 36: 6})
+                if conn is not None:
+                    return conn, ctypes, mat
     _NN_TO_VTK = {4: 10, 5: 14, 6: 13, 8: 12}
     for p, bc in sorted(elem_blocks, key=lambda b: -b[1]):
         if bc % 4 != 0:

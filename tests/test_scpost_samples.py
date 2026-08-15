@@ -75,14 +75,16 @@ def test_scpost_result_only_inherits_mesh(samples):
     assert "VECTX" in ff300.variables
 
 
-def test_scpost_klein_tet_mesh(samples):
-    """Klein_1 is a tet grid: cells + nodes + faces all parse."""
+def test_scpost_klein_mixed_mesh(samples):
+    """Klein_1 mixed grid: tet/wedge/pyramid via type-code accumulation."""
     from fv.model.dataset import load_file
+    import numpy as np
     ff = load_file(str(samples / "Klein_1.fld"))
     assert ff.n_vertices == 164343
     assert ff.n_cells == 686497
-    assert ff.cell_conn is not None and ff.cell_conn.shape[1] == 4
-    assert sorted(set(ff.cell_types.tolist())) == [10]  # vtk tetra
+    assert ff.cell_conn.shape == (686497, 6)
+    uniq, cnt = np.unique(ff.cell_types, return_counts=True)
+    assert dict(zip(uniq.tolist(), cnt.tolist())) == {10: 574271, 13: 112119, 14: 107}
     assert "PRES" in ff.variables
     assert len(ff.faces) > 0  # NGON face list recovered
     k300 = load_file(str(samples / "Klein_300.fld"))
@@ -90,20 +92,32 @@ def test_scpost_klein_tet_mesh(samples):
     assert k300.n_vertices == 164343
 
 
-def test_scpost_scteta_tet_mesh(samples):
-    """SCTeta_tutorial is a tet grid with temperature variables."""
+def test_scpost_scteta_mixed_mesh(samples):
+    """SCTeta_tutorial mixed grid with temperature variables."""
     from fv.model.dataset import load_file
+    import numpy as np
     ff = load_file(str(samples / "SCTeta_tutorial.fld"))
     assert ff.n_cells == 361868 and ff.n_vertices == 116691
-    assert ff.cell_conn.shape[1] == 4
+    assert ff.cell_conn.shape == (361868, 6)
+    uniq, cnt = np.unique(ff.cell_types, return_counts=True)
+    assert dict(zip(uniq.tolist(), cnt.tolist())) == {10: 230090, 13: 131580, 14: 198}
     assert "TEMP" in ff.variables
 
 
 def test_scpost_2cars_mixed(samples):
-    """2cars is a mixed-cell NGON variant: nodes/fields parse; the
-    per-cell connectivity block layout is not yet decoded (known gap)."""
+    """2cars mixed-cell grid: tet/pyramid/wedge via type-code accumulation.
+
+    scFLOW type codes 34/35/36 -> tet(4)/pyramid(5)/wedge(6) nodes; the
+    connectivity is split into a 16 MiB standard block plus a bare
+    continuation block (GPH-style)."""
     from fv.model.dataset import load_file
+    import numpy as np
     ff = load_file(str(samples / "2cars.fld"))
     assert ff.n_vertices == 338713
+    assert ff.n_cells == 1671037
+    assert ff.cell_conn.shape == (1671037, 6)
+    uniq, cnt = np.unique(ff.cell_types, return_counts=True)
+    dist = dict(zip(uniq.tolist(), cnt.tolist()))
+    assert dist == {10: 1548396, 13: 121022, 14: 1619}  # tet/wedge/pyramid
     assert "PRES" in ff.variables
     assert len(ff.faces) > 0
