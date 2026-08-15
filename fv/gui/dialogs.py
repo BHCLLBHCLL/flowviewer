@@ -676,8 +676,9 @@ class VariableRegistrationDialog(QDialog):
         self.preview.setWordWrap(True)
         right.addWidget(self.preview)
         hint = QLabel(
-            "Ops: + - * / ^ & @  |  fns: abs sqrt min max mag(V) "
-            "ifgt(a,b) ifet(a,b) ifeq(a,b)", self)
+            "Ops: + - * / ^ & @  |  fns: abs sqrt log exp sin min max "
+            "mag(V) ifgt/ifet/ifeq/iflt/ifle/ifne(a,b) "
+            "delx/dely/delz(V) grad(V) div(V) rot(V)", self)
         hint.setStyleSheet("color:#888; font-size:10px;")
         right.addWidget(hint)
         right.addStretch(1)

@@ -6,9 +6,10 @@ expression over existing variables:
 - numbers and existing scalar variable names (e.g. PRES, VELX);
 - operators  +  -  *  /  ^  (power)  with parentheses and unary minus;
 - logic  &  (and)  @  (or)  -> 1.0 / 0.0 element-wise;
-- functions  abs(x)  sqrt(x)  min(a,b)  max(a,b)  mag(VEC)  (vector
-  magnitude over the VECX/VECY/VECZ components);
-- comparisons  ifgt(a,b)  ifet(a,b)  ifeq(a,b)  -> 1.0 / 0.0;
+- functions  abs(x)  sqrt(x)  log(x)  exp(x)  sin(x)  min(a,b)  max(a,b)
+  mag(VEC)  (vector magnitude over the VECX/VECY/VECZ components);
+- comparisons  ifgt(a,b)  ifet(a,b)  ifeq(a,b)  iflt(a,b)  ifle(a,b)
+  ifne(a,b)  -> 1.0 / 0.0;
 - differential operators  delx(V)  dely(V)  delz(V)  grad(V)  div(VEC)
   rot(VEC)  over node fields, with edge adjacency from hexa/penta/
   pyra/tetra cells and explicit mismatch errors (P2.2).
@@ -33,6 +34,8 @@ _OPS = {"+", "-", "*", "/", "^", "&", "@"}
 _FUNCS = {
     "abs": 1, "sqrt": 1, "min": 2, "max": 2, "mag": 1,
     "ifgt": 2, "ifet": 2, "ifeq": 2,
+    "iflt": 2, "ifle": 2, "ifne": 2,          # P2.3
+    "log": 1, "exp": 1, "sin": 1,             # P2.3
 }
 
 _DELTA_FUNCS = {"delx": "X", "dely": "Y", "delz": "Z"}
@@ -234,6 +237,20 @@ class _Eval:
             return np.where(args[0] >= args[1], 1.0, 0.0)
         if name == "ifeq":
             return np.where(args[0] == args[1], 1.0, 0.0)
+        if name == "iflt":
+            return np.where(args[0] < args[1], 1.0, 0.0)
+        if name == "ifle":
+            return np.where(args[0] <= args[1], 1.0, 0.0)
+        if name == "ifne":
+            return np.where(args[0] != args[1], 1.0, 0.0)
+        if name == "log":
+            with np.errstate(divide="ignore", invalid="ignore"):
+                return np.log(args[0])
+        if name == "exp":
+            with np.errstate(over="ignore"):
+                return np.exp(args[0])
+        if name == "sin":
+            return np.sin(args[0])
         raise ValueError("unknown function " + repr(name))
 
 

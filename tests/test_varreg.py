@@ -191,3 +191,31 @@ def test_mismatch_explicit_errors():
     ff3.variables["F"].array = f[:3]
     with pytest.raises(ValueError, match="vertices"):
         evaluate_expression("delx(F)", {"F": f[:3]}, ff3.n_vertices, ff=ff3)
+
+
+# ── P2.3: extra comparison + transcendental functions ────────────────────
+
+def test_new_functions_synthetic():
+    """iflt/ifle/ifne and log/exp/sin evaluate element-wise (P2.3)."""
+    from fv.model.varreg import evaluate_expression
+    a = np.array([0.0, 1.0, 2.0, 3.0])
+    b = np.array([2.0, 1.0, 0.0, -1.0])
+    v = {"A": a, "B": b}
+    n = len(a)
+    np.testing.assert_allclose(
+        evaluate_expression("iflt(A,B)", v, n), [1, 0, 0, 0])
+    np.testing.assert_allclose(
+        evaluate_expression("ifle(A,B)", v, n), [1, 1, 0, 0])
+    np.testing.assert_allclose(
+        evaluate_expression("ifne(A,B)", v, n), [1, 0, 1, 1])
+    np.testing.assert_allclose(
+        evaluate_expression("log(A + 1.0)", v, n), np.log(a + 1.0),
+        rtol=1e-12)
+    np.testing.assert_allclose(
+        evaluate_expression("exp(A)", v, n), np.exp(a), rtol=1e-12)
+    np.testing.assert_allclose(
+        evaluate_expression("sin(A)", v, n), np.sin(a), rtol=1e-12)
+    # composed with arithmetic + logic
+    np.testing.assert_allclose(
+        evaluate_expression("ifgt(exp(A), 5.0) & iflt(A, 10.0)", v, n),
+        [0, 0, 1, 1])
