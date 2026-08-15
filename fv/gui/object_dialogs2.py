@@ -1683,6 +1683,7 @@ class TurboDialog(ObjectSettingsPanel):
             self.obj = obj
             return
         self.obj = obj
+        self.field_file = field_file
         page = QWidget(self)
         form = QFormLayout()
         self.view = QComboBox(page)
@@ -1703,6 +1704,52 @@ class TurboDialog(ObjectSettingsPanel):
         form.addRow("Variable:", self.var)
         lay = QVBoxLayout(page); lay.addLayout(form); lay.addStretch(1)
         self.tabs.addTab(page, "Turbo")
+        self.tabs.addTab(self._build_aero(), "Blade Aero")
+
+    def _build_aero(self) -> QWidget:
+        """Blade aero post-processing: Cp / mass average / circum. avg (5)."""
+        page = QWidget(self)
+        form = QFormLayout()
+        self.p_ref = _dspin(0.0, -1e9, 1e9, 4)
+        form.addRow("Reference p:", self.p_ref)
+        self.v_ref = _dspin(1.0, 1e-6, 1e9, 4)
+        form.addRow("Reference v:", self.v_ref)
+        self.rho = _dspin(1.2, 1e-6, 1e9, 4)
+        form.addRow("Density rho:", self.rho)
+        self.analyse_btn = QPushButton("Analyse", page)
+        self.analyse_btn.clicked.connect(self._on_analyse)
+        self.aero_result = QLabel(" ", page)
+        self.aero_result.setWordWrap(True)
+        self.aero_result.setStyleSheet("font-family: monospace; font-size: 11px;")
+        lay = QVBoxLayout(page); lay.addLayout(form); lay.addWidget(self.analyse_btn)
+        lay.addWidget(self.aero_result); lay.addStretch(1)
+        return page
+
+    def _on_analyse(self) -> None:
+        self.apply_to(self.obj)
+        try:
+            import numpy as np
+            from ..render.turbo import (circumferential_mass_average,
+                mass_flow_average, pressure_coefficient)
+            ff = self.field_file
+            if ff is None or not self.obj.variable:
+                self.aero_result.setText("Select a variable first.")
+                return
+            var = self.obj.variable
+            cp = pressure_coefficient(ff, self.p_ref.value(), self.v_ref.value(),
+                                      self.rho.value())
+            m = mass_flow_average(ff, var, self.obj.axis)
+            r, z, cm = circumferential_mass_average(ff, var, self.obj.axis, 32, 32)
+            lines = ["Variable: " + var,
+                     "Mass-flow avg: " + format(m, ".6g")]
+            if cp is not None:
+                lines.append("Cp range: " + format(float(np.nanmin(cp)), ".6g")
+                             + " .. " + format(float(np.nanmax(cp)), ".6g"))
+            if cm is not None:
+                lines.append("Circumferential mass avg grid: " + str(cm.shape))
+            self.aero_result.setText("\n".join(lines))
+        except Exception as exc:  # noqa: BLE001
+            self.aero_result.setText("Analyse failed: " + str(exc))
 
     def apply_to(self, obj) -> None:
         if not _HAS_QT:

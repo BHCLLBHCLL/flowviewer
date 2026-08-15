@@ -2915,7 +2915,45 @@ def test_turbo_analysis():
     assert rt.shape == (ff.n_vertices, 2)
     assert np.all(rt[:, 0] >= 0)
 
+def test_turbo_blade_aero():
+    """Blade-aero post-processing: Cp, area/mass averages (5)."""
+    import numpy as np
+    from fv.model.dataset import load_file
+    from fv.render.turbo import (area_average, circumferential_mass_average,
+        mass_flow_average, pressure_coefficient)
+    ff = load_file(FPH)
+    # Cp shape follows PRES (cell-centred) and matches the formula
+    p_ref, v_ref, rho = 0.5, 10.0, 1.2
+    cp = pressure_coefficient(ff, p_ref, v_ref, rho)
+    assert cp.shape == ff.variables["PRES"].array.shape
+    base = ff.variables["PRES"].array
+    np.testing.assert_allclose(cp, (base - p_ref) / (0.5 * rho * v_ref ** 2),
+                               rtol=1e-9)
+    # area average along Z: binned profile, populated bins finite
+    zc, av = area_average(ff, "PRES", "Z", 24)
+    assert zc.shape == (24,) and av.shape == (24,)
+    assert np.isfinite(av).any()
+    assert np.nanmin(av) <= np.nanmax(av)
+    # mass-flow weighted average returns a scalar in-range
+    m = mass_flow_average(ff, "PRES", "Z")
+    assert isinstance(m, float) and np.isfinite(m)
+    assert float(base.min()) <= m <= float(base.max())
+    # circumferential mass average has the same grid shape
+    r, z, cm = circumferential_mass_average(ff, "PRES", "Z", 16, 16)
+    assert cm.shape == (16, 16)
+    assert np.isfinite(cm).any()
 
+def test_turbo_dialog_blade_aero(qapp):
+    """TurboDialog exposes Blade Aero analysis tab (5)."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import TurboObject
+    from fv.gui.object_dialogs2 import TurboDialog
+    ff = load_file(FPH)
+    t = TurboObject(index=1, variable="PRES", axis="Z")
+    d = TurboDialog(t, field_file=ff)
+    assert d.tabs.tabText(1) == "Blade Aero"
+    d._on_analyse()
+    assert "Mass-flow avg" in d.aero_result.text()
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
 def test_ifld_metadata_scan():
     """scan_ifld returns counts/variables without loading arrays (D3)."""

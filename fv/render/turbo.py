@@ -161,3 +161,158 @@ def polar_view_points(ff, axis="Z"):
     else:
         r = np.sqrt(v[:, 0] ** 2 + v[:, 1] ** 2); th = np.arctan2(v[:, 1], v[:, 0])
     return np.column_stack([r, th])
+
+
+# ── blade aerodynamics post-processing (item 5) ────────────────────────
+
+def _field_coords(ff, a):
+    """Coordinates matching a field array length (vertices or cell centres)."""
+    a = np.asarray(a, dtype=np.float64)
+    v = np.asarray(ff.vertices, dtype=np.float64)
+    if len(a) == len(v):
+        return v
+    try:
+        from ..model.varreg import _cell_centers_fph
+        c = _cell_centers_fph(ff)
+        if c is not None and c.shape[0] == len(a):
+            return c
+    except Exception:
+        pass
+    return None
+
+
+def _density_array(ff):
+    """Density field for mass weighting, or None when absent."""
+    for name in ("DENS", "RHO", "DENSITY", "Density"):
+        a = ff.variable_array(name)
+        if a is not None and np.asarray(a).ndim == 1:
+            return np.asarray(a, dtype=np.float64)
+    return None
+
+
+def _velocity_magnitude(ff):
+    """Speed |V| from VELX/VELY/VELZ or a 3-component VECT field."""
+    vx = ff.variable_array("VELX")
+    vy = ff.variable_array("VELY")
+    vz = ff.variable_array("VELZ")
+    if vx is not None and vy is not None and vz is not None:
+        return np.sqrt(np.asarray(vx) ** 2 + np.asarray(vy) ** 2
+                       + np.asarray(vz) ** 2)
+    vt = ff.variable_array("VECT")
+    if vt is not None:
+        vt = np.asarray(vt)
+        if vt.ndim == 2 and vt.shape[1] == 3:
+            return np.linalg.norm(vt, axis=1)
+    return None
+
+
+def _axial_velocity(ff, axis):
+    """Axial velocity component for a rotation axis (X/Y/Z)."""
+    comp = {"X": "VELX", "Y": "VELY", "Z": "VELZ"}.get(axis.upper())
+    if comp is None:
+        return None
+    a = ff.variable_array(comp)
+    return np.asarray(a, dtype=np.float64) if a is not None else None
+
+
+def pressure_coefficient(ff, p_ref, v_ref=1.0, rho=1.0):
+    """Pressure coefficient Cp = (p - p_ref) / (0.5 rho v_ref^2)."""
+    p = ff.variable_array("PRES")
+    if p is None:
+        p = ff.variable_array("Pressure")
+    if p is None:
+        return None
+    p = np.asarray(p, dtype=np.float64)
+    denom = 0.5 * float(rho) * float(v_ref) ** 2
+    if abs(denom) < 1e-12:
+        denom = 1.0
+    return (p - float(p_ref)) / denom
+
+
+def area_average(ff, var, axis="Z", n_bins=64):
+    """Average of *var* in bins along the rotation axis (meridional).
+
+    Falls back to arithmetic binning when no face-area metric is available.
+    Returns (axis_centres, values).
+    """
+    a = ff.variable_array(var)
+    if a is None or np.asarray(a).ndim != 1:
+        return None, None
+    a = np.asarray(a, dtype=np.float64)
+    v = _field_coords(ff, a)
+    if v is None:
+        return None, None
+    coord = v[:, {"X": 0, "Y": 1, "Z": 2}[axis.upper()]]
+    lo, hi = float(coord.min()), float(coord.max())
+    edges = np.linspace(lo, hi, n_bins + 1)
+    idx = np.clip(np.digitize(coord, edges) - 1, 0, n_bins - 1)
+    acc = np.zeros(n_bins)
+    cnt = np.zeros(n_bins)
+    np.add.at(acc, idx, a)
+    np.add.at(cnt, idx, 1.0)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        vals = np.where(cnt > 0, acc / np.maximum(cnt, 1), np.nan)
+    centres = 0.5 * (edges[:-1] + edges[1:])
+    return centres, vals
+
+
+def mass_flow_average(ff, var, axis="Z"):
+    """Mass-flow weighted average = Σ(rho |V_ax| var) / Σ(rho |V_ax|).
+
+    Uses the density field when present (rho = 1 otherwise), so it degrades
+    to an axial-speed weighted average on incompressible data.
+    """
+    a = ff.variable_array(var)
+    if a is None or np.asarray(a).ndim != 1:
+        return None
+    a = np.asarray(a, dtype=np.float64)
+    vax = _axial_velocity(ff, axis)
+    w = np.ones(len(a))
+    if vax is not None and len(vax) == len(a):
+        w = np.abs(vax)
+    rho = _density_array(ff)
+    if rho is not None and len(rho) == len(a):
+        w = w * rho
+    s = float(w.sum())
+    if s < 1e-12:
+        return float(np.mean(a))
+    return float((a * w).sum() / s)
+
+
+def circumferential_mass_average(ff, var, axis="Z", n_r=64, n_z=64):
+    """Circumferential mass-flow-weighted average onto the (r, z) plane.
+
+    Like circumferential_average but weights each sample by rho |V| (the
+    mass-flux weighting used for meridional turbomachinery views).
+    Returns (r_centres, z_centres, values).
+    """
+    a = ff.variable_array(var)
+    if a is None or np.asarray(a).ndim != 1:
+        return None, None, None
+    a = np.asarray(a, dtype=np.float64)
+    v = _field_coords(ff, a)
+    if v is None:
+        return None, None, None
+    vmag = _velocity_magnitude(ff)
+    w = np.ones(len(a)) if vmag is None or len(vmag) != len(a) else np.abs(vmag)
+    rho = _density_array(ff)
+    if rho is not None and len(rho) == len(a):
+        w = w * rho
+    ax = axis.upper()
+    if ax == "X":
+        r = np.sqrt(v[:, 1] ** 2 + v[:, 2] ** 2); z = v[:, 0]
+    elif ax == "Y":
+        r = np.sqrt(v[:, 0] ** 2 + v[:, 2] ** 2); z = v[:, 1]
+    else:
+        r = np.sqrt(v[:, 0] ** 2 + v[:, 1] ** 2); z = v[:, 2]
+    r_edges = np.linspace(r.min(), r.max(), n_r + 1)
+    z_edges = np.linspace(z.min(), z.max(), n_z + 1)
+    ri = np.clip(np.digitize(r, r_edges) - 1, 0, n_r - 1)
+    zi = np.clip(np.digitize(z, z_edges) - 1, 0, n_z - 1)
+    acc = np.zeros((n_r, n_z))
+    wsum = np.zeros((n_r, n_z))
+    np.add.at(acc, (ri, zi), a * w)
+    np.add.at(wsum, (ri, zi), w)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        vals = np.where(wsum > 0, acc / np.maximum(wsum, 1e-12), np.nan)
+    return 0.5 * (r_edges[:-1] + r_edges[1:]), 0.5 * (z_edges[:-1] + z_edges[1:]), vals
