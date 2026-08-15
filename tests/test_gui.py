@@ -2485,6 +2485,67 @@ def test_export_obj(tmp_path):
     assert "v " in txt and "f " in txt  # HEXAHEDRON
 
 
+def test_camera_dialog(qapp):
+    """CameraDialog writes position/focal/projection back (5b)."""
+    from fv.gui.object_dialogs2 import CameraDialog
+    from fv.model.objects import CameraObject
+    c = CameraObject(index=1)
+    d = CameraDialog(c)
+    d.posx.setValue(1.5)
+    d.fz.setValue(-2.0)
+    d.parallel.setChecked(False)
+    d.apply_to(c)
+    assert c.position[0] == 1.5
+    assert c.focal_point[2] == -2.0
+    assert c.parallel_projection is False
+    d.scene = None
+    d._apply_camera()
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_region_object():
+    """RegionObject renders a single boundary region (5d)."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import RegionObject
+    from fv.render.scene import Scene
+    ff = load_file(FPH)
+    name = ff.boundary_regions()[0].name
+    obj = RegionObject(index=1)
+    obj.region_name = name
+    sc = Scene(enable_3d=False)
+    sc.build(ff)
+    sc._add_region_actor(ff, obj)
+    assert "region" in sc.actor_names()
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_limited_plane_clip():
+    """Limited plane clips the cut to a finite box (5c)."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import PlaneObject
+    from fv.render.plane import build_plane_actors
+    ff = load_file(FPH)
+    full = PlaneObject(index=1, axis="Z", coordinate=0.0)
+    full.show_contour = True; full.contour_var = "PRES"
+    n_full = build_plane_actors(ff, full)["contour"].GetMapper().GetInput().GetNumberOfPoints()
+    lim = PlaneObject(index=2, axis="Z", coordinate=0.0, limited=True,
+                     limited_size=0.02)
+    lim.show_contour = True; lim.contour_var = "PRES"
+    out = build_plane_actors(ff, lim)
+    assert "contour" in out
+    n_lim = out["contour"].GetMapper().GetInput().GetNumberOfPoints()
+    assert n_lim <= n_full
+
+def test_global_window_container(qapp):
+    """GlobalWindow holds the global objects (5a)."""
+    w = _make(qapp, None)
+    assert w.global_window.colorbar is not None
+    assert w.global_window.camera is w._global_camera
+    assert w.global_window.light is w._global_light
+
+
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
 def test_ifld_metadata_scan():
     """scan_ifld returns counts/variables without loading arrays (D3)."""

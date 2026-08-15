@@ -664,6 +664,28 @@ class Scene:
             if not isinstance(actor, str):
                 self.register_actor_object(actor, "streamline", obj)
 
+    def _add_region_actor(self, ff, obj) -> None:
+        """Independent boundary-region surface (5d)."""
+        from .surface import build_surface_polydata
+        from ..model.objects import SurfaceObject
+        s = SurfaceObject(index=1)
+        s.selected_regions = [getattr(obj, "region_name", "")] if getattr(obj, "region_name", "") else []
+        pd, cc, _ = build_surface_polydata(ff, s)
+        if pd is None or pd.GetNumberOfCells() == 0:
+            return
+        mapper = vtk.vtkPolyDataMapper()
+        mapper.SetInputData(pd)
+        actor = vtk.vtkActor()
+        actor.SetMapper(mapper)
+        try:
+            actor.GetProperty().SetColor(*getattr(obj, "color", (0.3, 0.6, 0.9)))
+        except (TypeError, IndexError):
+            actor.GetProperty().SetColor(0.3, 0.6, 0.9)
+        if getattr(obj, "transparent", False):
+            actor.GetProperty().SetOpacity(0.5)
+        self.add_actor("region", actor)
+        self.register_actor_object(actor, "region", obj)
+
     def _add_bar_actor(self, ff, obj) -> None:
         """Bar line coloured by a sampled variable (A4)."""
         from .bar import build_bar_actors

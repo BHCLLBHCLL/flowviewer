@@ -113,8 +113,15 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.vtk_widget = None
         self.renderer = None
         # Global Light (P0.3): scPOST keeps one Light under Global Objects
-        from ..model.objects import LightObject
+        from ..model.objects import CameraObject, LightObject
+        from ..model.objects import ColorbarObject, GradationObject, GlobalWindow
         self._global_light = LightObject(index=1)
+        self._global_camera = CameraObject(index=1)
+        self.global_window = GlobalWindow(
+            colorbar=ColorbarObject(index=1),
+            gradation=GradationObject(index=1),
+            camera=self._global_camera,
+            light=self._global_light)
         self._load_workers = []             # keep LoadWorker/QThread alive (P0.6)
         self._undo_stack = []               # P2.8 deep-copied children lists
         self._redo_stack = []
@@ -880,6 +887,15 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._undo_stack.append(copy.deepcopy(self.main_object.children))
         self._restore_children(self._redo_stack.pop())
         self.message_win.log("Redo")
+
+    def _open_camera_dialog(self) -> None:
+        """Option > Camera / tree Camera: camera settings (5b)."""
+        self.property_host.show_object(
+            "camera", self._global_camera, field_file=None, siblings=[])
+        panel = self.property_host.current_panel
+        if panel is not None and hasattr(panel, "scene"):
+            panel.scene = self.scene
+        self.property_host.setVisible(True)
 
     def on_variable_registration(self) -> None:
         """Display > Variable Registration… (P1.1)."""

@@ -6,6 +6,20 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 
+
+@dataclass
+class GlobalWindow:
+    """Global objects container (scPOST Global Window, 5a).
+
+    Holds the process-wide Colorbar / Gradation / Camera / Light objects
+    that appear under the tree's "Global Objects" node.
+    """
+
+    colorbar: object = None
+    gradation: object = None
+    camera: object = None
+    light: object = None
+
 @dataclass
 class PostObject:
     """Base for objects that appear under a Main (field file) node."""
@@ -81,6 +95,8 @@ class PlaneObject(PostObject):
     coordinate: float = 0.0            # m along axis
     point: tuple[float, float, float] = (0.0, 0.0, 0.0)
     normal: tuple[float, float, float] = (0.0, 0.0, 1.0)
+    limited: bool = False
+    limited_size: float = 1.0
     arbitrary_enabled: bool = False    # ArbitraryPlaneDefinitionState
     arbitrary_normal_r: float = 1.0    # spherical normal R/T/P
     arbitrary_normal_t: float = 0.0
@@ -423,6 +439,18 @@ class LightObject(PostObject):
 
 
 
+
+@dataclass
+class CameraObject(PostObject):
+    """Camera settings / image save (scPOST Camera, 5b)."""
+
+    kind: str = "camera"
+    title: str = "Camera"
+    position: tuple = (0.0, 0.0, 1.0)
+    focal_point: tuple = (0.0, 0.0, 0.0)
+    view_up: tuple = (0.0, 1.0, 0.0)
+    parallel_projection: bool = True
+
 @dataclass
 class GradationObject(PostObject):
     """Gradient background (scPOST Gradation/Sky, C1)."""
@@ -432,6 +460,17 @@ class GradationObject(PostObject):
     enabled: bool = True
     top_color: tuple = (1.0, 1.0, 1.0)
     bottom_color: tuple = (0.92, 0.94, 0.97)
+
+
+@dataclass
+class RegionObject(PostObject):
+    """Independent boundary-region display (scPOST Region, 5d)."""
+
+    kind: str = "region"
+    title: str = "Region"
+    region_name: str = ""
+    color: tuple = (0.3, 0.6, 0.9)
+    transparent: bool = False
 
 @dataclass
 class RegionBCObject(PostObject):

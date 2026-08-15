@@ -975,6 +975,31 @@ def trim_by_objects(pd, ff, obj, siblings=None) -> "vtk.vtkPolyData":
     return pd
 
 
+def _limited_clip(pd, obj):
+    """Clip the cut to a finite box centred on the plane point (5c)."""
+    if not getattr(obj, "limited", False):
+        return pd
+    s = max(1e-6, float(getattr(obj, "limited_size", 1.0) or 1.0)) / 2.0
+    p = getattr(obj, "point", (0.0, 0.0, 0.0))
+    bounds = pd.GetBounds()
+    for i, axis in enumerate("XYZ"):
+        lo = float(p[i]) - s
+        hi = float(p[i]) + s
+        for sign, origin in ((1.0, hi), (-1.0, lo)):
+            plane = vtk.vtkPlane()
+            normal = [0.0, 0.0, 0.0]; normal[i] = sign
+            org = [float(p[0]), float(p[1]), float(p[2])]; org[i] = origin
+            plane.SetOrigin(*org)
+            plane.SetNormal(*normal)
+            clip = vtk.vtkClipPolyData()
+            clip.SetInputData(pd)
+            clip.SetClipFunction(plane)
+            clip.InsideOutOn()
+            clip.Update()
+            pd = clip.GetOutput()
+    return pd
+
+
 def trim_cut(pd, obj) -> "vtk.vtkPolyData":
     """Clip the cut against coordinate ranges (Trim tab).
 
@@ -1393,6 +1418,8 @@ def build_plane_actors(ff: FieldFile, obj, ugrid=None,
 
     # Trim
     cut = trim_cut(cut, obj)
+    # Limited plane (5c): clip to a finite box centred on the plane point
+    cut = _limited_clip(cut, obj)
     # Trim by other objects (P1.6)
     cut = trim_by_objects(cut, ff, obj, siblings)
     # Clip (X/Y region)

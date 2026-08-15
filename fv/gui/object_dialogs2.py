@@ -1449,3 +1449,83 @@ class GradationDialog(ObjectSettingsPanel):
         obj.enabled = self.enabled.isChecked()
         obj.top_color = self.top.rgb()
         obj.bottom_color = self.bottom.rgb()
+
+class CameraDialog(ObjectSettingsPanel):
+    """Camera — position / focal / projection (5b)."""
+
+    def __init__(self, obj, field_file=None, parent=None, scene=None):
+        super().__init__(getattr(obj, "label", "Camera"), parent)
+        if not _HAS_QT:
+            self.obj = obj
+            return
+        self.obj = obj
+        self.scene = scene
+        page = QWidget(self)
+        form = QFormLayout()
+        px, py, pz = getattr(obj, "position", (0, 0, 1))
+        fx, fy, fz = getattr(obj, "focal_point", (0, 0, 0))
+        self.posx = _dspin(px, -1e9, 1e9, 4); self.posy = _dspin(py, -1e9, 1e9, 4); self.posz = _dspin(pz, -1e9, 1e9, 4)
+        self.fx = _dspin(fx, -1e9, 1e9, 4); self.fy = _dspin(fy, -1e9, 1e9, 4); self.fz = _dspin(fz, -1e9, 1e9, 4)
+        r1 = QHBoxLayout(); r1.addWidget(self.posx); r1.addWidget(self.posy); r1.addWidget(self.posz)
+        r2 = QHBoxLayout(); r2.addWidget(self.fx); r2.addWidget(self.fy); r2.addWidget(self.fz)
+        form.addRow("Position x/y/z:", r1)
+        form.addRow("Focal x/y/z:", r2)
+        self.parallel = QCheckBox("Parallel projection", page)
+        self.parallel.setChecked(bool(getattr(obj, "parallel_projection", True)))
+        self.apply_cam = QPushButton("Apply to view", page)
+        self.apply_cam.clicked.connect(self._apply_camera)
+        lay = QVBoxLayout(page); lay.addLayout(form); lay.addWidget(self.parallel); lay.addWidget(self.apply_cam); lay.addStretch(1)
+        self.tabs.addTab(page, "Camera")
+
+    def _apply_camera(self) -> None:
+        self.apply_to(self.obj)
+        if self.scene is not None and getattr(self.scene, "renderer", None) is not None:
+            cam = self.scene.renderer.GetActiveCamera()
+            p = self.obj.position; f = self.obj.focal_point; u = self.obj.view_up
+            cam.SetPosition(*p); cam.SetFocalPoint(*f); cam.SetViewUp(*u)
+            cam.SetParallelProjection(1 if self.obj.parallel_projection else 0)
+            self.scene.renderer.ResetCamera()
+            rw = getattr(self.scene.renderer, "GetRenderWindow", None)
+            if rw:
+                try: rw().Render()
+                except Exception: pass
+
+    def apply_to(self, obj) -> None:
+        if not _HAS_QT:
+            return
+        obj.position = (float(self.posx.value()), float(self.posy.value()), float(self.posz.value()))
+        obj.focal_point = (float(self.fx.value()), float(self.fy.value()), float(self.fz.value()))
+        obj.parallel_projection = self.parallel.isChecked()
+
+class RegionDialog(ObjectSettingsPanel):
+    """Region — select one boundary region to display (5d)."""
+
+    def __init__(self, obj, field_file=None, parent=None):
+        super().__init__(getattr(obj, "label", "Region"), parent)
+        if not _HAS_QT:
+            self.obj = obj
+            return
+        self.obj = obj
+        page = QWidget(self)
+        form = QFormLayout()
+        self.region = QComboBox(page)
+        if field_file is not None:
+            for r in field_file.boundary_regions():
+                self.region.addItem(r.name, r.name)
+        idx = self.region.findData(getattr(obj, "region_name", ""))
+        if idx >= 0:
+            self.region.setCurrentIndex(idx)
+        form.addRow("Region:", self.region)
+        self.color = _ColorButton(getattr(obj, "color", (0.3, 0.6, 0.9)), page)
+        form.addRow("Color:", self.color)
+        self.transp = QCheckBox("Transparent", page)
+        self.transp.setChecked(bool(getattr(obj, "transparent", False)))
+        lay = QVBoxLayout(page); lay.addLayout(form); lay.addWidget(self.transp); lay.addStretch(1)
+        self.tabs.addTab(page, "Region")
+
+    def apply_to(self, obj) -> None:
+        if not _HAS_QT:
+            return
+        obj.region_name = self.region.currentData() or ""
+        obj.color = self.color.rgb()
+        obj.transparent = self.transp.isChecked()
