@@ -338,7 +338,12 @@ def _read_conn_continuations(data, pos: int, sec_end: int, got: int, expected: i
 
 def _group_faces_by_cell_id(cell_ids: np.ndarray, face_indices: np.ndarray,
                             n_cells: int) -> dict:
-    """Return ``{cell_id: [face_index, ...]}`` for parallel arrays."""
+    """Return ``{cell_id: face-index array}`` for parallel arrays.
+
+    Values are array views on the sorted index buffer (not Python lists):
+    on multi-million-face meshes this avoids tens of millions of Python
+    ints and the GC pressure that goes with them.
+    """
     out: dict = defaultdict(list)
     if cell_ids.size == 0:
         return out
@@ -354,7 +359,7 @@ def _group_faces_by_cell_id(cell_ids: np.ndarray, face_indices: np.ndarray,
         lo, hi = boundaries[i], boundaries[i + 1]
         cid = int(sorted_ids[lo])
         if 0 <= cid < n_cells:
-            out[cid] = sorted_faces[lo:hi].tolist()
+            out[cid] = sorted_faces[lo:hi]
     return out
 
 
