@@ -97,6 +97,8 @@ class PlaneObject(PostObject):
     normal: tuple[float, float, float] = (0.0, 0.0, 1.0)
     limited: bool = False
     limited_size: float = 1.0
+    limited_width: float = 1.0      # finite rectangle width  (in-plane u)
+    limited_height: float = 1.0     # finite rectangle height (in-plane v)
     arbitrary_enabled: bool = False    # ArbitraryPlaneDefinitionState
     arbitrary_normal_r: float = 1.0    # spherical normal R/T/P
     arbitrary_normal_t: float = 0.0

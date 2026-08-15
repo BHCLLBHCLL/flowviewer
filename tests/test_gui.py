@@ -353,14 +353,20 @@ def test_plane_dialog_all_tabs(qapp):
     assert tabs == ["Coordinate", "MAT", "Volume Region", "Contour", "Vector",
                     "Mesh", "Oil Flow", "Trim", "Automove", "Clip", "Pick",
                     "Scalar Integration", "Vector Integration", "Others",
-                    "Texture", "Font"]
+                    "Limited", "Texture", "Font"]
     assert pd.contour.combo.count() >= 1
     pd.apply_to(p)
     assert p.axis == "Z"
     assert p.contour_var in [pd.contour.combo.itemData(i)
                              for i in range(pd.contour.combo.count())]
     assert p.contour_var in ff.variables
-
+    # Limited plane (finite width x height)
+    pd.limited.setChecked(True)
+    pd.limited_w.setValue(2.5)
+    pd.limited_h.setValue(3.0)
+    pd.apply_to(p)
+    assert p.limited is True
+    assert p.limited_width == 2.5 and p.limited_height == 3.0
 
 def test_particle_dialog_all_tabs(qapp):
     from fv.model.dataset import load_file

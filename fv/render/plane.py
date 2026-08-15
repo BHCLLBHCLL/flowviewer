@@ -975,22 +975,43 @@ def trim_by_objects(pd, ff, obj, siblings=None) -> "vtk.vtkPolyData":
     return pd
 
 
+def _limited_basis(normal):
+    """Two orthonormal in-plane unit vectors (u, v) from the plane normal."""
+    n = np.asarray(normal, dtype=np.float64)
+    norm = float(np.linalg.norm(n))
+    if norm < 1e-12:
+        n = np.array([0.0, 0.0, 1.0])
+    else:
+        n = n / norm
+    ref = np.array([1.0, 0.0, 0.0]) if abs(n[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    u = np.cross(n, ref)
+    u = u / max(1e-12, float(np.linalg.norm(u)))
+    v = np.cross(n, u)
+    v = v / max(1e-12, float(np.linalg.norm(v)))
+    return u, v
+
+
 def _limited_clip(pd, obj):
-    """Clip the cut to a finite box centred on the plane point (5c)."""
+    """Clip the cut to a finite width x height rectangle on the plane (5c).
+
+    The rectangle is centred on the plane point, width along the in-plane u
+    basis vector and height along v (instead of an axis-aligned cube).
+    """
     if not getattr(obj, "limited", False):
         return pd
-    s = max(1e-6, float(getattr(obj, "limited_size", 1.0) or 1.0)) / 2.0
-    p = getattr(obj, "point", (0.0, 0.0, 0.0))
-    bounds = pd.GetBounds()
-    for i, axis in enumerate("XYZ"):
-        lo = float(p[i]) - s
-        hi = float(p[i]) + s
-        for sign, origin in ((1.0, hi), (-1.0, lo)):
+    p = np.asarray(getattr(obj, "point", (0.0, 0.0, 0.0)), dtype=np.float64)
+    n = np.asarray(getattr(obj, "normal", (0.0, 0.0, 1.0)), dtype=np.float64)
+    size = float(getattr(obj, "limited_size", 1.0) or 1.0)
+    w = max(1e-9, float(getattr(obj, "limited_width", size) or size))
+    h = max(1e-9, float(getattr(obj, "limited_height", size) or size))
+    u, v = _limited_basis(n)
+    for axis, half in ((u, w / 2.0), (v, h / 2.0)):
+        for sign in (1.0, -1.0):
+            origin = p + sign * half * axis
+            normal = sign * axis
             plane = vtk.vtkPlane()
-            normal = [0.0, 0.0, 0.0]; normal[i] = sign
-            org = [float(p[0]), float(p[1]), float(p[2])]; org[i] = origin
-            plane.SetOrigin(*org)
-            plane.SetNormal(*normal)
+            plane.SetOrigin(*tuple(origin))
+            plane.SetNormal(*tuple(normal))
             clip = vtk.vtkClipPolyData()
             clip.SetInputData(pd)
             clip.SetClipFunction(plane)

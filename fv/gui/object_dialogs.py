@@ -520,6 +520,7 @@ class PlaneDialog(_PinnedDialog):
         self.tabs.addTab(self._build_vector_integration(),
                          "Vector Integration")
         self.tabs.addTab(self._build_others(), "Others")
+        self.tabs.addTab(self._build_limited(), "Limited")
         self.tabs.addTab(self._build_texture(), "Texture")
         self.tabs.addTab(self._build_font(), "Font")
 
@@ -1497,8 +1498,34 @@ class PlaneDialog(_PinnedDialog):
         lay.addStretch(1)
         return page
 
-    # ── Texture ──────────────────────────────────────────────────────────
+    # ── Limited ────────────────────────────────────────────────────────
 
+    def _build_limited(self) -> QWidget:
+        """Finite width x height rectangle clip for the cut plane (5c)."""
+        page = QWidget(self)
+        lay = QVBoxLayout(page)
+        self.limited = QCheckBox("Display as a limited plane", page)
+        self.limited.setChecked(bool(getattr(self.plane, "limited", False)))
+        lay.addWidget(self.limited)
+        form = QFormLayout()
+        size = float(getattr(self.plane, "limited_size", 1.0) or 1.0)
+        self.limited_w = QDoubleSpinBox(page)
+        self.limited_w.setRange(0.001, 1e9)
+        self.limited_w.setDecimals(4)
+        self.limited_w.setValue(float(getattr(self.plane, "limited_width", size) or size))
+        self.limited_w.setSuffix(" m")
+        form.addRow("Width (u):", self.limited_w)
+        self.limited_h = QDoubleSpinBox(page)
+        self.limited_h.setRange(0.001, 1e9)
+        self.limited_h.setDecimals(4)
+        self.limited_h.setValue(float(getattr(self.plane, "limited_height", size) or size))
+        self.limited_h.setSuffix(" m")
+        form.addRow("Height (v):", self.limited_h)
+        lay.addLayout(form)
+        lay.addStretch(1)
+        return page
+
+    # ── Texture ──────────────────────────────────────────────────────────
     def _build_texture(self) -> QWidget:
         page = QWidget(self)
         lay = QVBoxLayout(page)
@@ -1752,6 +1779,12 @@ class PlaneDialog(_PinnedDialog):
         plane.font_size = int(self.font_size.value())
         plane.font_float = float(self.font_float.value())
 
+        # Limited
+        plane.limited = self.limited.isChecked()
+        plane.limited_width = float(self.limited_w.value())
+        plane.limited_height = float(self.limited_h.value())
+        plane.limited_size = max(float(self.limited_w.value()),
+                                 float(self.limited_h.value()))
     def _get_spin(self, name: str, default: float) -> float:
         sb = self.findChild(QDoubleSpinBox, name)
         return float(sb.value()) if sb is not None else float(default)
