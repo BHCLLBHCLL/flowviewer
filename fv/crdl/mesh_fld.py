@@ -132,18 +132,18 @@ def _parse_hex_cells(data) -> tuple[Optional[np.ndarray], Optional[np.ndarray],
         if bc % 4 != 0:
             continue
         total = bc // 4
-        if total % n_cells != 0:
-            continue
-        nn = total // n_cells
-        if nn not in _NN_TO_VTK:
-            continue
-        arr = np.frombuffer(data, dtype=">i4", count=total, offset=p)
-        conn = arr.astype(np.int64).copy().reshape(n_cells, nn)
-        # pure-hex grids keep cell_types = None (legacy fast path);
-        # mixed / non-hex grids carry explicit VTK type codes
-        ctypes = None if nn == 8 else np.full(n_cells, _NN_TO_VTK[nn],
-                                              dtype=np.int64)
-        return conn, ctypes, mat
+        # connectivity may share its block with trailing face/BC words
+        # (tet-style files): match the n_cells*nn i4 prefix, trying hex
+        # first and falling back to smaller cells
+        for nn in (8, 6, 5, 4):
+            need = n_cells * nn
+            if need > total:
+                continue
+            arr = np.frombuffer(data, dtype=">i4", count=need, offset=p)
+            conn = arr.astype(np.int64).copy().reshape(n_cells, nn)
+            ctypes = None if nn == 8 else np.full(n_cells, _NN_TO_VTK[nn],
+                                                  dtype=np.int64)
+            return conn, ctypes, mat
     # legacy: hex-only path (conn == n_cells * 32 bytes)
     for p, bc in sorted(elem_blocks, key=lambda b: -b[1]):
         if bc == n_cells * 32:

@@ -76,12 +76,34 @@ def test_scpost_result_only_inherits_mesh(samples):
 
 
 def test_scpost_klein_tet_mesh(samples):
-    """Klein_1 is a tet-style grid: nodes + faces parse (cells best-effort)."""
+    """Klein_1 is a tet grid: cells + nodes + faces all parse."""
     from fv.model.dataset import load_file
     ff = load_file(str(samples / "Klein_1.fld"))
     assert ff.n_vertices == 164343
+    assert ff.n_cells == 686497
+    assert ff.cell_conn is not None and ff.cell_conn.shape[1] == 4
+    assert sorted(set(ff.cell_types.tolist())) == [10]  # vtk tetra
     assert "PRES" in ff.variables
     assert len(ff.faces) > 0  # NGON face list recovered
     k300 = load_file(str(samples / "Klein_300.fld"))
     assert getattr(k300, "mesh_from", "") .endswith("Klein_1.fld")
     assert k300.n_vertices == 164343
+
+
+def test_scpost_scteta_tet_mesh(samples):
+    """SCTeta_tutorial is a tet grid with temperature variables."""
+    from fv.model.dataset import load_file
+    ff = load_file(str(samples / "SCTeta_tutorial.fld"))
+    assert ff.n_cells == 361868 and ff.n_vertices == 116691
+    assert ff.cell_conn.shape[1] == 4
+    assert "TEMP" in ff.variables
+
+
+def test_scpost_2cars_mixed(samples):
+    """2cars is a mixed-cell NGON variant: nodes/fields parse; the
+    per-cell connectivity block layout is not yet decoded (known gap)."""
+    from fv.model.dataset import load_file
+    ff = load_file(str(samples / "2cars.fld"))
+    assert ff.n_vertices == 338713
+    assert "PRES" in ff.variables
+    assert len(ff.faces) > 0
