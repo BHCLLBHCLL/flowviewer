@@ -1119,20 +1119,29 @@ class MaxMinDialog(ObjectSettingsPanel):
 class GraphDialog(ObjectSettingsPanel):
     """Graph — Variable / X mode / Plot (P2.2)."""
 
-    def __init__(self, obj, field_file=None, parent=None):
+    def __init__(self, obj, field_file=None, parent=None, siblings=None):
         super().__init__(getattr(obj, "label", "Graph"), parent)
         if not _HAS_QT:
             self.obj = obj
             return
         self.obj = obj
         self.field_file = field_file
+        self.siblings = siblings or []
         page = QWidget(self)
         form = QFormLayout()
         self.var = _var_combo(_scalar_vars(field_file), obj.variable)
         form.addRow("Variable:", self.var)
         self.xmode = QComboBox(page)
-        for m in ("Index", "Cycle"):
+        for m in ("Index", "Cycle", "Curve"):
             self.xmode.addItem(m, m)
+        self.curve = QComboBox(page)
+        for c in self.siblings:
+            if getattr(c, "kind", "") == "curve":
+                self.curve.addItem(getattr(c, "label", ""), c.label)
+        idx = self.curve.findData(getattr(obj, "curve_label", ""))
+        if idx >= 0:
+            self.curve.setCurrentIndex(idx)
+        form.addRow("Curve:", self.curve)
         self.xmode.setCurrentIndex(max(0, self.xmode.findData(
             getattr(obj, "x_mode", "Index"))))
         form.addRow("X axis:", self.xmode)
@@ -1160,6 +1169,7 @@ class GraphDialog(ObjectSettingsPanel):
             return
         obj.variable = self.var.currentData() or ""
         obj.x_mode = self.xmode.currentData() or "Index"
+        obj.curve_label = self.curve.currentData() or ""
         obj.title_text = self.title.text()
 
 class GroupingDialog(ObjectSettingsPanel):

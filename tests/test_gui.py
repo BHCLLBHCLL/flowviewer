@@ -2546,6 +2546,30 @@ def test_global_window_container(qapp):
     assert w.global_window.light is w._global_light
 
 
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_graph_curve_mode():
+    """Graph samples a Curve as the arc-length X axis (6)."""
+    import numpy as np
+    from fv.model.dataset import load_file
+    from fv.model.objects import CurveObject, GraphObject
+    from fv.render.graph import collect_series
+    ff = load_file(FPH)
+    c0 = tuple(ff.vertices.min(axis=0))
+    c1 = tuple(ff.vertices.max(axis=0))
+    curve = CurveObject(index=1)
+    curve.points = [c0, c1]
+    curve.variable = "PRES"
+    curve.samples = 16
+    g = GraphObject(index=1)
+    g.x_mode = "Curve"
+    g.curve_label = "Curve (1)"
+    xs, ys, var = collect_series(g, ff0=ff, curves=[curve])
+    assert var == "PRES"
+    assert len(xs) == 16 and len(ys) == 16
+    assert xs[0] == 0.0
+    assert np.all(np.diff(xs) >= 0)
+
+
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
 def test_ifld_metadata_scan():
     """scan_ifld returns counts/variables without loading arrays (D3)."""

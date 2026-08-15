@@ -537,8 +537,9 @@ class GraphObject(PostObject):
     kind: str = "graph"
     title: str = "Graph"
     variable: str = ""
-    x_mode: str = "Index"                # Index | Cycle
+    x_mode: str = "Index"                # Index | Cycle | Curve
     files: list = field(default_factory=list)
+    curve_label: str = ""                  # 6: arc-length X source
     title_text: str = ""
 
 @dataclass

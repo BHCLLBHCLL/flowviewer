@@ -12,9 +12,18 @@ from typing import Optional
 import numpy as np
 
 
-def collect_series(obj, ff0=None) -> tuple:
+def collect_series(obj, ff0=None, curves=None) -> tuple:
     """(x, y, label) for the GraphObject over its cycle files."""
     var = (getattr(obj, "variable", "") or "").strip()
+    mode = (getattr(obj, "x_mode", "Index") or "Index")
+    # Curve mode: sample along a Curve object (arc-length X) (6)
+    if mode.lower() == "curve":
+        for c in curves or []:
+            if getattr(c, "kind", "") == "curve" and getattr(c, "label", "") == getattr(obj, "curve_label", ""):
+                from .curve import sample_along_curve
+                arc, vals, v = sample_along_curve(ff0, c)
+                return list(arc), list(vals), v
+        return [], [], var
     if not var:
         return [], [], var
     from ..model.dataset import load_file
