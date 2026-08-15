@@ -2616,6 +2616,25 @@ def test_vr_detection():
     assert vr_render_window_supported() is True  # vtkVRRenderWindow present
 
 
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_turbo_analysis():
+    """Circumferential average / blade loading / polar view (1)."""
+    import numpy as np
+    from fv.model.dataset import load_file
+    from fv.render.turbo import (blade_loading_curve,
+        circumferential_average, polar_view_points)
+    ff = load_file(FPH)
+    r, z, vals = circumferential_average(ff, "PRES", "Z", 32, 32)
+    assert r is not None and vals.shape == (32, 32)
+    assert np.nanmin(vals) <= np.nanmax(vals)
+    span, dp = blade_loading_curve(ff, "PRES", "Z", 16)
+    assert len(span) == 16 and len(dp) == 16
+    assert np.all(dp >= 0)
+    rt = polar_view_points(ff, "Z")
+    assert rt.shape == (ff.n_vertices, 2)
+    assert np.all(rt[:, 0] >= 0)
+
+
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
 def test_ifld_metadata_scan():
     """scan_ifld returns counts/variables without loading arrays (D3)."""

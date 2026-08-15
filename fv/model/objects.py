@@ -492,6 +492,7 @@ class TurboObject(PostObject):
     axis: str = "Z"
     radius: float = 0.05
     tolerance: float = 0.005
+    variable: str = ""
 
 @dataclass
 class RegionBCObject(PostObject):

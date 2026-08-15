@@ -1565,6 +1565,8 @@ class TurboDialog(ObjectSettingsPanel):
         form.addRow("Axis:", self.axis)
         self.radius = _dspin(getattr(obj, "radius", 0.05), 1e-6, 1e9, 6)
         form.addRow("Radius:", self.radius)
+        self.var = _var_combo(_scalar_vars(field_file), getattr(obj, "variable", ""))
+        form.addRow("Variable:", self.var)
         lay = QVBoxLayout(page); lay.addLayout(form); lay.addStretch(1)
         self.tabs.addTab(page, "Turbo")
 
@@ -1574,6 +1576,7 @@ class TurboDialog(ObjectSettingsPanel):
         obj.view = self.view.currentData() or "Meridional"
         obj.axis = self.axis.currentData() or "Z"
         obj.radius = float(self.radius.value())
+        obj.variable = self.var.currentData() or ""
 
 class UFODialog(ObjectSettingsPanel):
     """UFO — universal field object container (7b)."""
