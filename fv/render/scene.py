@@ -295,13 +295,15 @@ class Scene:
                         pass
 
     def animate(self, t: float, *, fps: int = 0) -> None:
-        """Advance every automove-enabled Plane to animation time ``t``.
+        """Advance automove-enabled Planes and particle frames to ``t``.
 
         ``t`` is a frame index (0-based); ``fps`` (if > 0) divides it to a
         normalised [0, 1] time via :func:`fv.render.plane.automove_coordinate`
         (which also honours ``automove_loop`` and frame counts). Each moving
         plane's ``point``/``normal`` is updated and its cut-plane actors are
-        rebuilt in place.
+        rebuilt in place. Particle objects advance to the corresponding
+        time frame of the multi-frame particle sections (P0.5), looping
+        over however many frames the file carries.
         """
         if not _HAS_VTK or self._field_file is None:
             return
@@ -310,18 +312,36 @@ class Scene:
         planes = [o for o in getattr(self._main, "children", [])
                   if getattr(o, "kind", "") == "plane"
                   and getattr(o, "automove_enabled", False)]
-        if not planes:
+        particles = [o for o in getattr(self._main, "children", [])
+                     if getattr(o, "kind", "") == "particle"]
+        if not planes and not particles:
             return
-        from .plane import automove_coordinate, build_plane_actors
-        for obj in planes:
-            point, normal = automove_coordinate(obj, t, frames=fps)
-            obj.point = tuple(point)
-            obj.normal = tuple(normal)
-            self._remove_layer_prefix("plane:")
-            actors = build_plane_actors(self._field_file, obj)
-            for key, actor in actors.items():
-                self.add_actor(f"plane:{key}", actor)
+        if planes:
+            from .plane import automove_coordinate, build_plane_actors
+            for obj in planes:
+                point, normal = automove_coordinate(obj, t, frames=fps)
+                obj.point = tuple(point)
+                obj.normal = tuple(normal)
+                self._remove_layer_prefix("plane:")
+                actors = build_plane_actors(self._field_file, obj)
+                for key, actor in actors.items():
+                    self.add_actor(f"plane:{key}", actor)
             self._apply_global_colorbar_all()
+        # Particle frames (P0.5): t selects the frame, looping over the
+        # file's frames (count recorded by build_particle_actors in meta).
+        if particles:
+            from .particle import build_particle_actors
+            n_frames = int(getattr(self._field_file, "meta", {}).get(
+                "particle_frames", 0) or 0)
+            for obj in particles:
+                if n_frames > 1:
+                    obj.frame_index = int(t) % n_frames
+                self._remove_layer_prefix("particle:")
+                actors = build_particle_actors(
+                    obj, self._field_file,
+                    frame_index=obj.frame_index if n_frames else None)
+                for key, actor in actors.items():
+                    self.add_actor(f"particle:{key}", actor)
 
     # ── overlay (File / Cycle / Time) ─────────────────────────────────────
 
@@ -636,7 +656,8 @@ class Scene:
     def _add_particle_actors(self, ff, obj) -> None:
         """Build particle actors from the file's particle sections."""
         from .particle import build_particle_actors
-        actors = build_particle_actors(obj, ff)
+        actors = build_particle_actors(obj, ff,
+                                       frame_index=getattr(obj, "frame_index", 0))
         if not actors:
             return
         for key, actor in actors.items():

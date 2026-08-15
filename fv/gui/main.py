@@ -1300,11 +1300,15 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
                        f" | Cycle={loaded.cycle} Time={loaded.time}")
                 self.status.showMessage(msg)
                 self.message_win.log(msg)
-        # Automove planes animate with the timeline slider (P3.10)
+        # Automove planes animate with the timeline slider (P3.10);
+        # particle objects advance their multi-frame time series (P0.5)
         has_auto = any(
             getattr(o, "automove_enabled", False)
             for o in getattr(self.main_object, "children", []))
-        if has_auto:
+        has_particles = any(
+            getattr(o, "kind", "") == "particle"
+            for o in getattr(self.main_object, "children", []))
+        if has_auto or has_particles:
             self.scene.animate(step)
             if self._enable_3d:
                 self._refresh_gl()

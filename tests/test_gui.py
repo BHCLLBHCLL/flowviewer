@@ -1118,6 +1118,75 @@ def test_particle_render_pipeline_scene():
     assert any(n.startswith("particle:") for n in names)
 
 
+def _synthetic_two_frame_fph(path):
+    """Write a 2-frame FPH (6 x 30-particle coordinate blocks) to *path*."""
+    import struct
+
+    import numpy as np
+
+    def coordinate(values):
+        n = values.size
+        payload = np.asarray(values, dtype=">f4").tobytes()
+        return (struct.pack(">iiii", 12, 4, n, 1)
+                + struct.pack(">ii", 12, len(payload)) + payload
+                + struct.pack(">i", len(payload)))
+
+    def section(name, *payloads):
+        body = b""
+        for pay in payloads:
+            body += (struct.pack(">ii", 12, len(pay)) + pay
+                     + struct.pack(">i", len(pay)))
+        return (struct.pack(">i", 32) + name.ljust(32).encode("ascii")
+                + struct.pack(">i", 32) + body)
+
+    rng = np.random.default_rng(21)
+    pos_blocks = [coordinate(rng.random(30)) for _ in range(6)]
+    Path(path).write_bytes(
+        b"CRDL-FLD" + section("LS_ParticlesPosition", *pos_blocks))
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+def test_particle_multiframe_animate(tmp_path):
+    """P0.5: frame_index selects the frame; Scene.animate advances it."""
+    from types import SimpleNamespace
+
+    import numpy as np
+    from vtk.util import numpy_support as vns
+
+    from fv.model.objects import ParticleObject
+    from fv.render import particle as pr
+    from fv.render.scene import Scene
+
+    fph = tmp_path / "two_frames.fph"
+    _synthetic_two_frame_fph(fph)
+    ff = SimpleNamespace(path=str(fph), meta={})
+    obj = ParticleObject(index=1)
+
+    a0 = pr.build_particle_actors(obj, ff, frame_index=0)
+    a1 = pr.build_particle_actors(obj, ff, frame_index=1)
+    assert ff.meta["particle_frames"] == 2
+    assert "particle" in a0 and "particle" in a1
+
+    def points(actor):
+        poly = actor.GetMapper().GetInput()
+        return vns.vtk_to_numpy(poly.GetPoints().GetData())
+
+    p0, p1 = points(a0["particle"]), points(a1["particle"])
+    assert p0.shape == (30, 3) and p1.shape == (30, 3)
+    assert not np.allclose(p0, p1)  # frame 1 differs from frame 0
+
+    # Scene.animate advances the particle object's frame (headless scene)
+    s = Scene(enable_3d=False)
+    s._field_file = ff
+    s._main = SimpleNamespace(children=[obj])
+    s.animate(1)
+    assert obj.frame_index == 1
+    assert any(n.startswith("particle:") for n in s.actor_names())
+    # out-of-range frame index loops back into [0, n_frames)
+    s.animate(2)
+    assert obj.frame_index == 0
+
+
 @pytest.mark.skipif(not _HAS_QT, reason="PyQt5 unavailable")
 def test_new_object_dialogs_tabs_and_apply(qapp):
     """Isosurface/Point/Streamline/Volume/Colorbar dialog tabs + apply_to."""

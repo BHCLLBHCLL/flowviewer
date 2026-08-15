@@ -295,6 +295,8 @@ class ParticleObject(PostObject):
     use_model_coord: bool = True
     special_cloth: bool = False
     special_variable_generalization: bool = False
+    # Multi-frame animation (P0.5): current particle time frame
+    frame_index: int = 0
 
 
 @dataclass

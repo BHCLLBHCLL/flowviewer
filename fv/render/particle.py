@@ -12,31 +12,46 @@ import numpy as np
 import vtk
 from vtk.util import numpy_support as _vns
 
-from ..crdl.fields import parse_particles, parse_particle_variables
+from ..crdl.fields import (
+    parse_particle_frames,
+    parse_particle_variable_frames,
+)
 from ..model.objects import ParticleObject
 
 
 def build_particle_actors(obj: ParticleObject,
-                          ff) -> dict[str, vtk.vtkActor]:
+                          ff,
+                          frame_index: Optional[int] = None,
+                          ) -> dict[str, vtk.vtkActor]:
     """Build particle actors -> {'particle': ..., 'vector': ...}.
 
     Reads positions/velocities directly from the FieldFile buffer
-    (ff.path), colouring the points by scalar attribute when
-    requested.  The vector variable follows 'obj.vector_var' (default
-    VELP) and the scalar variable 'obj.scalar_var' selects a particle
-    variable magnitude / component when given (P0.4).
+    (ff.path). ``frame_index`` selects a time frame from the multi-frame
+    particle sections (P0.5); the total frame count is recorded on
+    ``ff.meta['particle_frames']`` so ``Scene.animate`` can loop. The
+    vector variable follows 'obj.vector_var' (default VELP) and the
+    scalar variable 'obj.scalar_var' selects a particle variable
+    magnitude / component when given (P0.4).
     """
     with open(ff.path, "rb") as fh:
         data = fh.read()
-    parsed = parse_particles(data)
-    if parsed is None:
+    frames = parse_particle_frames(data)
+    if not frames:
         return {}
-    positions, _ = parsed
+    n_frames = len(frames)
+    try:
+        ff.meta["particle_frames"] = n_frames
+    except Exception:
+        pass
+    fi = 0 if frame_index is None else int(frame_index) % n_frames
+    positions, frame_vel = frames[fi]
 
     if positions.shape[0] == 0:
         return {}
 
-    pvars = parse_particle_variables(data)
+    pvars = {var: (fr[fi] if fi < len(fr) else fr[-1])
+             for var, fr in parse_particle_variable_frames(data).items()
+             if fr}
     # Vector selection: obj.vector_var, falling back to VELP
     velocities = None
     if obj.show_vector:
@@ -45,6 +60,8 @@ def build_particle_actors(obj: ParticleObject,
             velocities = pvars[want]
         elif "VELP" in pvars:
             velocities = pvars["VELP"]
+        elif frame_vel is not None and np.linalg.norm(frame_vel) > 0:
+            velocities = frame_vel
 
     # Intersection + trim filtering (G3/E2)
     positions, _sel = _filter_intersections(positions, obj)
