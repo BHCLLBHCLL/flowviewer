@@ -369,7 +369,7 @@ class Scene:
             self._layer_actors["surface"] = ["surface_1"]
             self._layer_actors["plane"] = ["plane_1"]
             for kind in ("isosurface", "point", "streamline", "volume",
-                         "colorbar", "light", "pathline", "cylinder", "circle", "text", "bitmap", "information", "mirror", "curve", "periodical", "bar", "gradation", "turbo", "region"):
+                         "colorbar", "light", "pathline", "cylinder", "circle", "text", "bitmap", "information", "mirror", "curve", "periodical", "bar", "gradation", "turbo", "region", "ufo"):
                 if any(o.kind == kind for o in
                        getattr(main, "children", []) or []):
                     self._layer_actors[kind] = [f"{kind}_1"]
@@ -446,6 +446,8 @@ class Scene:
             self._add_turbo_actor(ff, obj)
         elif obj.kind == "region":
             self._add_region_actor(ff, obj)
+        elif obj.kind == "ufo":
+            self._add_ufo_actor(ff, obj)
         # timeseries / maxmin / graph / grouping / measure / folder / regionbc
         # are dialog-only (no scene actors).
 
@@ -698,6 +700,15 @@ class Scene:
             actor.GetProperty().SetOpacity(0.5)
         self.add_actor("region", actor)
         self.register_actor_object(actor, "region", obj)
+
+    def _add_ufo_actor(self, ff, obj) -> None:
+        """UFO generic point-cloud scatter (7b)."""
+        from .ufo import build_ufo_actors
+        actors = build_ufo_actors(ff, obj)
+        for key, actor in actors.items():
+            self.add_actor(f"ufo:{key}", actor)
+            if not isinstance(actor, str):
+                self.register_actor_object(actor, "ufo", obj)
 
     def _add_bar_actor(self, ff, obj) -> None:
         """Bar line coloured by a sampled variable (A4)."""

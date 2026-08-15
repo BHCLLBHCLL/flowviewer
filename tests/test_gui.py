@@ -2668,6 +2668,51 @@ def test_dispatch_routes_turbo_region():
     sc._dispatch_object(ff, RegionObject(index=1))
     assert calls == ["turbo", "region"]
 
+def test_ufo_points_values():
+    """UFO resolves external points/values, a variable, or all vertices (2)."""
+    import numpy as np
+    from fv.model.dataset import load_file
+    from fv.model.objects import UFOObject
+    from fv.render.ufo import ufo_points_values
+    ff = load_file(FPH)
+    u = UFOObject(index=1)
+    # fallback: all vertices, no scalar
+    pts, vals = ufo_points_values(ff, u)
+    assert pts.shape == (ff.n_vertices, 3) and vals is None
+    # colour-by cell-centred variable -> cell centres
+    u.variable = "PRES"
+    pts, vals = ufo_points_values(ff, u)
+    assert pts.shape == (ff.n_cells, 3) and vals.shape == (ff.n_cells,)
+    # external point set + values
+    u.data = {"points": np.array([[0,0,0],[1,0,0]]), "values": np.array([1.0, 2.0])}
+    pts, vals = ufo_points_values(ff, u)
+    assert pts.shape == (2, 3) and vals.tolist() == [1.0, 2.0]
+
+def test_dispatch_routes_ufo():
+    """_dispatch_object wires ufo to _add_ufo_actor (fix 2)."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import UFOObject
+    from fv.render.scene import Scene
+    ff = load_file(FPH)
+    sc = Scene(enable_3d=False)
+    calls = []
+    sc._add_ufo_actor = lambda f, o: calls.append("ufo")
+    sc._dispatch_object(ff, UFOObject(index=1))
+    assert calls == ["ufo"]
+
+def test_ufo_dialog(qapp):
+    """UFODialog writes variable/point_size/color back (2)."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import UFOObject
+    from fv.gui.object_dialogs2 import UFODialog
+    ff = load_file(FPH)
+    u = UFOObject(index=1)
+    d = UFODialog(u, field_file=ff)
+    d.variable.setCurrentIndex(d.variable.findData("PRES"))
+    d.psize.setValue(6.0)
+    d.apply_to(u)
+    assert u.variable == "PRES"
+    assert u.point_size == 6.0
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_limited_plane_clip():

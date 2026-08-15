@@ -1713,7 +1713,7 @@ class TurboDialog(ObjectSettingsPanel):
         obj.variable = self.var.currentData() or ""
 
 class UFODialog(ObjectSettingsPanel):
-    """UFO — universal field object container (7b)."""
+    """UFO — universal field object (point cloud) settings (7b)."""
 
     def __init__(self, obj, field_file=None, parent=None):
         super().__init__(getattr(obj, "label", "UFO"), parent)
@@ -1721,14 +1721,31 @@ class UFODialog(ObjectSettingsPanel):
             self.obj = obj
             return
         self.obj = obj
+        self.field_file = field_file
         page = QWidget(self)
-        lay = QVBoxLayout(page)
-        lay.addWidget(QLabel("UFO is a generic data container.", page))
-        lay.addWidget(QLabel("flowviewer approximates it with Grouping /", page))
-        lay.addWidget(QLabel("Folder for object organisation.", page))
+        form = QFormLayout()
+        self.variable = QComboBox(page)
+        self.variable.addItem("(none)", "")
+        for n in _scalar_vars(field_file):
+            self.variable.addItem(n, n)
+        idx = self.variable.findData(getattr(obj, "variable", ""))
+        if idx >= 0:
+            self.variable.setCurrentIndex(idx)
+        form.addRow("Colour by:", self.variable)
+        self.psize = _dspin(getattr(obj, "point_size", 3.0), 0.5, 50.0, 1)
+        form.addRow("Point size:", self.psize)
+        self.color = _ColorButton(getattr(obj, "color", (0.2, 0.2, 0.8)), page)
+        form.addRow("Color:", self.color)
+        lay = QVBoxLayout(page); lay.addLayout(form)
+        lay.addWidget(QLabel("UFO renders as a point cloud:", page))
+        lay.addWidget(QLabel("- external data points/values, or", page))
+        lay.addWidget(QLabel("- a field-file variable at nodes.", page))
         lay.addStretch(1)
         self.tabs.addTab(page, "UFO")
 
     def apply_to(self, obj) -> None:
         if not _HAS_QT:
             return
+        obj.variable = self.variable.currentData() or ""
+        obj.point_size = float(self.psize.value())
+        obj.color = self.color.rgb()

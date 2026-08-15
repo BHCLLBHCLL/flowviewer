@@ -480,11 +480,14 @@ class RegionObject(PostObject):
 
 @dataclass
 class UFOObject(PostObject):
-    """Universal field object container (scPOST UFO, 7b)."""
+    """Universal field object (scPOST UFO, 7b) — generic point cloud."""
 
     kind: str = "ufo"
     title: str = "UFO"
-    data: dict = field(default_factory=dict)
+    data: dict = field(default_factory=dict)   # optional {"points":Nx3, "values":N}
+    variable: str = ""                          # colour-by variable at nodes
+    point_size: float = 3.0
+    color: tuple = (0.2, 0.2, 0.8)
 
 @dataclass
 class TurboObject(PostObject):
