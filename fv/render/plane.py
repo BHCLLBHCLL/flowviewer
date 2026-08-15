@@ -354,15 +354,9 @@ def contour_actor(pd, scalar_array_name: str, obj,
         opacity = 0.5
     if obj.contour_water:
         opacity = min(opacity, 0.65)
-        prop.SetSpecular(0.9)
-        prop.SetSpecularPower(60.0)
-        prop.SetInterpolationToGouraud()
-    if obj.contour_luster:
-        prop.SetSpecular(0.5)
-        prop.SetSpecularPower(20.0)
     prop.SetOpacity(opacity)
-    if not (obj.contour_water or obj.contour_luster):
-        prop.SetInterpolationToPhong()
+    from .material import apply_sheen
+    apply_sheen(prop, bool(obj.contour_luster), bool(obj.contour_water))
     return actor
 
 

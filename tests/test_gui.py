@@ -1465,6 +1465,32 @@ def test_surface_luster_water_material():
     ma = mesh_lines_actor(pd, obj2)
     assert abs(ma.GetProperty().GetSpecular() - 0.9) < 1e-6
 
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_plane_contour_sheen_unified_p14():
+    """P1.4: plane contour actors use material.apply_sheen (Phong)."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import PlaneObject
+    from fv.render import plane as rp
+    ff = load_file(FPH)
+    obj = PlaneObject(index=1)
+    obj.show_contour = True
+    obj.contour_var = "PRES"
+    obj.contour_water = True
+    out = rp.build_plane_actors(ff, obj)
+    assert "contour" in out
+    p = out["contour"].GetProperty()
+    assert abs(p.GetSpecular() - 0.9) < 1e-6
+    # unified helper keeps Phong everywhere (inline path used Gouraud)
+    assert p.GetInterpolation() == 2  # VTK_PHONG
+    obj.contour_water = False
+    obj.contour_luster = True
+    out = rp.build_plane_actors(ff, obj)
+    p = out["contour"].GetProperty()
+    assert abs(p.GetSpecular() - 0.5) < 1e-6
+    assert p.GetInterpolation() == 2
+
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
 def test_pathline_multi_cycle(tmp_path):
