@@ -981,14 +981,19 @@ class MirrorCopyDialog(ObjectSettingsPanel):
         self.obj = obj
         page = QWidget(self)
         form = QFormLayout()
-        self.source = QComboBox(page)
+        self.source = QListWidget(page)
+        self.source.setSelectionMode(QAbstractItemView.MultiSelection)
+        self.source.setMaximumHeight(90)
+        selected = set(getattr(obj, "source_labels", []) or [])
+        if getattr(obj, "source_label", ""):
+            selected.add(getattr(obj, "source_label", ""))
         for s in siblings or []:
             if getattr(s, "kind", "") == "surface":
-                self.source.addItem(getattr(s, "label", ""), s.label)
-        idx = self.source.findData(getattr(obj, "source_label", ""))
-        if idx >= 0:
-            self.source.setCurrentIndex(idx)
-        form.addRow("Source surface:", self.source)
+                it = QListWidgetItem(getattr(s, "label", ""))
+                self.source.addItem(it)
+                if getattr(s, "label", "") in selected:
+                    it.setSelected(True)
+        form.addRow("Source surface(s):", self.source)
         self.plane = QComboBox(page)
         for pl in ("YZ", "ZX", "XY"):
             self.plane.addItem(pl, pl)
@@ -1005,7 +1010,10 @@ class MirrorCopyDialog(ObjectSettingsPanel):
     def apply_to(self, obj) -> None:
         if not _HAS_QT:
             return
-        obj.source_label = self.source.currentData() or ""
+        labels = [self.source.item(i).text() for i in range(self.source.count())
+                  if self.source.item(i).isSelected()]
+        obj.source_labels = labels
+        obj.source_label = labels[0] if labels else ""
         obj.mirror_plane = self.plane.currentData() or "YZ"
         obj.color = self.color.rgb()
         obj.transparent = self.transp.isChecked()
@@ -1278,14 +1286,19 @@ class PeriodicalCopyDialog(ObjectSettingsPanel):
         self.obj = obj
         page = QWidget(self)
         form = QFormLayout()
-        self.source = QComboBox(page)
+        self.source = QListWidget(page)
+        self.source.setSelectionMode(QAbstractItemView.MultiSelection)
+        self.source.setMaximumHeight(90)
+        selected = set(getattr(obj, "source_labels", []) or [])
+        if getattr(obj, "source_label", ""):
+            selected.add(getattr(obj, "source_label", ""))
         for s in siblings or []:
             if getattr(s, "kind", "") == "surface":
-                self.source.addItem(getattr(s, "label", ""), s.label)
-        idx = self.source.findData(getattr(obj, "source_label", ""))
-        if idx >= 0:
-            self.source.setCurrentIndex(idx)
-        form.addRow("Source surface:", self.source)
+                it = QListWidgetItem(getattr(s, "label", ""))
+                self.source.addItem(it)
+                if getattr(s, "label", "") in selected:
+                    it.setSelected(True)
+        form.addRow("Source surface(s):", self.source)
         self.axis = QComboBox(page)
         for a in ("X", "Y", "Z"):
             self.axis.addItem(a, a)
@@ -1305,7 +1318,10 @@ class PeriodicalCopyDialog(ObjectSettingsPanel):
     def apply_to(self, obj) -> None:
         if not _HAS_QT:
             return
-        obj.source_label = self.source.currentData() or ""
+        labels = [self.source.item(i).text() for i in range(self.source.count())
+                  if self.source.item(i).isSelected()]
+        obj.source_labels = labels
+        obj.source_label = labels[0] if labels else ""
         obj.axis = self.axis.currentData() or "Z"
         obj.copies = int(self.copies.value())
         obj.color = self.color.rgb()

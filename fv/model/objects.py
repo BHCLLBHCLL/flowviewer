@@ -596,6 +596,7 @@ class PeriodicalCopyObject(PostObject):
     kind: str = "periodical"
     title: str = "Periodical Copy"
     source_label: str = ""
+    source_labels: list = field(default_factory=list)  # multi-source (8)
     axis: str = "Z"
     axis_point: tuple = (0.0, 0.0, 0.0)
     copies: int = 6
@@ -610,6 +611,7 @@ class MirrorCopyObject(PostObject):
     kind: str = "mirror"
     title: str = "Mirror Copy"
     source_label: str = ""
+    source_labels: list = field(default_factory=list)  # multi-source (8)
     mirror_plane: str = "YZ"              # YZ | ZX | XY (normal axis X|Y|Z)
     keep_original: bool = True
     color: tuple = (0.4, 0.4, 0.4)

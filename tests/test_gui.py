@@ -2179,6 +2179,25 @@ def test_periodical_copy():
     assert build_periodical_actors(ff, PeriodicalCopyObject(index=2),
                                    siblings=[surf]) == {}
 
+def test_mirror_periodical_multi_source_dialog(qapp):
+    """Mirror/Periodical dialogs select multiple source surfaces (8)."""
+    from fv.model.objects import MirrorCopyObject, PeriodicalCopyObject
+    from fv.gui.object_dialogs2 import MirrorCopyDialog, PeriodicalCopyDialog
+    sibs = [type("S", (), {"kind": "surface", "label": "Surface (1)"})(),
+            type("S", (), {"kind": "surface", "label": "Surface (2)"})()]
+    m = MirrorCopyObject(index=1)
+    d = MirrorCopyDialog(m, siblings=sibs)
+    for i in range(d.source.count()):
+        d.source.item(i).setSelected(True)
+    d.apply_to(m)
+    assert m.source_labels == ["Surface (1)", "Surface (2)"]
+    assert m.source_label == "Surface (1)"
+    p = PeriodicalCopyObject(index=1)
+    d2 = PeriodicalCopyDialog(p, siblings=sibs)
+    d2.source.item(0).setSelected(True)
+    d2.apply_to(p)
+    assert p.source_labels == ["Surface (1)"]
+    assert p.source_label == "Surface (1)"
 
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
 def test_delx_difference():
