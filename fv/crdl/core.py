@@ -33,6 +33,7 @@ SECTION_BOUNDARY_NAMES = [
     "LS_CoordinateSystem",
     "LS_CvolIdOfElements", "LS_Links", "LS_Nodes", "LS_SurfaceRegions",
     "LS_SolverUnusedRegions", "LS_VolumeRegions", "LS_Parts",
+    "LS_ParticlesPosition", "LS_ParticleV:VELP",
     "LS_Assemblies", "LS_SPHFile", "Element_InformationFlag",
     "LS_MatOfElements", "LS_Elements", "LS_VolumeGeometryArray",
     "LS_SurfaceGeometryArray", "LS_SFile", "Pressure", "Temperature",

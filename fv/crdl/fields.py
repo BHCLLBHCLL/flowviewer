@@ -85,53 +85,107 @@ def has_particle_results(data) -> bool:
     return False
 
 
-def parse_particles(data) -> Optional[tuple[np.ndarray, np.ndarray]]:
-    """Parse scFLOW particle sections → ``(positions, velocities)`` as
-    ``(N, 3)`` float64 arrays, or ``None`` when the file has none.
+def _particle_frame_blocks(data, sec_start: int, boundary: int) -> list[np.ndarray]:
+    """Coordinate arrays inside a particle section.
 
-    Layout (both sections share it): a 40-byte section header, then a few
-    ``[12][4][..]`` descriptors, then one ``[12][200]`` payload block per
-    coordinate (50 float32). ``LS_ParticlesPosition`` carries X/Y/Z,
-    ``LS_ParticleV:VELP`` (a nested section) carries VX/VY/VZ.
+    Layout: ``[12][4][N][1]`` descriptor (N = particles per coordinate;
+    followed by one ``[12][4N]`` float32 payload block.  One coordinate
+    array per block; consecutive equal-length arrays form X/Y/Z triplets
+    (one triplet per time frame).  Works for any N, so particle counts
+    beyond 50 accumulate instead of truncating.
+    """
+    out: list[np.ndarray] = []
+    pos = sec_start + 40
+    end = min(boundary, len(data))
+    while pos + 16 <= end:
+        if read_i32_be(data, pos) != 12:
+            pos += 4
+            continue
+        a = read_i32_be(data, pos + 4)
+        n0 = read_i32_be(data, pos + 8)
+        n1 = read_i32_be(data, pos + 12)
+        if a == 4 and n1 == 1 and 2 <= n0 <= 10_000_000:
+            plen = n0 * 4
+            p2 = pos + 16
+            if (p2 + 8 + plen + 4 <= end
+                    and read_i32_be(data, p2) == 12
+                    and read_i32_be(data, p2 + 4) == plen):
+                out.append(f32_be_array(data, p2 + 8, n0))
+                pos = p2 + 8 + plen + 4
+                continue
+        pos += 4
+    return out
+
+
+def _frames_from_blocks(blocks: list[np.ndarray]
+                        ) -> list[tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    """Group consecutive equal-length blocks into X/Y/Z frames.
+
+    Returns ``[(x, y, z), ...]``.  A trailing partial triplet is dropped.
+    """
+    frames: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
+    k = 0
+    while k + 2 < len(blocks):
+        a, b, c = blocks[k], blocks[k + 1], blocks[k + 2]
+        if a.size == b.size == c.size and a.size > 0:
+            frames.append((a, b, c))
+            k += 3
+        else:
+            k += 1
+    return frames
+
+
+def parse_particle_frames(data) -> list[tuple[np.ndarray, np.ndarray]]:
+    """All particle time frames → ``[(positions (N,3), velocities (N,3)), ...]``.
+
+    ``LS_ParticlesPosition`` frames are matched with ``LS_ParticleV:VELP``
+    frames by index; missing velocity frames fall back to zeros.  Empty
+    list when the file has no particle results.
     """
     pos_sec = find_section(data, "LS_ParticlesPosition")
     if pos_sec < 0:
-        return None
+        return []
+    pos_end = section_end(data, pos_sec)
     vel_sec = find_section(data, "LS_ParticleV:VELP")
+    vel_end = len(data)
 
-    def _coords(sec_start: int, boundary: int) -> Optional[np.ndarray]:
-        if sec_start < 0:
-            return None
-        comps: list[np.ndarray] = []
-        for p, bc in iter_data_blocks(data, sec_start, boundary):
-            if bc == 200 and p + bc <= boundary:
-                comps.append(f32_be_array(data, p, bc // 4))
-            if len(comps) == 3:
-                break
-        if len(comps) != 3 or any(a.size == 0 for a in comps):
-            return None
-        return np.column_stack(comps).astype(np.float64)
+    pos_frames = _frames_from_blocks(
+        _particle_frame_blocks(data, pos_sec, pos_end))
+    if not pos_frames:
+        return []
+    if vel_sec >= 0:
+        vel_frames = _frames_from_blocks(
+            _particle_frame_blocks(data, vel_sec, vel_end))
+    else:
+        vel_frames = []
 
-    end = section_end(data, pos_sec)
-    vel_boundary = len(data)
-    positions = _coords(pos_sec, end)
-    velocities = _coords(vel_sec, vel_boundary)
-    if velocities is None:
-        velocities = np.zeros_like(positions)
-    if velocities.shape != positions.shape:
-        velocities = np.zeros_like(positions)
-    return positions, velocities
+    out: list[tuple[np.ndarray, np.ndarray]] = []
+    for i, (x, y, z) in enumerate(pos_frames):
+        positions = np.column_stack([x, y, z]).astype(np.float64)
+        if i < len(vel_frames):
+            vx, vy, vz = vel_frames[i]
+            velocities = np.column_stack([vx, vy, vz]).astype(np.float64)
+        else:
+            velocities = np.zeros_like(positions)
+        out.append((positions, velocities))
+    return out
 
 
-def parse_particle_variables(data) -> dict:
-    """Every 'LS_ParticleV:<var>' nested section -> {var: (N,3)}.
+def parse_particles(data) -> Optional[tuple[np.ndarray, np.ndarray]]:
+    """First particle frame → ``(positions (N,3), velocities (N,3))``.
 
-    Each nested section follows the usual [I4=32][32B name][I4=32][body]
-    layout; the body holds three [12][200] (50 float32) coordinate
-    blocks like 'LS_ParticlesPosition'.  Returns {} when the file
-    has no particle variables.
+    Backward-compatible single-frame entry point; use
+    :func:`parse_particle_frames` for every time frame.
     """
-    out: dict = {}
+    frames = parse_particle_frames(data)
+    if not frames:
+        return None
+    return frames[0]
+
+
+def parse_particle_variable_frames(data) -> dict[str, list[np.ndarray]]:
+    """Every 'LS_ParticleV:<var>' nested section -> {var: [frame (N,3), ...]}."""
+    out: dict[str, list[np.ndarray]] = {}
     marker = b"LS_ParticleV:"
     pos = 0
     while True:
@@ -151,15 +205,22 @@ def parse_particle_variables(data) -> dict:
         var = name[len("LS_ParticleV:"):].strip()
         sec_start = idx - 4
         sec_end = section_end(data, sec_start)
-        comps = []
-        for p, bc in iter_data_blocks(data, sec_start, sec_end):
-            if bc == 200 and p + bc <= sec_end:
-                comps.append(f32_be_array(data, p, bc // 4))
-            if len(comps) == 3:
-                break
-        if len(comps) == 3 and all(a.size for a in comps):
-            out[var] = np.column_stack(comps).astype(np.float64)
+        frames = [np.column_stack(c).astype(np.float64)
+                  for c in _frames_from_blocks(
+                      _particle_frame_blocks(data, sec_start, sec_end))]
+        if frames:
+            out[var] = frames
     return out
+
+
+def parse_particle_variables(data) -> dict:
+    """Every 'LS_ParticleV:<var>' nested section -> {var: first-frame (N,3)}.
+
+    Backward-compatible single-frame entry point; use
+    :func:`parse_particle_variable_frames` for every time frame.
+    """
+    return {var: frames[0] for var, frames
+            in parse_particle_variable_frames(data).items() if frames}
 
 
 def parse_fph_flow_solution(data, n_cells: int) -> dict[str, np.ndarray]:
