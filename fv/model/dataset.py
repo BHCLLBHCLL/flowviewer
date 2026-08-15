@@ -190,6 +190,24 @@ def neutral_load(filepath: str) -> FieldFile:
     ff.file_size = mesh["vertices"].nbytes
     return ff
 
+
+def marc_load(filepath: str) -> FieldFile:
+    """Marc/Mentat .dat mesh loader (3)."""
+    from ..crdl.marc import parse_marc
+    path = Path(filepath)
+    mesh = parse_marc(str(path))
+    if mesh is None:
+        raise ValueError("not a readable Marc .dat mesh: " + filepath)
+    ff = FieldFile(path=str(path), kind="marc")
+    ff.vertices = mesh["vertices"]
+    ff.n_vertices = mesh["n_vertices"]
+    ff.cell_conn = mesh["cell_conn"]
+    ff.cell_types = mesh["cell_types"]
+    ff.n_cells = mesh["n_cells"]
+    ff.volume_regions = mesh["volume_regions"]
+    ff.file_size = mesh["vertices"].nbytes
+    return ff
+
 def _register_loaders() -> None:
     """Advertise the real parsers in :mod:`fv.model.loaders` registry."""
     try:
@@ -207,6 +225,7 @@ def _register_loaders() -> None:
         loaders.register("obj", neutral_load)
         loaders.register("stl", neutral_load)
         loaders.register("neu", neutral_load)
+        loaders.register("dat", marc_load)
     except Exception:  # pragma: no cover - registry is best-effort
         pass
 

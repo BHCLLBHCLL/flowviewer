@@ -2544,6 +2544,29 @@ def test_fph_cell_difference():
     assert np.abs(nz - 1.0).max() < 0.3
 
 
+def test_marc_reader(tmp_path):
+    """Marc .dat free text mesh parses (3)."""
+    from fv.model.dataset import marc_load
+    dat = tmp_path / "box.dat"
+    lines = [
+        "$ sample Marc input",
+        "1,0.0,0.0,0.0",
+        "2,1.0,0.0,0.0",
+        "3,1.0,1.0,0.0",
+        "4,0.0,1.0,0.0",
+        "5,0.0,0.0,1.0",
+        "6,1.0,0.0,1.0",
+        "7,1.0,1.0,1.0",
+        "8,0.0,1.0,1.0",
+        "1,7,1,2,3,4,5,6,7,8",
+    ]
+    dat.write_text("\n".join(lines), encoding="utf-8")
+    ff = marc_load(str(dat))
+    assert ff.kind == "marc"
+    assert ff.n_vertices == 8 and ff.n_cells == 1
+    assert ff.cell_types.tolist() == [12]
+
+
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_export_animation_frames_headless(tmp_path):
