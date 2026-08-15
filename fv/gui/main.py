@@ -315,6 +315,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         m.addSeparator()
         add(m, "Iso Metric", self.on_iso_metric, "I")
         add(m, "Compare", self.on_compare_view)
+        add(m, "VR Mode", self.on_vr_mode)
         m.addSeparator()
         self._act_view_msg = QAction("Message Window", self, checkable=True)
         self._act_view_msg.setChecked(True)
@@ -794,6 +795,22 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._refresh_gl()
         self.message_win.log("View: Iso Metric")
 
+    def on_vr_mode(self) -> None:
+        """View → VR Mode: open a VR render window when a backend exists (7d)."""
+        from ..render.vr import create_vr_window, release_vr_window, vr_backend
+        backend = vr_backend()
+        if backend == "none":
+            self.message_win.log(
+                "VR: no OpenVR/VR backend (install vtk + SteamVR)", "WARN")
+            return
+        handle = create_vr_window(background=(0.1, 0.1, 0.1))
+        if handle is None:
+            self.message_win.log(
+                "VR: backend reported but window construction failed", "WARN")
+            return
+        self._vr_handle = handle
+        self.message_win.log(
+            f"VR: {backend} window created (HMD driver required to render)")
     def on_compare_view(self) -> None:
         """View → Compare: side-by-side snapshot of the two last datasets."""
         if len(self.datasets) < 2:

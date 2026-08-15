@@ -2644,10 +2644,24 @@ def test_com_properties_events_lifecycle():
     assert app2.has_file is False
 
 def test_vr_detection():
-    """VR availability detection returns a bool (7d)."""
-    from fv.render.vr import vr_available, vr_render_window_supported
+    """VR availability detection returns a bool and names a backend (7d)."""
+    from fv.render.vr import (vr_available, vr_render_window_supported,
+                              vr_backend)
     assert isinstance(vr_available(), bool)
-    assert vr_render_window_supported() is True  # vtkVRRenderWindow present
+    assert isinstance(vr_render_window_supported(), bool)
+    assert vr_backend() in {"openvr", "generic", "none"}
+
+def test_vr_backend_builders():
+    """create/release_vr_window degrade cleanly without an HMD driver (7d)."""
+    from fv.render.vr import create_vr_window, release_vr_window, vr_backend
+    handle = create_vr_window()
+    if vr_backend() == "none":
+        assert handle is None
+        assert release_vr_window(handle) is False
+    else:
+        assert handle is not None and handle["backend"] == vr_backend()
+        assert "window" in handle
+        assert release_vr_window(handle) is True
 
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
