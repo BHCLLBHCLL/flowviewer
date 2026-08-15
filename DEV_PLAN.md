@@ -934,3 +934,31 @@ VR 后端构建在无 HMD 驱动时优雅返回 None。
     `test_com_typelib` 覆盖。
 
 **回归说明**：全量回归 **184 passed, 1 skipped, 0 failed**（约 15.5 分钟，vtk 9.3.1）。
+
+
+## 23. 第六轮改进：P0–P3 数据/变量/管理/分析层 + P4 环境边界（2026-08-09）
+
+| 项 | 提交 | 说明 |
+|---|---|---|
+| P0.1 create_object 全 kind | 794886b | api.create_object 覆盖 32 种对象（补齐 curve/periodical/bar/regionbc/gradation/camera/region/turbo/ufo/folder/light/measure） |
+| P0.2 拓扑查询 | e700dbb | fv/model/topology.py：node_count/element_count/node_xyz/nodes_of_element/faces_of_cell/cells_of_face/face_nodes/elements_of_region/nodes_of_region/nodes_of_surface_region/area_of_face/volume_of_element（FPH LS_Links + FLD hex 面推导，含 1-based 归一） |
+| P0.3 变量查询 | 161f08d | scalar_at/vector_at/variable_range/variable_info/scalar_array/vector_array/scalar_range_by_region/region_scalar_array/surface_scalar_array |
+| P0.4 MAT/VOL/RGN 互查 | b1bd914 | material_id_at/material_ids/volume_region_names/surface_region_names/region_count/region_name/cell_volume_region_id/cells_of_part |
+| P1.1 CreateVarDST | 6d11ea4 | register_dst（壁面距离场，cKDTree 到壁面节点；FPH cell 场 / FLD 节点场）+ register_normal（NORMALX/Y/Z）+ register_combination_velocity（CMBVEL）+ delete_variable + set_variable_title |
+| P1.2 CreateVarALLCYC | 8a9a8c4 | register_var_all_cycles 跨 FileSet 逐 cycle 注册表达式变量 |
+| P2 Cycle/对象管理 | ce6c4ee | fileset.add_cycle/remove_cycle/set_cycle_operation + api.object_count/object_types/objects_by_type/object_by_number/object_by_gid/remove_object/remove_all_objects/remove_related_objects |
+| P3 POD/Clustering | 673836d | fv/model/pod.py：collect_snapshots/pod_decompose（SVD）/pod_analysis/register_pod_modes（POD_MEAN/POD_MODE_i 注册回 FieldFile） |
+
+### 23.1 P4 环境依赖边界（保持现状 + 文档）
+
+- **COM DispatchWithEvents 端到端**：typelib 已生成并随 `register_server()` 注册；
+  完整验证需管理员权限运行 `python scripts/com_events_smoke.py --register` 后
+  `--smoke <file>`（makepy 生成事件类）。未注册时走已验证的 SimpleConnection
+  /手动连接点等价路径。
+- **VR 真渲染**：代码路径完整（OpenVR/OpenXR/通用三后端 + 运行时检测 + physical_scale），
+  但 pip vtk wheel 不含 `vtkOpenVRRenderWindow`/`vtkOpenXRRenderWindow`，需要带
+  OpenVR/OpenXR SDK 的自编译 VTK + 实体头显。
+- **FBX 导出**：VTK 无 FBX 写器；保持 OBJ 降级（FBX 可用 assimp 或外部转换）。
+- **附属工具**：iFLD Trimming/Remote（现仅 scan_ifld 元数据扫描）、scConverter、
+  CradleViewer、HeatPathView 为独立工具链，不在本仓库范围。
+**回归说明**：全量回归 **194 passed, 1 skipped, 0 failed**（约 15.4 分钟，vtk 9.3.1）。
