@@ -52,6 +52,12 @@ def test_scpost_minimum_hexa_f32(samples):
     v = np.asarray(ff.vertices)
     assert abs(v[:, 0].max() - 1.0) < 1e-6  # unit hex: x in [0, 1]
     assert abs(v[:, 0].min() - 0.0) < 1e-6
+    # dense-descriptor cells: one hex (VTK 12), material 1
+    assert ff.n_cells == 1
+    cc = np.asarray(ff.cell_conn)
+    assert cc.tolist() == [[0, 1, 2, 3, 4, 5, 6, 7]]
+    assert np.asarray(ff.cell_types).tolist() == [12]
+    assert np.asarray(ff.material).tolist() == [1]
 
 
 def test_scpost_ex1_full_mesh(samples):

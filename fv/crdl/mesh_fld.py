@@ -151,6 +151,45 @@ def _parse_mixed_connectivity(data, sec_elem, sec_end, n_cells, type_codes,
     return out, ctypes
 
 
+def _parse_minimal_cells(data, sec_elem, sec_end):
+    """Descriptor-dense minimal files (minimumHexa-style).
+
+    No LS_MatOfElements data block exists; the element type (38 = hex) and
+    nodes-per-cell are carried in [12,4,type,4] / [12,4,nnodes,4]
+    descriptors, and the connectivity is one small i4 block.
+    """
+    type_code = None
+    nodes_per = None
+    pos = sec_elem + 40
+    while pos + 16 <= sec_end:
+        if read_i32_be(data, pos) == 12 and read_i32_be(data, pos + 4) == 4:
+            d0 = read_i32_be(data, pos + 8)
+            d1 = read_i32_be(data, pos + 12)
+            if d0 in (34, 35, 36, 38) and d1 == 4:
+                type_code = d0
+            elif 4 <= d0 <= 8 and d1 == 4:
+                nodes_per = d0
+        pos += 4
+    if type_code is None or nodes_per is None:
+        return None, None
+    for p, bc in iter_data_blocks(data, sec_elem, sec_end):
+        if bc % 4 != 0:
+            continue
+        total = bc // 4
+        if total % nodes_per != 0:
+            continue
+        n_cells = total // nodes_per
+        if not (1 <= n_cells <= 10_000):
+            continue
+        conn = np.frombuffer(data, dtype=">i4", count=total, offset=p)
+        conn = conn.astype(np.int64).copy().reshape(n_cells, nodes_per)
+        vtk_t = {34: 10, 35: 14, 36: 13, 38: 12}[type_code]
+        ctypes = np.full(n_cells, vtk_t, dtype=np.int64)
+        mat = np.ones(n_cells, dtype=np.int64)
+        return conn, ctypes, mat
+    return None, None
+
+
 def _parse_hex_cells(data) -> tuple[Optional[np.ndarray], Optional[np.ndarray],
                                    Optional[np.ndarray]]:
     """Return ``(cell_conn (n_cells, nn), cell_types, material_id)``.
@@ -166,6 +205,11 @@ def _parse_hex_cells(data) -> tuple[Optional[np.ndarray], Optional[np.ndarray],
     mat_blocks = list(iter_data_blocks(data, sec_mat, section_end(data, sec_mat)))
     elem_blocks = list(iter_data_blocks(data, sec_elem, section_end(data, sec_elem)))
     if not mat_blocks or not elem_blocks:
+        if not mat_blocks and elem_blocks:
+            conn, ctypes, mmat = _parse_minimal_cells(
+                data, sec_elem, section_end(data, sec_elem))
+            if conn is not None:
+                return conn, ctypes, mmat
         return None, None, None
     mat = np.frombuffer(
         data, dtype=">i4", count=mat_blocks[0][1] // 4, offset=mat_blocks[0][0],
@@ -279,11 +323,11 @@ def _build_face_list_and_bcs_inner(data, mat: np.ndarray):
     """
     sec_start = find_section(data, "LS_SurfaceGeometryArray")
     if sec_start < 0:
-        return [], []
+        return [], [], np.asarray([], dtype=np.int64)
     sec_end = section_end(data, sec_start)
     blocks = list(iter_data_blocks(data, sec_start, sec_end))
     if len(blocks) < 6:
-        return [], []
+        return [], [], np.asarray([], dtype=np.int64)
 
     meta1 = [
         read_i32_be(data, blocks[1][0] + i * 4)
