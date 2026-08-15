@@ -27,12 +27,44 @@ def _parse_ls_nodes(data) -> tuple[Optional[np.ndarray], int]:
     if sec_start < 0:
         return None, 0
     sec_end = section_end(data, sec_start)
-    f64_blocks = [(p, bc) for p, bc in iter_data_blocks(data, sec_start, sec_end)
+    blocks = list(iter_data_blocks(data, sec_start, sec_end))
+    # descriptor-guided: vertex count + element width decide the layout
+    from ..crdl.mesh_gph import ls_nodes_descriptors
+    elem_hint, n_desc = ls_nodes_descriptors(data, sec_start, sec_end)
+    if n_desc:
+        for elem, dt in ((8, ">f8"), (4, ">f4")):
+            bc_target = n_desc * elem
+            trio = [(p, bc) for p, bc in blocks if bc == bc_target][:3]
+            if len(trio) == 3:
+                axes = [
+                    np.frombuffer(data, dtype=dt, count=n_desc, offset=p)
+                    .astype(np.float64).copy()
+                    for p, _ in trio
+                ]
+                return np.column_stack(axes), n_desc
+        if elem_hint is None:
+            for elem, dt in ((8, ">f8"), (4, ">f4")):
+                bc_target = n_desc * elem
+                trio = [(p, bc) for p, bc in blocks if bc == bc_target][:3]
+                if len(trio) == 3:
+                    axes = [
+                        np.frombuffer(data, dtype=dt, count=n_desc, offset=p)
+                        .astype(np.float64).copy()
+                        for p, _ in trio
+                    ]
+                    return np.column_stack(axes), n_desc
+    # fallback: largest block size appearing >= 3 times
+    f64_blocks = [(p, bc) for p, bc in blocks
                   if bc >= 8 and bc % 8 == 0]
     if len(f64_blocks) < 3:
         return None, 0
     sizes = [bc for _, bc in f64_blocks]
-    target = max(set(sizes), key=sizes.count)
+    from collections import Counter
+    counts = Counter(sizes)
+    candidates = [s for s, c in counts.items() if c >= 3]
+    if not candidates:
+        return None, 0
+    target = max(candidates)
     trio = [(p, bc) for p, bc in f64_blocks if bc == target][:3]
     if len(trio) < 3:
         return None, 0
@@ -44,30 +76,81 @@ def _parse_ls_nodes(data) -> tuple[Optional[np.ndarray], int]:
     ]
     return np.column_stack(axes), n_vertices
 
+def _parse_ls_nodes_f32(data):
+    """f32 LS_Nodes fallback (minimumHexa-style small files)."""
+    sec_start = find_section(data, "LS_Nodes")
+    if sec_start < 0:
+        return None, 0
+    sec_end = section_end(data, sec_start)
+    f32_blocks = [(p, bc) for p, bc in iter_data_blocks(data, sec_start, sec_end)
+                  if bc >= 12 and bc % 4 == 0]
+    if len(f32_blocks) < 3:
+        return None, 0
+    from collections import Counter
+    sizes = [bc for _, bc in f32_blocks]
+    counts = Counter(sizes)
+    candidates = [s for s, c in counts.items() if c >= 3]
+    if not candidates:
+        return None, 0
+    target = max(candidates)
+    trio = [(p, bc) for p, bc in f32_blocks if bc == target][:3]
+    if len(trio) < 3:
+        return None, 0
+    n_vertices = trio[0][1] // 4
+    axes = [
+        np.frombuffer(data, dtype=">f4", count=n_vertices, offset=p)
+        .astype(np.float64).copy()
+        for p, _ in trio
+    ]
+    return np.column_stack(axes), n_vertices
 
-def _parse_hex_cells(data) -> tuple[Optional[np.ndarray], Optional[np.ndarray]]:
-    """Return ``(cell_conn (n_cells, 8), material_id (n_cells,))``."""
+
+def _parse_hex_cells(data) -> tuple[Optional[np.ndarray], Optional[np.ndarray],
+                                   Optional[np.ndarray]]:
+    """Return ``(cell_conn (n_cells, nn), cell_types, material_id)``.
+
+    Supports hex(8) / wedge(6) / pyramid(5) / tet(4) FLD variants: the
+    connectivity block is matched by ``n_cells * nnodes`` i4 words rather
+    than assuming hexahedra.
+    """
     sec_mat = find_section(data, "LS_MatOfElements")
     sec_elem = find_section(data, "LS_Elements")
     if sec_mat < 0 or sec_elem < 0:
-        return None, None
+        return None, None, None
     mat_blocks = list(iter_data_blocks(data, sec_mat, section_end(data, sec_mat)))
     elem_blocks = list(iter_data_blocks(data, sec_elem, section_end(data, sec_elem)))
     if not mat_blocks or not elem_blocks:
-        return None, None
+        return None, None, None
     mat = np.frombuffer(
         data, dtype=">i4", count=mat_blocks[0][1] // 4, offset=mat_blocks[0][0],
     ).astype(np.int64).copy()
     n_cells = mat.size
-    conn_p, conn_bc = max(elem_blocks, key=lambda b: b[1])
-    if conn_bc != n_cells * 32:
-        return None, None
-    conn = np.frombuffer(
-        data, dtype=">i4", count=conn_bc // 4, offset=conn_p,
-    ).astype(np.int64).copy()
-    if conn.size % 8 != 0:
-        return None, None
-    return conn.reshape(-1, 8), mat
+    if n_cells == 0:
+        return None, None, None
+    _NN_TO_VTK = {4: 10, 5: 14, 6: 13, 8: 12}
+    for p, bc in sorted(elem_blocks, key=lambda b: -b[1]):
+        if bc % 4 != 0:
+            continue
+        total = bc // 4
+        if total % n_cells != 0:
+            continue
+        nn = total // n_cells
+        if nn not in _NN_TO_VTK:
+            continue
+        arr = np.frombuffer(data, dtype=">i4", count=total, offset=p)
+        conn = arr.astype(np.int64).copy().reshape(n_cells, nn)
+        # pure-hex grids keep cell_types = None (legacy fast path);
+        # mixed / non-hex grids carry explicit VTK type codes
+        ctypes = None if nn == 8 else np.full(n_cells, _NN_TO_VTK[nn],
+                                              dtype=np.int64)
+        return conn, ctypes, mat
+    # legacy: hex-only path (conn == n_cells * 32 bytes)
+    for p, bc in sorted(elem_blocks, key=lambda b: -b[1]):
+        if bc == n_cells * 32:
+            conn = np.frombuffer(data, dtype=">i4", count=bc // 4, offset=p)
+            conn = conn.astype(np.int64).copy().reshape(-1, 8)
+            return conn, np.full(n_cells, 12, dtype=np.int64), mat
+    return None, None, mat
 
 
 def _f64_field_blocks(data, section_name: str) -> list[np.ndarray]:
@@ -118,9 +201,22 @@ def _filter_by_mat(quads, arr3_slice: np.ndarray, mat: np.ndarray, material: int
 
 
 def _build_face_list_and_bcs(data, mat: np.ndarray):
-    """Build the NGON face list and BC index ranges.
+    """Build the NGON face list and BC index ranges (best-effort).
 
-    Returns ``(faces, bc_plan)`` where each BC entry is
+    The block layout differs between hex and tet FLD variants; when the
+    expected layout does not match, fall back to an empty face list so the
+    mesh itself still loads.
+    """
+    try:
+        return _build_face_list_and_bcs_inner(data, mat)
+    except Exception:
+        return [], [], np.asarray([], dtype=np.int64)
+
+
+def _build_face_list_and_bcs_inner(data, mat: np.ndarray):
+    """Layout-specific NGON face list and BC index ranges.
+
+    Returns ``(faces, bc_plan, face_cells)`` where each BC entry is
     ``(name, start_index_0based, count)`` into *faces*.
     """
     sec_start = find_section(data, "LS_SurfaceGeometryArray")
@@ -158,8 +254,10 @@ def _build_face_list_and_bcs(data, mat: np.ndarray):
         slices.append(slice(off, off + c))
         off += c
 
-    mat1_idx = [i for i in range(len(arr3)) if mat[arr3[i] - 1] == 1]
-    mat2_idx = [i for i in range(len(arr3)) if mat[arr3[i] - 1] == 2]
+    mat1_idx = [i for i in range(len(arr3))
+                if i < len(quads) and mat[arr3[i] - 1] == 1]
+    mat2_idx = [i for i in range(len(arr3))
+                if i < len(quads) and mat[arr3[i] - 1] == 2]
     qm1 = [quads[i] for i in mat1_idx]
     qm2 = [quads[i] for i in mat2_idx]
 
@@ -245,6 +343,7 @@ def parse_fld(filepath: str) -> dict[str, Any]:
             "vertices": None,
             "n_vertices": 0,
             "cell_conn": None,
+            "cell_types": None,
             "material": None,
             "n_cells": 0,
             "faces": [],
@@ -255,12 +354,15 @@ def parse_fld(filepath: str) -> dict[str, Any]:
         }
 
         xyz, n_verts = _parse_ls_nodes(data)
-        cell_conn, mat = _parse_hex_cells(data)
+        if xyz is None:
+            xyz, n_verts = _parse_ls_nodes_f32(data)
+        cell_conn, cell_types, mat = _parse_hex_cells(data)
         if xyz is not None:
             result["vertices"] = xyz
             result["n_vertices"] = n_verts
         if cell_conn is not None and mat is not None:
             result["cell_conn"] = cell_conn
+            result["cell_types"] = cell_types
             result["material"] = mat
             result["n_cells"] = int(cell_conn.shape[0])
 
@@ -269,7 +371,7 @@ def parse_fld(filepath: str) -> dict[str, Any]:
             faces, bc_plan, face_cells = _build_face_list_and_bcs(data, mat)
             result["faces"] = faces
             result["bc_plan"] = bc_plan
-        result["face_cells"] = face_cells
+            result["face_cells"] = face_cells
 
         n = n_verts or 0
         temp_blocks = _f64_field_blocks(data, "Temperature")
@@ -279,30 +381,34 @@ def parse_fld(filepath: str) -> dict[str, Any]:
         hvec_blocks = _f64_field_blocks(data, "HVEC")
 
         fields: dict[str, np.ndarray] = {}
-        if pres_blocks and pres_blocks[0].size == n:
+        def _size_ok(arr):
+            """Match the mesh vertex count, or accept any block when the
+            mesh is absent (result-only files inherit it later)."""
+            return arr.size > 0 and (n == 0 or arr.size == n)
+        if pres_blocks and _size_ok(pres_blocks[0]):
             fields["PRES"] = pres_blocks[0]
         if temp_blocks:
-            if temp_blocks[0].size == n:
+            if _size_ok(temp_blocks[0]):
                 fields["TEMP"] = temp_blocks[0]
                 fields["ATMS"] = temp_blocks[0].copy()
-            if len(temp_blocks) > 3 and temp_blocks[3].size == n:
+            if len(temp_blocks) > 3 and _size_ok(temp_blocks[3]):
                 fields["TURK"] = temp_blocks[3]
-            if len(temp_blocks) > 6 and temp_blocks[6].size == n:
+            if len(temp_blocks) > 6 and _size_ok(temp_blocks[6]):
                 fields["TEPS"] = temp_blocks[6]
         if cn01_blocks:
-            if cn01_blocks[0].size == n:
+            if _size_ok(cn01_blocks[0]):
                 fields["CN01"] = cn01_blocks[0]
-            if len(cn01_blocks) > 3 and cn01_blocks[3].size == n:
+            if len(cn01_blocks) > 3 and _size_ok(cn01_blocks[3]):
                 fields["HTRC"] = cn01_blocks[3]
-            if len(cn01_blocks) > 6 and cn01_blocks[6].size == n:
+            if len(cn01_blocks) > 6 and _size_ok(cn01_blocks[6]):
                 fields["SURT"] = cn01_blocks[6]
-            if len(cn01_blocks) > 9 and cn01_blocks[9].size == n:
+            if len(cn01_blocks) > 9 and _size_ok(cn01_blocks[9]):
                 fields["HTFX"] = cn01_blocks[9]
-        if len(vect_blocks) >= 3 and all(a.size == n for a in vect_blocks[:3]):
+        if len(vect_blocks) >= 3 and all(_size_ok(a) for a in vect_blocks[:3]):
             fields["VECTX"] = vect_blocks[0]
             fields["VECTY"] = vect_blocks[1]
             fields["VECTZ"] = vect_blocks[2]
-        if len(hvec_blocks) >= 3 and all(a.size == n for a in hvec_blocks[:3]):
+        if len(hvec_blocks) >= 3 and all(_size_ok(a) for a in hvec_blocks[:3]):
             fields["HVECX"] = hvec_blocks[0]
             fields["HVECY"] = hvec_blocks[1]
             fields["HVECZ"] = hvec_blocks[2]

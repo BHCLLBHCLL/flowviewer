@@ -252,14 +252,54 @@ def _register_loaders() -> None:
         pass
 
 
+def _inherit_mesh_from_sibling(mesh: dict, path: Path) -> dict:
+    """Result-only FLD: inherit the mesh from a same-stem sibling file.
+
+    scSTREAM-style series store the grid in one file and only the result
+    fields in later cycle files (LS_MatOfElements/LS_Elements/LS_Nodes are
+    absent).  This copies the mesh sections from the first sibling that has
+    them, keeping the current file's fields.
+    """
+    prefix, num = path.stem, None
+    m = None
+    for i in range(len(prefix) - 1, -1, -1):
+        if not prefix[i].isdigit():
+            break
+        num = prefix[i:]
+        m = i
+    base = prefix[:m] if m is not None else prefix
+    try:
+        cands = sorted(path.parent.glob(base + "*" + path.suffix))
+    except Exception:
+        cands = []
+    for cand in cands:
+        if str(cand.resolve()) == str(path.resolve()):
+            continue
+        try:
+            m2 = mesh_fld.parse_fld(str(cand))
+        except Exception:
+            continue
+        if m2.get("n_vertices"):
+            for key in ("vertices", "n_vertices", "cell_conn", "material",
+                        "n_cells", "faces", "bc_plan", "face_cells",
+                        "volume_names"):
+                mesh[key] = m2[key]
+            mesh["mesh_from"] = str(cand)
+            break
+    return mesh
+
+
 def fld_only_load(filepath: str) -> FieldFile:
     """Direct FLD loader (no magic detection), mirror of the 'fld' branch."""
     path = Path(filepath)
     mesh = mesh_fld.parse_fld(str(path))
+    if not mesh["n_vertices"] and not mesh["n_cells"]:
+        mesh = _inherit_mesh_from_sibling(mesh, path)
     ff = FieldFile(path=str(path), kind="fld")
     ff.vertices = mesh["vertices"]
     ff.n_vertices = mesh["n_vertices"]
     ff.cell_conn = mesh["cell_conn"]
+    ff.cell_types = mesh.get("cell_types")
     ff.material = mesh["material"]
     ff.n_cells = mesh["n_cells"]
     ff.faces = mesh["faces"]
@@ -267,6 +307,8 @@ def fld_only_load(filepath: str) -> FieldFile:
     ff.face_cells = mesh.get("face_cells")
     ff.volume_regions = mesh["volume_names"]
     ff.file_size = mesh["file_size"]
+    if mesh.get("mesh_from"):
+        ff.mesh_from = mesh["mesh_from"]
     for name, arr in mesh["fields"].items():
         ff.variables[name] = VarInfo(
             name=name,
