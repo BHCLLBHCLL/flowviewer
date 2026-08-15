@@ -74,19 +74,21 @@ _KIND_CLASSES: dict[str, type] = {}
 
 
 def _object_class(kind: str):
+    """Resolve a kind string to its PostObject subclass.
+
+    All PostObject subclasses register automatically via reflection on the
+    class-level ``kind`` default, so newly added object kinds round-trip
+    through STA without touching this module (P0.2).
+    """
     if not _KIND_CLASSES:
+        import dataclasses as _dc
         from ..model import objects as _om
-        _KIND_CLASSES.update({
-            "surface": _om.SurfaceObject,
-            "plane": _om.PlaneObject,
-            "particle": _om.ParticleObject,
-            "isosurface": _om.IsosurfaceObject,
-            "point": _om.PointObject,
-            "streamline": _om.StreamlineObject,
-            "volume": _om.VolumeObject,
-            "light": _om.LightObject,
-            "colorbar": _om.ColorbarObject,
-        })
+        for cls in vars(_om).values():
+            if (isinstance(cls, type) and issubclass(cls, _om.PostObject)
+                    and _dc.is_dataclass(cls) and cls is not _om.PostObject):
+                k = getattr(cls, "kind", None)
+                if isinstance(k, str) and k:
+                    _KIND_CLASSES[k] = cls
     return _KIND_CLASSES.get(kind)
 
 

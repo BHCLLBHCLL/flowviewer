@@ -2346,6 +2346,33 @@ def test_sta_save_load_roundtrip(tmp_path):
     assert plane2.label == "Plane (1)"
 
 
+def test_sta_roundtrip_all_kinds(tmp_path):
+    """P0.2: every PostObject kind survives an STA save/load round-trip."""
+    import dataclasses
+    from fv.model import objects as objmod
+    from fv.model.objects import MainObject
+    from fv.render.export import _object_class, load_status, save_status
+    # Reflection registry covers all dataclass PostObject subclasses
+    classes = [c for c in vars(objmod).values()
+               if isinstance(c, type) and dataclasses.is_dataclass(c)
+               and issubclass(c, objmod.PostObject) and c is not objmod.PostObject
+               and isinstance(getattr(c, "kind", None), str)]
+    assert len(classes) >= 30
+    for cls in classes:
+        assert _object_class(cls.kind) is cls, f"{cls.__name__} unregistered"
+    # End-to-end: build one object of every kind and round-trip them
+    main = MainObject(path="x.fph", display_name="x.fph")
+    for i, cls in enumerate(classes, start=1):
+        main.children.append(cls(index=1))
+    path = tmp_path / "all_kinds.sta"
+    assert save_status(main, str(path)) is True
+    restored = load_status(str(path))
+    assert restored is not None
+    assert len(restored) == len(classes), (
+        f"only {len(restored)}/{len(classes)} kinds restored")
+    assert {o.kind for o in restored} == {c.kind for c in classes}
+
+
 def test_snapshot_png_headless_returns_false(tmp_path):
     """Headless scene has no render window → snapshot_png returns False."""
     from fv.model.dataset import load_file
