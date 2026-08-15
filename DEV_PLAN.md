@@ -915,3 +915,22 @@ VR 后端构建在无 HMD 驱动时优雅返回 None。
 | ③ | UFO 三角面渲染 | c9e1348 | `ufo.py` 增 surface 模式（triangulate 扇形三角剖分 + ufo_triangles + _build_surface_actor）；UFOObject.mode；UFODialog 渲染模式选择 |
 
 **回归说明**：全量回归 **182 passed, 1 skipped, 0 failed**（约 15 分钟，vtk 9.3.1）。
+### 22.1 ① 命名与 ② COM 边界完善（2026-08-09）
+
+- **① 命名**：`fv/api.py` 后处理门面统一为 `turbo_` 前缀（turbo_circumferential_average 等 9 个），
+  原无前缀名保留为 deprecated 别名（向后兼容）。
+- **② COM 边界**：
+  - `ConnectionPoint` 重写为官方 ConnectableServer 模式：`_com_interfaces_` 声明
+    IConnectionPoint + IConnectionPointContainer，`_connect_interfaces_=[EVENTS_IID]`，
+    服务器 `_query_interface_` 响应 QI 返回 wrap 的连接点；事件经 IDispatch `Invoke`（DISPID
+    1000/1001）分发到 COM sink，Python sink 走 getattr 回退；
+  - 新增 `fv/com_typelib.py`：用 `pythoncom.CreateTypeLib2` 程序化生成 typelib
+    （coclass + 默认 dispinterface + [source] 事件 dispinterface，OnOpen/OnClose DISPID 1000/1001），
+    `ensure_typelib` 幂等生成 `fv/flowviewer.tlb`（gitignore），`register_server()` 注册时
+    自动 `RegisterTypeLib`；
+  - `open_file` 返回值改为 None（COM VARIANT 安全），元数据经只读属性暴露；
+  - `scripts/com_events_smoke.py` 的 `--inproc` 改为真实 COM 链接（`SimpleConnection`：
+    QI → FindConnectionPoint → Advise → Invoke），新增 `test_com_simple_connection` 与
+    `test_com_typelib` 覆盖。
+
+**回归说明**：全量回归 **184 passed, 1 skipped, 0 failed**（约 15.5 分钟，vtk 9.3.1）。
