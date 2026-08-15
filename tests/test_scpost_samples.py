@@ -127,3 +127,42 @@ def test_scpost_2cars_mixed(samples):
     assert dist == {10: 1548396, 13: 121022, 14: 1619}  # tet/wedge/pyramid
     assert "PRES" in ff.variables
     assert len(ff.faces) > 0
+
+
+def test_scpost_scteta_bc_sections(samples):
+    """Named BC zones (FLUX/WALL/THERM) and the embedded SDAT surface file."""
+    from fv.crdl.mesh_fld import parse_fld
+    m = parse_fld(str(samples / "SCTeta_tutorial.fld"))
+    zones = m["bc_sections"]
+    assert len(zones) == 12
+    names = [n for n, _ in zones]
+    assert names.count("WALL(static)") == 3
+    assert names.count("THERM(adiabatic)") == 4
+    assert names.count("THERM(conduction)") == 2
+    assert zones[0][0] == "FLUX(velocity)" and zones[0][1][:5] == b"inlet"
+    assert any(v[:11] == b"wall_heater" for _, v in zones)
+    sf = m["ls_sfile"]
+    assert sf is not None and sf["bytes"] == 1834
+    assert sf["magic"] == "SDAT" and "SC/Tetra" in sf["head"]
+
+
+def test_scpost_2cars_bc_sections(samples):
+    """2cars BC zones + SDAT surface file (792-byte header)."""
+    from fv.crdl.mesh_fld import parse_fld
+    m = parse_fld(str(samples / "2cars.fld"))
+    zones = m["bc_sections"]
+    assert len(zones) == 9
+    names = [n for n, _ in zones]
+    assert "WALL(vector)" in names and "THERM(adiabatic)" in names
+    assert any(v[:3] == b"car" for _, v in zones)
+    sf = m["ls_sfile"]
+    assert sf is not None and sf["bytes"] == 792 and sf["magic"] == "SDAT"
+
+
+def test_scpost_klein_bc_sections(samples):
+    """Klein_1 BC zones parse too (in/out/bdy)."""
+    from fv.crdl.mesh_fld import parse_fld
+    m = parse_fld(str(samples / "Klein_1.fld"))
+    names = [n for n, _ in m["bc_sections"]]
+    assert "FLUX(velocity)" in names and "THERM(adiabatic)" in names
+    assert m["ls_sfile"]["magic"] == "SDAT"

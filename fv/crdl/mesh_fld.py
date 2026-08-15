@@ -437,6 +437,91 @@ def _build_face_list_and_bcs_inner(data, mat: np.ndarray):
     return faces, bc_plan, face_cells
 
 
+_BC_NAME_PREFIXES = (b"FLUX(", b"WALL(", b"THERM(", b"PRES(", b"INLT(",
+                     b"OUTL(", b"SYMM(", b"PERI(", b"CYCL(", b"MOVI(",
+                     b"RADI(")
+
+
+def _parse_bc_sections(data) -> list[tuple[str, bytes]]:
+    """Named per-zone BC sections -> ``[(zone_name, payload_bytes), ...]``.
+
+    scSTREAM/sCtetra FLD stores one nested named section per BC zone;
+    its body is a ``[12][1][N][1]`` descriptor followed by one
+    ``[12][N]`` payload (zone settings text with a leading 4-char type
+    code).  Sections are located by scanning the known scSTREAM BC name
+    prefixes, so arbitrary zone names (FLUX(velocity), WALL(static),
+    THERM(adiabatic), ...) are picked up.
+    """
+    out: list[tuple[str, bytes]] = []
+    for prefix in _BC_NAME_PREFIXES:
+        pos = 0
+        while True:
+            idx = data.find(prefix, pos)
+            if idx < 0:
+                break
+            pos = idx + 1
+            if idx < 4 or read_i32_be(data, idx - 4) != 32:
+                continue
+            raw = data[idx:idx + 32].split(b"\x00")[0].strip()
+            try:
+                name = raw.decode("ascii")
+            except UnicodeDecodeError:
+                continue
+            sec = idx - 4
+            end = section_end(data, sec)
+            p = sec + 40
+            while p + 16 <= end:
+                if read_i32_be(data, p) != 12:
+                    p += 4
+                    continue
+                v = read_i32_be(data, p + 4)
+                n0 = read_i32_be(data, p + 8)
+                n1 = read_i32_be(data, p + 12)
+                if v == 1 and n1 == 1 and 0 < n0 <= 1_000_000:
+                    p2 = p + 16
+                    if (p2 + 8 + n0 + 4 <= end
+                            and read_i32_be(data, p2) == 12
+                            and read_i32_be(data, p2 + 4) == n0
+                            and read_i32_be(data, p2 + 8 + n0) == n0):
+                        out.append((name, bytes(data[p2 + 8:p2 + 8 + n0])))
+                        break
+                p += 4
+            pass
+    return out
+
+
+def _parse_ls_sfile(data) -> Optional[dict]:
+    """LS_SFile -> embedded scSTREAM surface-file header info.
+
+    Body: descriptors ``[12,4,1,1],[12,4,1,4],[12,4,1,1],[12,4,N,4]``
+    then ``[12][1][N][1]`` + ``[12][N]`` payload whose head is ASCII
+    (``SDAT`` surface-file header).  A nested ``LS_Scalar:`` section may
+    follow inside the same section range.
+    """
+    sec = find_section(data, "LS_SFile")
+    if sec < 0:
+        return None
+    end = section_end(data, sec)
+    p = sec + 40
+    while p + 16 <= end:
+        if read_i32_be(data, p) != 12:
+            p += 4
+            continue
+        v = read_i32_be(data, p + 4)
+        n0 = read_i32_be(data, p + 8)
+        n1 = read_i32_be(data, p + 12)
+        if v == 1 and n1 == 1 and 0 < n0 <= 1_000_000:
+            p2 = p + 16
+            if (p2 + 8 + n0 + 4 <= end and read_i32_be(data, p2) == 12
+                    and read_i32_be(data, p2 + 4) == n0
+                    and read_i32_be(data, p2 + 8 + n0) == n0):
+                payload = bytes(data[p2 + 8:p2 + 8 + n0])
+                head = payload[:64].decode("ascii", "replace")
+                magic = head.split("\n")[0].strip() if head else ""
+                return {"bytes": n0, "magic": magic, "head": head}
+        p += 4
+    return None
+
 def parse_fld(filepath: str) -> dict[str, Any]:
     """Parse an FLD file into a structured mesh + solution dict."""
     with open_buffer(filepath) as data:
@@ -453,6 +538,8 @@ def parse_fld(filepath: str) -> dict[str, Any]:
             "face_cells": [],
             "volume_names": [],
             "fields": {},
+            "bc_sections": [],
+            "ls_sfile": None,
         }
 
         xyz, n_verts = _parse_ls_nodes(data)
@@ -516,6 +603,9 @@ def parse_fld(filepath: str) -> dict[str, Any]:
             fields["HVECZ"] = hvec_blocks[2]
 
         result["fields"] = fields
+        result["bc_sections"] = _parse_bc_sections(data)
+        result["ls_sfile"] = _parse_ls_sfile(data)
+
         return result
 
 
