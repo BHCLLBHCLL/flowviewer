@@ -990,3 +990,69 @@ VR 后端构建在无 HMD 驱动时优雅返回 None。
 **已解限制**：2cars 混合单元与 minimumHexa 描述符密集编码均已解码（见上表），
 8 个官方样例现已全部解析出完整网格（单元、连通性、材料）。
 **回归说明**：全量回归 **201 passed, 1 skipped, 0 failed**（约 16 分钟，含 7 项 scPOST 官方样例测试）。
+
+## 25. 格式差距行动序（2026-08-10）
+
+按 `analysis/format_gaps.md` 的排序执行六项改进：
+
+| 项 | 提交 | 说明 |
+|---|---|---|
+| ① PPH 接入 | 4627570 | `fv/crdl/pph.py`：ZIP 解包内嵌 `<group>.gph` → `parse_gph_mesh`（临时文件委托）；`pph_load` kind='pph' + 工程名/成员清单；多面体判别重构为 `FieldFile.poly`（fph/gph/pph 三 kind 统一走 LS_Links 管线，api/topology/varreg/render×4 全部切换）；GUI 过滤器 + probe_format 支持 .pph；实测 box2.pph 0.02s 载入 1305 节点/944 单元、laptop 工程 3523639 节点/3069898 单元 22.9s |
+| ② 粒子多帧 | 93e707e | fields.py 粒子解析重写为描述符引导：`[12,4,N,1]` + `[12][4N]` 坐标块，任意 N 不再截断（原固定 50/帧）；`parse_particle_frames` / `parse_particle_variable_frames` 多帧 API + 旧单帧入口兼容；LS_ParticlesPosition/LS_ParticleV:VELP 进入节边界表；tr03_9 实测 1 帧×50 粒子 + 合成 120 粒子/2 帧测试 |
+| ③ FLD BC 节 | 70ab368 | `_parse_bc_sections`：命名 BC 区（FLUX/WALL/THERM…）逐区 `[12,1,N,1]`+`[12][N]` 载荷（区设置文本，前 4 字符为类型码 in/out/wall…）；`_parse_ls_sfile`：LS_SFile 内嵌 SDAT 表面文件头；SCTeta 12 区 / 2cars 9 区全解出 |
+| ④ 元数据 | 1d04a87 | `core.parse_header_meta`（Application=SCFLOW/SCTpre/SCRYUTET、Comments=PolyHedra、Unit:$TEMP 等）；`parse_element_information_flag`（逐单元标志 i4，tr03.gph 63882 值域 {0,1,4,5,8,9,0x80000000…}）；`parse_element_centers`（FPH 预计算单元中心 f32×3，varreg 直接复用替代面均值重建，实测一致）；独立 .gph kind 修正 + ply 注册 |
+| ⑤ 大文件回归 | 65be697 | `tests/test_big_files.py`（slow 标记，默认 addopts 排除；显式 `pytest -m slow -o addopts=` 运行）：box.gph 5.6GB（48627125 节点/48228544 单元/145083120 面）+ laptop gph 6.0GB 端到端 mmap 解析 **2 passed in 41 min**；pytest 下 GC 访问冲突由 `_group_faces_by_cell_id` 的 1.45 亿 Python int 列表触发 → 改为数组视图切片后消除 |
+| ⑥ iFLD/EMT 收尾 | bb1d92b | `ifld_load` = scan_ifld 元数据摘要（附 ff.meta['ifld_scan']）+ 完整 FLD 解析；EMT 别名路径实测（CRDL 内容 → fph 家族解析）；无真实 .emt/.ifld 样本，用拷贝样例覆盖 |
+
+### 25.1 解析现状（更新）
+
+- GPH/FPH/FLD/PPH 四格式全部可打开；解析深度：混合单元、粒子多帧、BC 区、逐单元标志、单元中心、头部元数据。
+- 遗留（按 format_gaps.md 残余）：FLD BC 载荷内部格式（4 字符码+填充之外的数据）、iFLD Trimming 局部读取、CGNS-ADF、EMT 真样本、Marc 二进制结果。
+
+## 26. 第七轮评估：贯通断裂差距分析与行动序（2026-08-16）
+
+> 完整分析见 `analysis/function_gap_analysis.md`（3 个并行子代理源码级审计 + 关键点人工核实）。
+> 核心结论：对象面覆盖 100% 成立（类/对话框/渲染三件套齐全），但存在多处
+> 「已实现能力对用户不可达」的贯通断裂，**端到端实用深度约 65–70%**（非文档此前声明的 85–90%）。
+
+### 26.1 贯通断裂证据（梯队一，最大差距）
+
+| # | 断裂点 | 证据位置 |
+|---|---|---|
+| 1 | Create 菜单仅 8/13 可创建，18/30 对话框无 UI 入口（Cylinder/Circle/Vector/Text/Graph 五项 kind=None；Pathline/Bitmap/Information/Mirror/Curve/Measure/Turbo/UFO 等 13 种对象无菜单项） | gui/main.py L37–50 `_CREATE_MENU` |
+| 2 | STA 往返仅支持 9/31 kind，其余对象保存后重载静默丢失 | render/export.py L78–88 `_KIND_CLASSES` |
+| 3 | undo/redo 死代码：方法/栈存在但无 Edit 菜单、无 Ctrl+Z/Y、无调用点（§6 P2.8 标记完成，实际不可用） | gui/main.py L868–898 |
+| 4 | 粒子多帧解析已就绪（§25②）但渲染仍单帧，Scene.animate 只驱动 Plane automove | render/particle.py L29；scene.py L297–324 |
+| 5 | Timeline Sync/Ver/Scale 三控件 inert；fileset.operation_mode 死字段；main 与 panes `_RENDERABLE_KINDS` 不一致（8 vs 30）→ 单击 22 种对象无响应 | gui/panes.py L322–329 vs main.py L32–33 |
+
+### 26.2 渲染/数据/自动化代差（梯队二至四，摘要）
+
+- **渲染**：体渲染 FPH 多面体回退半透明 DataSetMapper + 传递函数硬编码；FLD 流线 numpy 欧拉降级（RK2 非 RK4）；Turbo 仅 2D 散点（polar_view_points 无渲染出口）；Luster/Water 仅 2 对象落地且 plane 内联实现与 material.py 不一致；oilflow 无变量着色。
+- **数据**：CGNS 仅 HDF5 单 zone 非 MIXED（cgns.py L145）；微分算子 FLD/CGNS 路径硬编码 hex8 棱边——tet/wedge/pyr 混合网格（§24 刚解码的 2cars/Klein/SCTeta）上静默错误值；varreg 缺 iflt/ifle/ifne；POD/FileSet 每 cycle 重新 load_file 且吞错；api 缺 GetBoundingBox/LocalXYZ2GlobalXYZ/cycle 运行时族等约 20 方法。
+- **自动化**：COM 仅 10/67 表面（缺 save/draw/objects/animation/16 个 Set*）。
+- **细节**：BMP/TIF 导出实际写 PNG；.emt 过滤器接受但不可加载；last_dir 未生效；消息窗口无保存。
+
+### 26.3 行动序（P0 → P3）
+
+**P0 贯通修复（纯接线，低风险高回报）**
+
+| # | 项 | 说明 |
+|---|---|---|
+| 0.1 | Create 菜单补全 | 5 个 kind=None 补映射 + 13 个无入口对象加菜单项（对话框/渲染全现成） |
+| 0.2 | STA kind 表扩全 | 对 objects.py 全 PostObject 子类反射自动注册 31 kind |
+| 0.3 | undo/redo 接线 | Edit 菜单 + Ctrl+Z/Y + `_snapshot_children` 调用 |
+| 0.4 | `_RENDERABLE_KINDS` 统一 | main（8）对齐 panes（30） |
+| 0.5 | 粒子多帧消费 | Scene.animate 驱动粒子帧 + Timeline 联动 |
+| 0.6 | 细节清扫 | timeline 三控件接线/移除；.emt 一致性；last_dir；消息保存；BMP/TIF 诚实化 |
+
+**P1 渲染深度**：① 体渲染 vtkResampleToImage→SmartVolumeMapper + 参数化传递函数；
+② FLD 流线 vtkStaticCellLocator 或 RK4 + pathline 步长/着色；③ Turbo 栅格热力图 + polar 出口；
+④ Luster/Water 全对象统一走 apply_sheen；⑤ oilflow 着色 + camera spline。
+
+**P2 数据/格式深度**：① CGNS ADF/结构化/MIXED/多 zone（最高优先格式项）；
+② 微分算子非 hex 邻接 + 失配显式报错；③ varreg 算子补全；④ FileSet 时间插值 + cycle 运行时 API；
+⑤ POD collect 复用/不吞错；⑥ iFLD Trimming。
+
+**P3 平台化**：COM 补约 20 方法；api 补 BoundingBox/坐标变换/SplitView；XDMF temporal；FBX 视需要。
+
+**维持不做**：Turbo 完整套件深化（P1.3 仅渲染云图化）、VR 实机、附属工具三件套。

@@ -1,5 +1,12 @@
 # 格式解析完整度再评估（2026-08-10）
 
+> **执行状态（2026-08-10）**：A–F 六项已按序实施（提交 4627570/93e707e/70ab368/
+> 1d04a87/bb1d92b，见 DEV_PLAN §25）：① PPH 接入 ✅；② 粒子描述符引导多帧 ✅；
+> ③ FLD 命名 BC 区 + LS_SFile SDAT ✅；④ 头部元数据/Element_InformationFlag/
+> Element_Center/gph kind/ply ✅；⑤ 大文件 mmap 实测通过（box.gph 11 分钟，GC 压力修复）✅；
+> ⑥ iFLD 扫描接线 + EMT 别名实测 ✅。残余：BC 载荷内部格式、iFLD Trimming、
+> CGNS-ADF、EMT 真样本、Marc t16/t19。
+
 > 方法：全仓 73 个 .py 通读骨架 + 真实样本节级清点（tr03_9.fph / tr03.gph / box.gph 5.6GB /
 > laptop gph 6GB / 8 个 scPOST 官方 FLD / pphdecoding 与 gphdecoding 参考仓对照）。
 
