@@ -339,3 +339,88 @@ def volume_of_element(ff, cell_id) -> float:
     """Volume of a cell (GetVolumeOfElement)."""
     from .model import topology
     return topology.volume_of_element(ff, cell_id)
+
+# ── variable value queries (scPOST FLD GetScalar/GetVector family, P0.3) ──
+
+def scalar_at(ff, var: str, index: int):
+    """Value of scalar *var* at node/cell *index* (GetScalar)."""
+    import numpy as np
+    a = ff.variable_array(var)
+    if a is None:
+        raise ValueError("unknown variable " + repr(var))
+    a = np.asarray(a, dtype=np.float64)
+    i = int(index)
+    if i < 0 or i >= len(a):
+        raise IndexError("index out of range")
+    return float(a[i])
+
+
+def vector_at(ff, prefix: str, index: int):
+    """(x, y, z) of a 3-component vector variable at an index (GetVector)."""
+    comps = [prefix + c for c in "XYZ"]
+    return tuple(scalar_at(ff, c, index) for c in comps)
+
+
+def variable_range(ff, var: str):
+    """(min, max) of a scalar variable (GetVariableMin / GetVariableMax)."""
+    import numpy as np
+    a = np.asarray(ff.variable_array(var), dtype=np.float64)
+    return (float(np.nanmin(a)), float(np.nanmax(a)))
+
+
+def variable_info(ff, var: str) -> dict:
+    """Variable metadata: kind/location/length/min/max (GetVariableInfo)."""
+    vi = ff.variables.get(var)
+    if vi is None:
+        raise ValueError("unknown variable " + repr(var))
+    lo, hi = variable_range(ff, var)
+    return {"name": var, "kind": vi.kind, "location": vi.location,
+            "length": int(len(vi.array)), "min": lo, "max": hi}
+
+
+def scalar_array(ff, var: str):
+    """Full array of a scalar variable (GetScalarArray)."""
+    a = ff.variable_array(var)
+    if a is None:
+        raise ValueError("unknown variable " + repr(var))
+    return a
+
+
+def vector_array(ff, prefix: str):
+    """(N, 3) array of a 3-component vector variable (GetVectorArray)."""
+    import numpy as np
+    cols = [np.asarray(ff.variable_array(prefix + c), dtype=np.float64)
+            for c in "XYZ"]
+    return np.column_stack(cols)
+
+
+def scalar_range_by_region(ff, var: str, region_name: str):
+    """(min, max) of a cell variable within a volume region
+    (GetScalarMinMaxByVol)."""
+    import numpy as np
+    a = np.asarray(ff.variable_array(var), dtype=np.float64)
+    cells = elements_of_region(ff, region_name)
+    if not cells or max(cells) >= len(a):
+        return (float("nan"), float("nan"))
+    sub = a[np.asarray(cells, dtype=np.int64)]
+    return (float(np.nanmin(sub)), float(np.nanmax(sub)))
+
+
+def region_scalar_array(ff, var: str, region_name: str):
+    """Cell-variable values within a volume region (GetVolumeArray2)."""
+    import numpy as np
+    a = np.asarray(ff.variable_array(var), dtype=np.float64)
+    cells = elements_of_region(ff, region_name)
+    if not cells or max(cells) >= len(a):
+        return np.array([], dtype=np.float64)
+    return a[np.asarray(cells, dtype=np.int64)]
+
+
+def surface_scalar_array(ff, var: str, surface_region: str):
+    """Node-variable values on a boundary region (GetSurfaceArray)."""
+    import numpy as np
+    a = np.asarray(ff.variable_array(var), dtype=np.float64)
+    nodes = nodes_of_surface_region(ff, surface_region)
+    if not nodes or max(nodes) >= len(a):
+        return np.array([], dtype=np.float64)
+    return a[np.asarray(nodes, dtype=np.int64)]

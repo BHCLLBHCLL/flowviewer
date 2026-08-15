@@ -1698,6 +1698,34 @@ def test_api_topology_queries():
     assert api.face_count_of_element(fld, 0) == 6
     assert api.volume_of_element(fld, 0) > 0
 
+def test_api_variable_queries():
+    """fv.api exposes GetScalar/GetVector/MinMax accessors (P0.3)."""
+    import numpy as np
+    from fv import api
+    ff = api.open_file(FPH)
+    v = api.scalar_at(ff, "PRES", 0)
+    assert isinstance(v, float)
+    lo, hi = api.variable_range(ff, "PRES")
+    assert lo <= v <= hi
+    info = api.variable_info(ff, "PRES")
+    assert info["location"] == "cell" and info["length"] == ff.n_cells
+    vec = api.vector_at(ff, "VEL", 0)
+    assert len(vec) == 3
+    va = api.vector_array(ff, "VEL")
+    assert va.shape == (ff.n_cells, 3)
+    sa = api.scalar_array(ff, "PRES")
+    assert sa.shape == (ff.n_cells,)
+    rlo, rhi = api.scalar_range_by_region(ff, "PRES", "FluidRegion")
+    assert abs(rlo - lo) < 1e-9 and abs(rhi - hi) < 1e-9
+    ra = api.region_scalar_array(ff, "PRES", "FluidRegion")
+    assert len(ra) == ff.n_cells
+    br = ff.boundary_regions()[0]
+    from fv.model.dataset import FIELD_KIND_SCALAR, VarInfo
+    ff.variables["NODEV"] = VarInfo(name="NODEV", kind=FIELD_KIND_SCALAR,
+                                    location="node",
+                                    array=ff.vertices[:, 0])
+    sfa = api.surface_scalar_array(ff, "NODEV", br.name)
+    assert len(sfa) > 0
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_export_stl(tmp_path):
