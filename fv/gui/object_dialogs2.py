@@ -21,6 +21,8 @@ from .object_dialogs import (
     ObjectSettingsPanel, _ColorButton, _scalar_vars, _VarRow, _hline,
 )
 
+import os
+
 
 def _var_combo(variables: list[str], value: str) -> QComboBox:
     """Combo with a leading "(none)" plus the variable list."""
@@ -1487,6 +1489,23 @@ class CameraDialog(ObjectSettingsPanel):
         lay = QVBoxLayout(page); lay.addLayout(form); lay.addWidget(self.parallel); lay.addWidget(self.apply_cam); lay.addStretch(1)
         self.tabs.addTab(page, "Camera")
 
+        # Sequence tab (keyframes + continuous screenshot)
+        seq = QWidget(self)
+        sf = QFormLayout()
+        self.frames = _dspin(getattr(obj, "frame_count", 24), 1, 100000, 0)
+        sf.addRow("Frames:", self.frames)
+        self.kf_label = QLabel("Keyframes: " + str(len(getattr(obj, "keyframes", []) or [])), seq)
+        sf.addRow(self.kf_label)
+        self.add_kf = QPushButton("Add Current Pose", seq)
+        self.add_kf.clicked.connect(self._add_keyframe)
+        self.clear_kf = QPushButton("Clear Keyframes", seq)
+        self.clear_kf.clicked.connect(self._clear_keyframes)
+        self.cap_seq = QPushButton("Capture Sequence...", seq)
+        self.cap_seq.clicked.connect(self._capture_sequence)
+        slay = QVBoxLayout(seq); slay.addLayout(sf); slay.addWidget(self.add_kf)
+        slay.addWidget(self.clear_kf); slay.addWidget(self.cap_seq); slay.addStretch(1)
+        self.tabs.addTab(seq, "Sequence")
+
     def _apply_camera(self) -> None:
         self.apply_to(self.obj)
         if self.scene is not None and getattr(self.scene, "renderer", None) is not None:
@@ -1507,6 +1526,47 @@ class CameraDialog(ObjectSettingsPanel):
         obj.focal_point = (float(self.fx.value()), float(self.fy.value()), float(self.fz.value()))
         obj.parallel_projection = self.parallel.isChecked()
 
+    def _current_pose(self) -> dict:
+        self.apply_to(self.obj)
+        return {
+            "position": tuple(self.obj.position),
+            "focal_point": tuple(self.obj.focal_point),
+            "view_up": tuple(self.obj.view_up),
+            "parallel": bool(self.obj.parallel_projection),
+        }
+
+    def _add_keyframe(self) -> None:
+        kf = getattr(self.obj, "keyframes", None)
+        if kf is None:
+            self.obj.keyframes = []
+            kf = self.obj.keyframes
+        kf.append(self._current_pose())
+        self._refresh_kf_label()
+
+    def _clear_keyframes(self) -> None:
+        self.obj.keyframes = []
+        self._refresh_kf_label()
+
+    def _refresh_kf_label(self) -> None:
+        n = len(getattr(self.obj, "keyframes", []) or [])
+        self.kf_label.setText("Keyframes: " + str(n))
+
+    def _capture_sequence(self) -> None:
+        self.apply_to(self.obj)
+        kf = getattr(self.obj, "keyframes", []) or []
+        n = int(self.frames.value())
+        self.obj.frame_count = n
+        renderer = None
+        if self.scene is not None:
+            renderer = getattr(self.scene, "renderer", None)
+        if not kf:
+            kf = [self._current_pose()]
+        from ..render.camera import capture_camera_sequence
+        out = os.path.join(os.getcwd(), "cam_frames")
+        written = capture_camera_sequence(renderer, kf, n, out)
+        if hasattr(self, "message_win"):
+            self.message_win.log(
+                "Camera sequence: {} frames -> {}".format(written, out))
 class RegionDialog(ObjectSettingsPanel):
     """Region — select one boundary region to display (5d)."""
 

@@ -450,6 +450,8 @@ class CameraObject(PostObject):
     focal_point: tuple = (0.0, 0.0, 0.0)
     view_up: tuple = (0.0, 1.0, 0.0)
     parallel_projection: bool = True
+    keyframes: list = field(default_factory=list)   # [pose, ...] for sequences
+    frame_count: int = 24                            # frames per keyframe run
 
 @dataclass
 class GradationObject(PostObject):

@@ -2503,6 +2503,29 @@ def test_camera_dialog(qapp):
     d.scene = None
     d._apply_camera()
 
+def test_camera_keyframes_and_sequence():
+    """Camera keyframe interpolation + sequence capture degrade (5b)."""
+    import numpy as np
+    from fv.render.camera import (capture_camera_sequence, interpolate_pose,
+                                  keyframe_poses)
+    kf0 = {"position": (0, 0, 1), "focal_point": (0, 0, 0),
+           "view_up": (0, 1, 0), "parallel": True}
+    kf1 = {"position": (2, 0, 1), "focal_point": (0, 0, 0),
+           "view_up": (0, 1, 0), "parallel": False}
+    mid = interpolate_pose(kf0, kf1, 0.5)
+    assert mid["position"] == (1.0, 0.0, 1.0)
+    assert interpolate_pose(kf0, kf1, 0.25)["parallel"] is True
+    assert interpolate_pose(kf0, kf1, 0.75)["parallel"] is False
+    poses = keyframe_poses([kf0, kf1], 5)
+    assert len(poses) == 5
+    assert poses[0]["position"] == kf0["position"]
+    assert poses[-1]["position"] == kf1["position"]
+    assert poses[2]["position"] == (1.0, 0.0, 1.0)
+    assert len(keyframe_poses([kf0], 4)) == 4
+    assert keyframe_poses([], 3) == []
+    # headless capture writes nothing but returns an int
+    n = capture_camera_sequence(None, [kf0, kf1], 3, "tmp")
+    assert isinstance(n, int) and n == 0
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
