@@ -169,3 +169,41 @@ Global Window)、Graph-Curve 联动、Turbo/UFO/COM/VR。测试增至 163 项（
 运行时依赖：COM 需 pywin32+管理员注册；VR 真渲染需 OpenVR SDK（提供检测）；
 Turbo 为几何变换 2D 视图；Marc 仅 .dat 文本（.t16/.t19 二进制未实现）；
 FBX 以 OBJ 中性格式替代（无 VTK 原生 FBX 写器）。
+
+## 9. 第七轮功能差距审计（2026-08-16）
+
+> 配套文档：`analysis/function_gap_analysis.md`（完整证据）、`DEV_PLAN.md` §26（行动序）。
+> 方法：3 个并行子代理源码级审计（数据/渲染/GUI+自动化三层），关键矛盾点人工核实，
+> 非引用既有文档结论。
+
+### 9.1 状态结论（修正此前声明）
+
+- 规模：fv/ 63 文件、18,195 行、31 种 PostObject、29 个 render 模块、11 个 crdl 解码器、
+  223 个测试函数（文档基线 201 passed + 1 skipped）。
+- **对象面覆盖 100% 成立**（类/对话框/渲染三件套齐全），但存在多处
+  「已实现能力对用户不可达」的贯通断裂，**端到端实用深度约 65–70%**
+  （修正 SCPOST_COMPARISON §18 声明的 85–90%）。
+
+### 9.2 关键贯通断裂（源码核实）
+
+1. **Create 菜单仅 8/13 项可创建**：Cylinder/Circle/Vector/Text/Graph 五项 kind=None
+   （gui/main.py L37–50）；Pathline/Bitmap/Information/Mirror/Curve/Measure/Turbo/UFO 等
+   13 种对象对话框与渲染管线现成但无 UI 入口（合计 18/30 对话框不可达）。
+2. **STA 往返仅 9/31 kind**：export.py `_KIND_CLASSES` 硬编码，其余对象保存后重载静默丢失。
+3. **undo/redo 死代码**：方法与栈存在，无 Edit 菜单/Ctrl+Z/Y/调用点（§6 P2.8 标记完成，实际不可用）。
+4. **粒子多帧未消费**：解析层 parse_particle_frames 已就绪（§25②），渲染仍单帧。
+5. **交互细节断裂**：Timeline Sync/Ver/Scale inert；`_RENDERABLE_KINDS` main(8) vs panes(30) 不一致。
+
+### 9.3 主要代差（摘要）
+
+- 渲染：体渲染 FPH 回退半透明 + 传递函数硬编码；FLD 流线 numpy 欧拉（RK2 非 RK4）；
+  Turbo 仅 2D 散点（polar 无渲染出口）；Luster/Water 仅 2 对象且实现不一致。
+- 数据：CGNS 仅 HDF5 单 zone 非 MIXED；微分算子 hex8 硬编码——tet/wedge/pyr 混合网格上
+  静默错误值（恰覆盖 §24 刚解码的 2cars/Klein/SCTeta）；POD/FileSet 每 cycle 重新解析且吞错。
+- 自动化：COM 仅 10/67 表面。
+
+### 9.4 下一步
+
+按 DEV_PLAN §26 行动序执行：P0 贯通修复（Create 菜单/STA 反射注册/undo 接线/
+常量统一/粒子帧消费/细节清扫，纯接线低风险）→ P1 渲染深度 → P2 数据格式深度。
+P0 完成后实际可用完整度预计提升至 80–85%。
