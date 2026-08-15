@@ -842,3 +842,19 @@ Marc .t16/.t19 二进制结果格式未实现；D4 FBX 导出经评估无 VTK �
 
 主要差距（价值序）：Neutral File → FPH 单元场微分 → Marc 二进制 → FBX → 4 个部分对象深化 →
 Graph-Curve 联动 →（明确不做 Turbo/UFO/COM/VR）。
+
+## 18. 差距 1–7 补全（2026-08-09，解除"不做"结论）
+
+| # | 项 | 提交 | 说明 |
+|---|---|---|---|
+| 1 | Neutral File | 09f1f78 | OBJ/STL 读取（neutral_load），neutral 场景线框 |
+| 2 | FPH 单元场微分 | 7686bfa | cell 中心 cKDTree 差分（grad/div/rot/delx 支持 FPH cell 场） |
+| 3 | Marc 网格 | 5d16573 | .dat 自由文本（节点/单元卡片） |
+| 4 | FBX/OBJ 导出 | a8af750 | OBJ 中性格式导出（FBX 无 VTK 写器，OBJ 可转） |
+| 5 | 4 部分对象深化 | 790456d | Camera 设置、Region 对象、Limited Plane、Global Window |
+| 6 | Graph-Curve 联动 | 191610f | Curve 弧长作 X 轴 |
+| 7 | 解除不做 | 1afaf25 | Turbo（子午面/Blade-to-Blade 视图）、UFO 对象、COM 自动化（pywin32）、VR 检测（vtkVRRenderWindow） |
+
+**运行时依赖说明**：7c COM 注册需 pywin32 + 管理员权限（register_server）；7d VR 真渲染需
+OpenVR/SteamVR SDK（当前后端不可用，提供 vr_available 检测）；7a Turbo 为几何变换 2D 视图
+（子午面 r-z / 叶对叶 θ-z 展开），非完整叶片气动后处理。

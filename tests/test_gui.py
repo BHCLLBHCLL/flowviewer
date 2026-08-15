@@ -2191,10 +2191,12 @@ def test_delx_difference():
     nz = vi.array[np.nonzero(vi.array)]
     assert len(nz) > 0
     assert np.abs(nz - 1.0).max() < 0.2
+    # FPH cell fields now support delx (item 2): no error, returns cell values
     from fv.model.dataset import load_file as lf
     fph = lf(FPH)
-    with pytest.raises(ValueError):
-        register_variable(fph, "BAD", "delx(PRES)")
+    vi_fph = register_variable(fph, "FPHDX", "delx(PRES)")
+    assert vi_fph.kind == "scalar"
+    assert vi_fph.array.shape == (fph.n_cells,)
 
 
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")

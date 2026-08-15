@@ -157,3 +157,15 @@
 - **修复**：scene 新对象 dispatch 分支未接线的重大 bug；粒子 Intersection/Trim 过滤未接入 build。
 
 测试从 130 增至 131+（最终全量回归见 pytest_final2）。Marc 二进制 / FBX 维持不做。
+
+---
+
+## 8. 差距 1–7 全量补全（2026-08-09）
+
+解除"不做"结论，按第三轮差距清单 1–7 逐项补全并推送：Neutral File(OBJ/STL)、
+FPH 单元场微分、Marc .dat、OBJ 导出、4 个部分对象深化(Camera/Region/Limited Plane/
+Global Window)、Graph-Curve 联动、Turbo/UFO/COM/VR。测试增至 163 项（最终回归 161 过 1 改）。
+
+运行时依赖：COM 需 pywin32+管理员注册；VR 真渲染需 OpenVR SDK（提供检测）；
+Turbo 为几何变换 2D 视图；Marc 仅 .dat 文本（.t16/.t19 二进制未实现）；
+FBX 以 OBJ 中性格式替代（无 VTK 原生 FBX 写器）。
