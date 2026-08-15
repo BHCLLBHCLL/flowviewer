@@ -905,3 +905,13 @@ VR 后端构建在无 HMD 驱动时优雅返回 None。
 | 5 | Turbo 叶片气动后处理 | 0201cdb | `pressure_coefficient`/`area_average`/`mass_flow_average`/`circumferential_mass_average`(ρ·|V| 加权) + TurboDialog「Blade Aero」标签页 |
 
 **回归说明**：全量回归 **178 passed, 1 skipped, 0 failed**（约 15.5 分钟，vtk 9.3.1）。
+
+## 22. 后续三项补齐（2026-08-09）
+
+| # | 项 | 提交 | 说明 |
+|---|---|---|---|
+| ① | 后处理量接入脚本门面 | f5894aa | `fv/api.py` 新增 circumferential_average / circumferential_mass_average / blade_loading_curve / polar_view_points / meridional_points / blade_to_blade_points / pressure_coefficient / area_average / mass_flow_average 9 个门面函数 |
+| ② | COM WithEvents 冒烟脚本 | 9af888d | `scripts/com_events_smoke.py`：--register/--smoke/--inproc；DispatchWithEvents 尝试 + 手动连接点回退（FindConnectionPoint→Advise→事件分发） |
+| ③ | UFO 三角面渲染 | c9e1348 | `ufo.py` 增 surface 模式（triangulate 扇形三角剖分 + ufo_triangles + _build_surface_actor）；UFOObject.mode；UFODialog 渲染模式选择 |
+
+**回归说明**：全量回归 **182 passed, 1 skipped, 0 failed**（约 15 分钟，vtk 9.3.1）。
