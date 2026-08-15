@@ -962,3 +962,29 @@ VR 后端构建在无 HMD 驱动时优雅返回 None。
 - **附属工具**：iFLD Trimming/Remote（现仅 scan_ifld 元数据扫描）、scConverter、
   CradleViewer、HeatPathView 为独立工具链，不在本仓库范围。
 **回归说明**：全量回归 **194 passed, 1 skipped, 0 failed**（约 15.4 分钟，vtk 9.3.1）。
+
+
+## 24. scPOST 官方样例 FLD 解析补全（2026-08-09）
+
+用 `CradleCFD2025.2/Programs_x64/Samples_POST/FLD` 的 8 个官方样例驱动解析器补全：
+
+| 项 | 提交 | 说明 |
+|---|---|---|
+| 样例变体解析 | a176b90 | ① face_cells UnboundLocalError（result-only 文件无网格时崩溃）；② LS_Nodes 描述符引导的 f64/f32 双类型 + 最大频次轴块选择（修 Klein_1 的 4 节点误读）；③ result-only 文件从同 stem 兄弟文件继承网格（scSTREAM_200/300、Klein_300）；④ 字段长度匹配放宽（网格缺失时接受首块）；⑤ _build_face_list_and_bcs 布局不匹配时优雅降级；⑥ minimumHexa f32 坐标（8 节点） |
+| tet 单元解码 | fde8ecc | LS_Elements 连通性按 n_cells×nnodes 前缀匹配（Klein_1: 686497 tet4、SCTeta: 361868 tet4，cell_types=[10]）；纯 hex 保持 cell_types=None 走旧快速路径 |
+
+### 24.1 样例解析现状
+
+| 样例 | 单元 | 节点 | 变量 | 备注 |
+|---|---|---|---|---|
+| scSTREAM_example1_100 | 18240 hex ✓ | 21145 ✓ | 15 ✓ | 全量 |
+| scSTREAM_example1_200/300 | 18240 ✓(继承) | 21145 ✓ | 15 ✓ | result-only + 网格继承 |
+| Klein_1 | 686497 tet ✓ | 164343 ✓ | PRES ✓ | tet4 前缀解码 |
+| Klein_300 | 0（继承 Klein_1） | 164343 ✓ | PRES ✓ | result-only |
+| SCTeta_tutorial | 361868 tet ✓ | 116691 ✓ | 5 ✓ | tet4 |
+| 2cars | 0（已知限制） | 338713 ✓ | PRES ✓ | 混合单元 NGON 变体，逐单元连通性布局未解 |
+| minimumHexa | 0（描述符密集） | 8 ✓(f32) | — | 单 hex 元数据编码在描述符链，字段 f32 |
+
+**已知限制**：2cars 的混合单元（类型码 34/35/36）逐单元连通性块布局与
+minimumHexa 的描述符密集元数据编码，留待后续逆向。
+**回归说明**：全量回归 **201 passed, 1 skipped, 0 failed**（约 16 分钟，含 7 项 scPOST 官方样例测试）。
