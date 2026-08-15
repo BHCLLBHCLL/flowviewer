@@ -334,6 +334,11 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         for name, _kind in _CREATE_MORE:
             add(sub, name, lambda _=False, k=_kind: self._create_object(k))
 
+        # Edit (undo/redo over object-tree changes, P0.3)
+        m = mb.addMenu("Edit")
+        add(m, "Undo", self.on_undo, QKeySequence.Undo)
+        add(m, "Redo", self.on_redo, QKeySequence.Redo)
+
         # Display
         m = mb.addMenu("Display")
         add(m, "Redraw", self.on_redraw)
@@ -1248,6 +1253,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if maker is None:
             self._nyi(f"Create {kind}")
             return
+        self._snapshot_children()  # undo checkpoint before mutating (P0.3)
         used = {o.label for o in self.main_object.children}
         index = 1
         while f"{kind.capitalize()} ({index})" in used:

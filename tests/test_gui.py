@@ -361,6 +361,25 @@ def test_create_object_secondary_kinds(qapp):
     assert any(o.kind == "cylinder" for o in w.main_object.children)
 
 
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_undo_redo_wired(qapp):
+    """P0.3: Edit menu + snapshot on create → undo/redo actually work."""
+    w = _make(qapp, FPH)
+    n0 = len(w.main_object.children)
+    w._create_object("text")
+    assert len(w.main_object.children) == n0 + 1
+    assert w._undo_stack  # create pushed a snapshot
+    w.on_undo()
+    assert len(w.main_object.children) == n0  # creation undone
+    assert w._redo_stack
+    w.on_redo()
+    assert len(w.main_object.children) == n0 + 1  # redo restores
+    # Edit menu exists with Undo/Redo actions + shortcuts
+    edit_menu = _menu_by_title(w, "Edit")
+    texts = {a.text() for a in edit_menu.actions()}
+    assert {"Undo", "Redo"} <= texts
+
+
 def test_surface_dialog_all_tabs_and_filter(qapp):
     from fv.model.dataset import load_file
     from fv.model.objects import SurfaceObject
@@ -2397,15 +2416,19 @@ def test_export_handlers_wired(qapp):
     w.on_print()
 
 
+def _menu_by_title(w, title):
+    return next(m.menu() for m in w.menuBar().actions() if m.text() == title)
+
+
 def test_menu_stubs_wired(qapp):
     """Menu/view stubs now have real handlers (E-gap)."""
     w = _make(qapp, FPH)
-    display = w.menuBar().actions()[2].menu()  # Display
+    display = _menu_by_title(w, "Display")
     dlabels = [a.text() for a in display.actions()]
     assert "Redraw" in dlabels and "Show All" in dlabels
     assert "Hide All" in dlabels
     # View menu has Iso Metric / Compare wired to handlers
-    view = w.menuBar().actions()[3].menu()  # View
+    view = _menu_by_title(w, "View")
     vlabels = [a.text() for a in view.actions()]
     assert "Iso Metric" in vlabels and "Compare" in vlabels
     # Handlers exist and don't crash in headless mode
