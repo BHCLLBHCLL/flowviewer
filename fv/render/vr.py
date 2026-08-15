@@ -1,17 +1,19 @@
 """VR mode support (scPOST VR, 7d).
 
-Availability detection plus a real VR render-window backend.  VTK ships
-two VR paths:
+Availability detection plus real VR render-window backends.  VTK ships
+several VR paths:
 
-* OpenVR backend  - vtkOpenVRRenderWindow / vtkOpenVRRenderer /
+* OpenVR backend - vtkOpenVRRenderWindow / vtkOpenVRRenderer /
   vtkOpenVRRenderWindowInteractor / vtkOpenVRCamera (HTC Vive / Index /
   SteamVR headsets);
+* OpenXR backend - vtkOpenXRRenderWindow / vtkOpenXRRenderer /
+  vtkOpenXRRenderWindowInteractor / vtkOpenXRCamera (VTK >= 9.1);
 * generic VR path - vtkVRRenderWindow (base class exposed by some builds).
 
-``create_vr_window`` prefers the OpenVR backend and falls back to the
-generic window; it returns ``None`` when neither is importable so callers
-can degrade to a normal 3D viewport.  VR rendering also needs an HMD
-driver (SteamVR), so construction is best-effort and never raises.
+``create_vr_window`` prefers OpenVR, then OpenXR, then the generic path;
+it returns ``None`` when no backend can build a window so callers can
+degrade to a normal 3D viewport.  ``vr_runtime_available`` reports whether
+an OpenVR/OpenXR runtime DLL (SteamVR / WMR / Oculus loader) is present.
 """
 
 from __future__ import annotations
@@ -26,38 +28,73 @@ def _vtk():
         return None
 
 
+def _dll_loadable(*names):
+    """True when any named native DLL can be loaded (no HMD required)."""
+    try:
+        import ctypes
+    except Exception:
+        return False
+    for n in names:
+        try:
+            ctypes.WinDLL(n)
+            return True
+        except Exception:
+            continue
+    return False
+
+
+def vr_runtime_available() -> bool:
+    """True when an OpenVR or OpenXR runtime DLL is loadable (7d)."""
+    return _dll_loadable("openvr_api.dll", "vrclient_x64.dll",
+                         "openxr_loader.dll")
+
+
+def _has_openvr(vtk):
+    return hasattr(vtk, "vtkOpenVRRenderWindow")
+
+
+def _has_openxr(vtk):
+    return hasattr(vtk, "vtkOpenXRRenderWindow")
+
+
 def vr_available() -> bool:
-    """True when a VTK OpenVR/VR backend is importable (7d)."""
+    """True when any VTK VR backend is importable (7d)."""
     vtk = _vtk()
     if vtk is None:
         return False
-    return (hasattr(vtk, "vtkOpenVRRenderWindow")
-            or hasattr(vtk, "vtkVRRenderWindow"))
+    return _has_openvr(vtk) or _has_openxr(vtk) or hasattr(vtk, "vtkVRRenderWindow")
 
 
 def vr_render_window_supported() -> bool:
     """True when a VTK VR render window class exists (any backend)."""
-    vtk = _vtk()
-    if vtk is None:
-        return False
-    return (hasattr(vtk, "vtkOpenVRRenderWindow")
-            or hasattr(vtk, "vtkVRRenderWindow"))
+    return vr_available()
 
 
 def vr_backend() -> str:
-    """Name of the detected VR backend: openvr, generic or none."""
+    """Detected backend name: openvr, openxr, generic or none."""
     vtk = _vtk()
     if vtk is None:
         return "none"
-    if hasattr(vtk, "vtkOpenVRRenderWindow"):
+    if _has_openvr(vtk):
         return "openvr"
+    if _has_openxr(vtk):
+        return "openxr"
     if hasattr(vtk, "vtkVRRenderWindow"):
         return "generic"
     return "none"
 
 
-def _configure_common(window, renderer, background):
-    """Attach a renderer and set the background colour (best-effort)."""
+def _apply_physical_scale(window, scale):
+    """Set the VR world scale (metres per unit) when supported."""
+    fn = getattr(window, "SetPhysicalScale", None)
+    if fn is not None:
+        try:
+            fn(float(scale))
+        except Exception:
+            pass
+
+
+def _attach_renderer(window, renderer, background):
     if renderer is not None:
         try:
             window.AddRenderer(renderer)
@@ -69,40 +106,46 @@ def _configure_common(window, renderer, background):
             pass
 
 
-def _make_openvr_backend(vtk, renderer, background):
-    """Build the OpenVR window + interactor + camera (preferred path)."""
-    if not hasattr(vtk, "vtkOpenVRRenderWindow"):
+def _make_backend(vtk, kind, renderer, background, physical_scale):
+    """Shared construction for openvr / openxr windows."""
+    win_cls = getattr(vtk, "vtkOpenVRRenderWindow" if kind == "openvr"
+                    else "vtkOpenXRRenderWindow", None)
+    if win_cls is None:
         return None
     try:
-        win = vtk.vtkOpenVRRenderWindow()
+        win = win_cls()
         ren = renderer
-        if ren is None and hasattr(vtk, "vtkOpenVRRenderer"):
-            ren = vtk.vtkOpenVRRenderer()
-        if ren is not None:
-            win.AddRenderer(ren)
-            try:
-                ren.SetBackground(*background)
-            except Exception:
-                pass
+        if ren is None:
+            ren_cls = getattr(vtk, "vtkOpenVRRenderer" if kind == "openvr"
+                              else "vtkOpenXRRenderer", None)
+            if ren_cls is not None:
+                ren = ren_cls()
+        _attach_renderer(win, ren, background)
         iren = None
-        if hasattr(vtk, "vtkOpenVRRenderWindowInteractor"):
-            iren = vtk.vtkOpenVRRenderWindowInteractor()
+        iren_cls = getattr(vtk, "vtkOpenVRRenderWindowInteractor"
+                           if kind == "openvr" else "vtkOpenXRRenderWindowInteractor", None)
+        if iren_cls is not None:
+            iren = iren_cls()
             iren.SetRenderWindow(win)
         camera = None
-        if ren is not None and hasattr(vtk, "vtkOpenVRCamera"):
-            camera = vtk.vtkOpenVRCamera()
-            ren.SetActiveCamera(camera)
+        if ren is not None:
+            cam_cls = getattr(vtk, "vtkOpenVRCamera" if kind == "openvr"
+                              else "vtkOpenXRCamera", None)
+            if cam_cls is not None:
+                camera = cam_cls()
+                ren.SetActiveCamera(camera)
+        _apply_physical_scale(win, physical_scale)
         try:
             win.Initialize()
         except Exception:
             pass
         return {"window": win, "interactor": iren, "camera": camera,
-                "renderer": ren, "backend": "openvr"}
+                "renderer": ren, "backend": kind}
     except Exception:
         return None
 
 
-def _make_generic_backend(vtk, renderer, background):
+def _make_generic_backend(vtk, renderer, background, physical_scale):
     """Build a generic vtkVRRenderWindow path (fallback)."""
     if not hasattr(vtk, "vtkVRRenderWindow"):
         return None
@@ -111,15 +154,8 @@ def _make_generic_backend(vtk, renderer, background):
         ren = renderer
         if ren is None and hasattr(vtk, "vtkVRRenderer"):
             ren = vtk.vtkVRRenderer()
-        if ren is not None:
-            try:
-                win.AddRenderer(ren)
-            except Exception:
-                pass
-            try:
-                ren.SetBackground(*background)
-            except Exception:
-                pass
+        _attach_renderer(win, ren, background)
+        _apply_physical_scale(win, physical_scale)
         try:
             win.Initialize()
         except Exception:
@@ -130,20 +166,22 @@ def _make_generic_backend(vtk, renderer, background):
         return None
 
 
-def create_vr_window(renderer=None, background=(0.1, 0.1, 0.1)):
-    """Create a VR render window, preferring OpenVR then the generic path.
+def create_vr_window(renderer=None, background=(0.1, 0.1, 0.1),
+                     physical_scale=1.0):
+    """Create a VR render window: OpenVR -> OpenXR -> generic fallback.
 
     Returns a dict with keys window/interactor/camera/renderer/backend,
-    or ``None`` when no VR backend is available.  Never raises: callers
-    that get ``None`` should fall back to a normal viewport.
+    or ``None`` when no backend can build a window (no HMD driver).  Never
+    raises: callers that get ``None`` fall back to a normal viewport.
     """
     vtk = _vtk()
     if vtk is None:
         return None
-    handle = _make_openvr_backend(vtk, renderer, background)
-    if handle is None:
-        handle = _make_generic_backend(vtk, renderer, background)
-    return handle
+    for kind in ("openvr", "openxr"):
+        handle = _make_backend(vtk, kind, renderer, background, physical_scale)
+        if handle is not None:
+            return handle
+    return _make_generic_backend(vtk, renderer, background, physical_scale)
 
 
 def release_vr_window(handle) -> bool:

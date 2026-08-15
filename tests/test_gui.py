@@ -2877,10 +2877,11 @@ def test_com_connection_points():
 def test_vr_detection():
     """VR availability detection returns a bool and names a backend (7d)."""
     from fv.render.vr import (vr_available, vr_render_window_supported,
-                              vr_backend)
+                              vr_backend, vr_runtime_available)
     assert isinstance(vr_available(), bool)
     assert isinstance(vr_render_window_supported(), bool)
-    assert vr_backend() in {"openvr", "generic", "none"}
+    assert vr_backend() in {"openvr", "openxr", "generic", "none"}
+    assert isinstance(vr_runtime_available(), bool)
 
 def test_vr_backend_builders():
     """create/release_vr_window degrade cleanly without an HMD driver (7d)."""
@@ -2891,7 +2892,7 @@ def test_vr_backend_builders():
         assert vr_backend() in {"openvr", "generic", "none"}
         assert release_vr_window(None) is False
     else:
-        assert handle["backend"] in {"openvr", "generic"}
+        assert handle["backend"] in {"openvr", "openxr", "generic"}
         assert "window" in handle
         assert release_vr_window(handle) is True
 
