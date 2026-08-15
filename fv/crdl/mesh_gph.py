@@ -23,6 +23,7 @@ from .core import (
     f32_be_array,
     i32_be_array,
     open_buffer,
+    parse_header_meta,
 )
 
 _CONN_CHUNK_BYTES = 1073741824  # 1 GiB cap per LS_Links conn payload block
@@ -731,6 +732,79 @@ def _renumber_by_first_use(face_nodes_flat: np.ndarray, n_vertices: int) -> np.n
     return perm
 
 
+def _n_cells_array(data, name: str, n_cells: int, elem: int,
+                  dtype: str = "f4") -> Optional[np.ndarray]:
+    """Payload after a ``[12][4][n_cells][1]`` descriptor in *name* section.
+
+    Used for per-element arrays (Element_InformationFlag i4 /
+    Element_Center f32).
+    """
+    sec = find_section(data, name)
+    if sec < 0 or n_cells <= 0:
+        return None
+    end = section_end(data, sec)
+    pos = sec + 40
+    while pos + 16 <= end:
+        if read_i32_be(data, pos) != 12:
+            pos += 4
+            continue
+        v = read_i32_be(data, pos + 4)
+        n0 = read_i32_be(data, pos + 8)
+        n1 = read_i32_be(data, pos + 12)
+        if v == 4 and n0 == n_cells and n1 == 1:
+            p2 = pos + 16
+            plen = n0 * elem
+            if (p2 + 8 + plen + 4 <= end
+                    and read_i32_be(data, p2) == 12
+                    and read_i32_be(data, p2 + 4) == plen
+                    and read_i32_be(data, p2 + 8 + plen) == plen):
+                if dtype == "i4":
+                    return i32_be_array(data, p2 + 8, n0).astype(np.int64)
+                return f32_be_array(data, p2 + 8, n0).astype(np.float64)
+        pos += 4
+    return None
+
+
+def parse_element_information_flag(data, n_cells: int) -> Optional[np.ndarray]:
+    """Element_InformationFlag → per-element flag array (int64)."""
+    return _n_cells_array(data, "Element_InformationFlag", n_cells, 4,
+                          dtype="i4")
+
+
+def parse_element_centers(data, n_cells: int) -> Optional[np.ndarray]:
+    """Element_Center → ``(n_cells, 3)`` float64 precomputed cell centres.
+
+    Layout: three ``[12][4][n_cells][1]`` + ``[12][4*n_cells]`` float32
+    coordinate payloads (X, Y, Z).
+    """
+    sec = find_section(data, "Element_Center")
+    if sec < 0 or n_cells <= 0:
+        return None
+    end = section_end(data, sec)
+    comps: list[np.ndarray] = []
+    pos = sec + 40
+    while pos + 16 <= end and len(comps) < 3:
+        if read_i32_be(data, pos) != 12:
+            pos += 4
+            continue
+        v = read_i32_be(data, pos + 4)
+        n0 = read_i32_be(data, pos + 8)
+        n1 = read_i32_be(data, pos + 12)
+        if v == 4 and n0 == n_cells and n1 == 1:
+            p2 = pos + 16
+            plen = n0 * 4
+            if (p2 + 8 + plen + 4 <= end
+                    and read_i32_be(data, p2) == 12
+                    and read_i32_be(data, p2 + 4) == plen
+                    and read_i32_be(data, p2 + 8 + plen) == plen):
+                comps.append(f32_be_array(data, p2 + 8, n0))
+                pos = p2 + 8 + plen + 4
+                continue
+        pos += 4
+    if len(comps) != 3 or any(a.size != n_cells for a in comps):
+        return None
+    return np.column_stack(comps).astype(np.float64)
+
 def parse_gph_mesh(filepath: str) -> dict:
     """Extract mesh data (vertices, faces, parts) from a GPH / FPH file."""
     with open_buffer(filepath) as data:
@@ -747,6 +821,9 @@ def parse_gph_mesh(filepath: str) -> dict:
             "part_assembly": {},
             "assembly_info": None,
             "surface_regions": [],
+            "element_flags": None,
+            "element_centers": None,
+            "meta": {},
         }
 
         xyz, n_vertices = parse_ls_nodes_xyz(data)
@@ -788,6 +865,11 @@ def parse_gph_mesh(filepath: str) -> dict:
         result["n_vertices"] = n_vertices
         result["link_data"] = link_data
         result["n_cells"] = link_data["n_cells"]
+        result["meta"] = parse_header_meta(data)
+        result["element_flags"] = parse_element_information_flag(
+            data, result["n_cells"])
+        result["element_centers"] = parse_element_centers(
+            data, result["n_cells"])
         return result
 
 

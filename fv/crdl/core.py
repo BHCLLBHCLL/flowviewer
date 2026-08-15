@@ -141,6 +141,57 @@ def iter_data_blocks(data, sec_start: int, sec_end: int):
         pos = payload_end + 4
 
 
+_HEADER_META_NAMES = ("FileRevision", "Application", "ApplicationVersion",
+                      "ReleaseDate", "GridType", "Dimension", "Bias",
+                      "Date", "Comments", "Unit:$TEMP")
+
+
+def parse_header_meta(data) -> dict[str, str]:
+    """Best-effort header metadata → ``{section_name: value}``.
+
+    Header sections store either a small printable text payload
+    (e.g. ``Application`` = "SCRYUTET") or descriptor dims; the first
+    printable payload wins, otherwise the first descriptor dims pair is
+    formatted as ``"d0xd1"``.
+    """
+    meta: dict[str, str] = {}
+    for nm in _HEADER_META_NAMES:
+        s = find_section(data, nm)
+        if s < 0:
+            continue
+        e = section_end(data, s)
+        texts: list[str] = []
+        dims: list[tuple[int, int]] = []
+        pos = s + 40
+        while pos + 12 <= e:
+            if read_i32_be(data, pos) != 12:
+                pos += 4
+                continue
+            v = read_i32_be(data, pos + 4)
+            if v in (1, 2, 4, 8) and pos + 16 <= e:
+                d0 = read_i32_be(data, pos + 8)
+                d1 = read_i32_be(data, pos + 12)
+                if 0 <= d0 < 10_000_000 and 0 <= d1 < 10_000_000:
+                    dims.append((d0, d1))
+                    pos += 16
+                    continue
+            bc = v
+            if 0 < bc <= 256 and pos + 8 + bc + 4 <= e:
+                raw = data[pos + 8:pos + 8 + bc]
+                if raw and all(b == 0 or 32 <= b < 127 for b in raw):
+                    txt = raw.decode("ascii", "replace")
+                    txt = txt.strip("\x00 ").strip()
+                    if txt:
+                        texts.append(txt)
+                pos += 8 + bc + 4
+                continue
+            pos += 4
+        if texts:
+            meta[nm] = texts[0]
+        elif dims:
+            meta[nm] = f"{dims[0][0]}x{dims[0][1]}"
+    return meta
+
 @contextmanager
 def open_buffer(filepath: str):
     """Yield a bytes-like buffer; mmap files larger than 512 MiB."""

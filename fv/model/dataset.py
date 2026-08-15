@@ -259,15 +259,31 @@ def pph_load(filepath: str) -> FieldFile:
     ff.file_size = mesh["file_size"]
     ff.pph_project = mesh.get("pph_project")
     ff.pph_members = mesh.get("pph_members") or []
+    ff.meta = mesh.get("meta") or {}
+    ff.element_flags = mesh.get("element_flags")
+    ff.element_centers = mesh.get("element_centers")
     return ff
 
 
+def ifld_load(filepath: str) -> FieldFile:
+    """iFLD loader: quick metadata scan (D3) + full FLD parse.
+
+    Trimming/partial open is not implemented yet; the scan summary is
+    attached as ``ff.meta["ifld_scan"]`` for fast previews.
+    """
+    from ..crdl.ifld import scan_ifld
+    path = Path(filepath)
+    ff = fld_only_load(filepath)
+    summary = scan_ifld(str(path))
+    if summary:
+        ff.meta["ifld_scan"] = summary
+    return ff
 def _register_loaders() -> None:
     """Advertise the real parsers in :mod:`fv.model.loaders` registry."""
     try:
         from . import loaders
         loaders.register("fld", fld_only_load)
-        loaders.register("ifld", fld_only_load)
+        loaders.register("ifld", ifld_load)
         loaders.register("fph", load_file)
         loaders.register("gph", load_file)
         loaders.register("pph", pph_load)
@@ -280,6 +296,7 @@ def _register_loaders() -> None:
         loaders.register("obj", neutral_load)
         loaders.register("stl", neutral_load)
         loaders.register("neu", neutral_load)
+        loaders.register("ply", neutral_load)
         loaders.register("dat", marc_load)
     except Exception:  # pragma: no cover - registry is best-effort
         pass
@@ -340,6 +357,7 @@ def fld_only_load(filepath: str) -> FieldFile:
     ff.face_cells = mesh.get("face_cells")
     ff.volume_regions = mesh["volume_names"]
     ff.file_size = mesh["file_size"]
+    ff.meta = mesh.get("meta") or {}
     if mesh.get("mesh_from"):
         ff.mesh_from = mesh["mesh_from"]
     for name, arr in mesh["fields"].items():
@@ -377,6 +395,9 @@ def load_file(filepath: str) -> FieldFile:
     ff.cvol_id = mesh.get("cvol_id")
     ff.parts_with_cvol = mesh.get("parts_with_cvol") or []
     ff.file_size = mesh["file_size"]
+    ff.meta = mesh.get("meta") or {}
+    ff.element_flags = mesh.get("element_flags")
+    ff.element_centers = mesh.get("element_centers")
 
     with open_buffer(str(path)) as data:
         sph = fld_fields.parse_fph_flow_solution(data, ff.n_cells)

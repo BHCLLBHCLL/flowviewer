@@ -435,6 +435,9 @@ def _cell_axis_difference(ff, name: str, axis: str):
 
 def _cell_centers_fph(ff):
     """FPH cell centre coordinates as an (n_cells, 3) array."""
+    pre = getattr(ff, "element_centers", None)
+    if pre is not None and np.asarray(pre).shape == (ff.n_cells, 3):
+        return np.asarray(pre, dtype=np.float64)
     ld = ff.link_data
     if ld is None or ff.vertices is None:
         return None
