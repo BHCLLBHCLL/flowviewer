@@ -1,0 +1,79 @@
+"""Proper Orthogonal Decomposition over cycle sequences (scPOST POD, P3).
+
+scPOST ships a POD / Clustering operator that decomposes a cycle series
+into U / US / VT matrices.  pod_analysis collects one variable snapshot per
+cycle file into a (n_cycles, n_fields) matrix, subtracts the temporal mean
+and SVD-decomposes it into orthogonal spatial modes with their energy
+fractions.  The modes can be registered back on a FieldFile as ordinary
+variables for visualisation.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+
+
+def collect_snapshots(file_set, var):
+    """(n_cycles, n_fields) snapshot matrix for var across a FileSet."""
+    from .dataset import load_file
+    rows = []
+    loc = "cell"
+    for m in getattr(file_set, "members", []) or []:
+        try:
+            ff = load_file(m.path)
+            a = np.asarray(ff.variable_array(var), dtype=np.float64)
+            if a.ndim != 1:
+                continue
+            if not rows or a.shape == rows[0].shape:
+                rows.append(a)
+                vi = ff.variables.get(var)
+                loc = getattr(vi, "location", "cell") if vi is not None else loc
+        except Exception:
+            continue
+    if not rows:
+        return None, loc, 0
+    return np.vstack(rows), loc, int(rows[0].shape[0])
+
+
+def pod_decompose(X, n_modes=None):
+    """SVD POD of a snapshot matrix X (n_samples, n_fields).
+
+    Returns (mean, modes, energies, singular_values): modes are the
+    orthogonal spatial modes (each length n_fields), energies their
+    fractional energy in descending order.
+    """
+    X = np.asarray(X, dtype=np.float64)
+    if X.ndim != 2 or X.shape[0] < 1:
+        raise ValueError("snapshots must be a 2D matrix")
+    mean = X.mean(axis=0)
+    Xc = X - mean
+    U, S, Vt = np.linalg.svd(Xc, full_matrices=False)
+    ss = float(np.sum(S ** 2))
+    energies = (S ** 2) / ss if ss > 0 else S
+    k = len(S) if n_modes is None else min(int(n_modes), len(S))
+    return mean, [Vt[i].copy() for i in range(k)], energies[:k], S
+
+
+def pod_analysis(file_set, var, n_modes=10):
+    """End-to-end POD of one variable across a cycle FileSet."""
+    X, loc, length = collect_snapshots(file_set, var)
+    if X is None or length == 0:
+        raise ValueError("no usable snapshots for " + repr(var))
+    mean, modes, energies, sv = pod_decompose(X, n_modes)
+    return {"mean": mean, "modes": modes, "energies": energies,
+            "singular_values": sv, "location": loc, "length": length,
+            "n_cycles": int(X.shape[0])}
+
+
+def register_pod_modes(file_set, ff0, var, n_modes=5):
+    """Register POD mean + modes on ff0 (POD_MEAN, POD_MODE_i)."""
+    from .dataset import FIELD_KIND_SCALAR, VarInfo
+    res = pod_analysis(file_set, var, n_modes)
+    ff0.variables["POD_MEAN"] = VarInfo(
+        name="POD_MEAN", kind=FIELD_KIND_SCALAR, location=res["location"],
+        array=res["mean"])
+    for i, m in enumerate(res["modes"]):
+        ff0.variables["POD_MODE_" + str(i)] = VarInfo(
+            name="POD_MODE_" + str(i), kind=FIELD_KIND_SCALAR,
+            location=res["location"], array=m)
+    return res

@@ -1813,6 +1813,46 @@ def test_fileset_cycle_management(tmp_path):
     except ValueError:
         pass
 
+def test_pod_decompose():
+    """POD SVD decomposition: orthogonal modes + energy fractions (P3)."""
+    import numpy as np
+    from fv.model.pod import pod_decompose
+    rng = np.random.default_rng(7)
+    X = rng.standard_normal((12, 50))
+    mean, modes, energies, sv = pod_decompose(X, 6)
+    assert mean.shape == (50,)
+    assert len(modes) == 6 and len(energies) == 6
+    assert np.all(energies >= 0) and energies.sum() <= 1.0 + 1e-12
+    assert np.all(np.diff(energies) <= 1e-12)  # descending energy
+    _, _, e_full, _ = pod_decompose(X)  # all modes sum to 1
+    assert abs(e_full.sum() - 1.0) < 1e-9    # modes are orthonormal
+    M = np.vstack(modes)
+    gram = M @ M.T
+    assert np.allclose(gram, np.eye(6), atol=1e-9)
+    # rank-deficient data -> exactly one non-zero mode
+    Xr = np.tile(rng.standard_normal(50), (5, 1))
+    _, modes_r, energies_r, _ = pod_decompose(Xr, 3)
+    assert energies_r[0] > 0.999
+
+def test_pod_analysis_fileset(tmp_path):
+    """POD across a cycle FileSet registers POD_MEAN / POD_MODE_i (P3)."""
+    import shutil
+    from pathlib import Path
+    from fv import api
+    from fv.model.fileset import scan_sequence
+    base = Path(tmp_path)
+    for stale in base.glob("*.fph"):
+        stale.unlink()
+    for cyc in (1, 2, 3):
+        shutil.copyfile(FPH, str(base / f"flow_{cyc}.fph"))
+    fs = scan_sequence(str(base / "flow_1.fph"))
+    ff0 = api.open_file(FPH)
+    res = api.register_pod_modes(fs, ff0, "PRES", 3)
+    assert res["n_cycles"] == 3
+    assert res["mean"].shape == (ff0.n_cells,)
+    assert len(res["modes"]) == 3
+    assert "POD_MEAN" in ff0.variables
+    assert "POD_MODE_0" in ff0.variables and "POD_MODE_2" in ff0.variables
 def test_api_object_management():
     """GetObjNum/GetObjectByType/Remove* (P2)."""
     from fv import api

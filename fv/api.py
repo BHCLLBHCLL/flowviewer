@@ -588,3 +588,16 @@ def remove_related_objects(main, kind: str) -> int:
     n = len(children) - len(keep)
     children[:] = keep
     return n
+
+# ── POD / Clustering (scPOST POD operator, P3) ─────────────────────────
+
+def pod_analysis(file_set, var: str, n_modes: int = 10):
+    """POD decomposition of *var* across a cycle FileSet."""
+    from .model.pod import pod_analysis as _f
+    return _f(file_set, var, n_modes)
+
+
+def register_pod_modes(file_set, ff0, var: str, n_modes: int = 5):
+    """Register POD_MEAN / POD_MODE_i variables on *ff0*."""
+    from .model.pod import register_pod_modes as _f
+    return _f(file_set, ff0, var, n_modes)
