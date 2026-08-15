@@ -2835,6 +2835,45 @@ def test_com_properties_events_lifecycle():
         assert app2.has_file is True
     assert app2.has_file is False
 
+def test_com_connection_points():
+    """COM exposes IConnectionPointContainer semantics (3)."""
+    from fv.com import (EVENTS_IID, ConnectionPoint, FlowviewerApplication,
+                        _iid_matches)
+    app = FlowviewerApplication()
+    # container -> single connection point for the event IID
+    cps = app.EnumConnectionPoints()
+    assert len(cps) == 1 and isinstance(cps[0], ConnectionPoint)
+    assert app.FindConnectionPoint(EVENTS_IID) is cps[0]
+    assert app.FindConnectionPoint("{00000000-0000-0000-0000-000000000000}") is None
+    assert _iid_matches(EVENTS_IID, EVENTS_IID.lower().strip("{}"))
+    # Advise/Unadvise cookie semantics
+    cp = cps[0]
+    events = []
+    class Sink:
+        def on_open(self, path):
+            events.append(("open", path))
+        def on_close(self):
+            events.append(("close", None))
+    c1 = cp.Advise(Sink())
+    c2 = cp.Advise(Sink())
+    assert c1 != c2 and c1 > 0 and c2 > 0
+    assert len(cp.EnumConnections()) == 2
+    assert cp.Unadvise(c1) is True
+    assert cp.Unadvise(c1) is False
+    assert len(cp.EnumConnections()) == 1
+    # VBS-style PascalCase sink still receives events (case-insensitive)
+    class VbsSink:
+        def OnOpen(self, path):
+            events.append(("open", path))
+        def OnClose(self):
+            events.append(("close", None))
+    cookie = app.subscribe(VbsSink())
+    app.open_file(FPH)
+    app.close()
+    assert ("open", FPH) in events and ("close", None) in events
+    app.unsubscribe(None)
+    app.release()
+    assert len(app.EnumConnectionPoints()[0].EnumConnections()) == 0
 def test_vr_detection():
     """VR availability detection returns a bool and names a backend (7d)."""
     from fv.render.vr import (vr_available, vr_render_window_supported,
