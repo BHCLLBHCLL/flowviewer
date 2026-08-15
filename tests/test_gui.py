@@ -2897,6 +2897,14 @@ def test_com_connection_points():
     app.unsubscribe(None)
     app.release()
     assert len(app.EnumConnectionPoints()[0].EnumConnections()) == 0
+
+def test_com_events_smoke_inproc():
+    """COM events smoke script runs in-process (②)."""
+    from scripts.com_events_smoke import Sink, run_inproc
+    r = run_inproc(FPH)
+    assert r["ok"] is True
+    assert FPH in r["opened"] and r["closed"] == 1
+
 def test_vr_detection():
     """VR availability detection returns a bool and names a backend (7d)."""
     from fv.render.vr import (vr_available, vr_render_window_supported,
