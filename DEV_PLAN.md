@@ -891,3 +891,17 @@ Bitmap UV / Measure 比例 / Grouping 树层级。
 **171 passed, 1 skipped, 0 failed**（约 14.6 分钟）。其中 VTK VR 类为
 ``vtkVRRenderWindow`` 存在、``vtkOpenVRRenderWindow`` 不存在（与文档一致），
 VR 后端构建在无 HMD 驱动时优雅返回 None。
+
+## 21. 高完成度深化 1–5（2026-08-09，第六轮执行）
+
+针对第五轮分析结论的 5 项深度/接线差距逐项修复并推送。
+
+| # | 项 | 提交 | 说明 |
+|---|---|---|---|
+| 1 | Turbo/Region 渲染接线 | ea74b93 | `_dispatch_object` 增 turbo/region 分支（原 `_add_turbo_actor`/`_add_region_actor` 为死代码）+ headless actor 记录 + dispatch 路由测试 |
+| 2 | UFO 数据语义/渲染 | eb42c60 | `fv/render/ufo.py`：外部点集/变量着色/单元中心回退，点云渲染；UFOObject 增 variable/point_size/color；UFODialog 真实设置；dispatch 接线 |
+| 3 | COM WithEvents 连接点 | 6d6fda4 | `FlowviewerApplicationEvents` 事件接口 + `ConnectionPoint`(Advise/Unadvise/EnumConnections) + `ConnectionPointContainer`(FindConnectionPoint)；`_com_interfaces_` 声明 IConnectionPointContainer |
+| 4 | VR OpenXR + 运行时 | 632f3b1 | OpenXR 后端(vtkOpenXRRenderWindow 家族) + `vr_runtime_available`(openvr/openxr DLL 检测) + physical_scale；backend 检测扩为 openvr/openxr/generic/none |
+| 5 | Turbo 叶片气动后处理 | 0201cdb | `pressure_coefficient`/`area_average`/`mass_flow_average`/`circumferential_mass_average`(ρ·|V| 加权) + TurboDialog「Blade Aero」标签页 |
+
+**回归说明**：全量回归 **178 passed, 1 skipped, 0 failed**（约 15.5 分钟，vtk 9.3.1）。
