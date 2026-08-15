@@ -2524,6 +2524,26 @@ def test_neutral_scene():
         os.unlink(path)
 
 
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_fph_cell_difference():
+    """delx on an FPH cell field uses cell-centre differences (2)."""
+    import numpy as np
+    from fv.model.dataset import FIELD_KIND_SCALAR, VarInfo
+    from fv.model.dataset import load_file
+    from fv.model.varreg import _cell_centers_fph, register_variable
+    ff = load_file(FPH)
+    centers = _cell_centers_fph(ff)
+    assert centers is not None and centers.shape == (ff.n_cells, 3)
+    # synthetic linear cell field = x coordinate -> delx = 1 interior
+    ff.variables["XC"] = VarInfo(name="XC", kind=FIELD_KIND_SCALAR,
+                              location="cell", array=centers[:, 0])
+    vi = register_variable(ff, "DPDXC", "delx(XC)")
+    assert vi.location == "cell"
+    nz = vi.array[np.nonzero(vi.array)]
+    assert len(nz) > 0
+    assert np.abs(nz - 1.0).max() < 0.3
+
+
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_export_animation_frames_headless(tmp_path):

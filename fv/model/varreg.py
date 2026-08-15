@@ -317,8 +317,10 @@ def _axis_difference(ff, name: str, axis: str):
     each side along *axis* (structured-node-field friendly), then
     computes (v[+] - v[-]) / (x[+] - x[-]).
     """
-    if ff.vertices is None or ff.kind == "fph":
-        raise ValueError(axis + " requires a node-centred (FLD/CGNS) field")
+    if ff.vertices is None:
+        raise ValueError(axis + " needs mesh vertices")
+    if ff.kind == "fph":
+        return _cell_axis_difference(ff, name, axis)
     a = ff.variable_array(name)
     if a is None or np.asarray(a).ndim != 1:
         raise ValueError("unknown scalar variable " + repr(name))
@@ -351,4 +353,69 @@ def _axis_difference(ff, name: str, axis: str):
         h = verts[p, ax] - verts[m, ax]
         if abs(h) > 1e-12:
             out[i] = (a[p] - a[m]) / h
+    return out
+def _cell_axis_difference(ff, name: str, axis: str):
+    """Central first difference of an FPH cell field along *axis* (2).
+
+    Computes cell centres from LS_Links owner faces, then uses a 3D
+    cKDTree to find, per cell, the nearest neighbour on each side along
+    *axis* (lateral offset bounded by the local cell size).
+    """
+    a = ff.variable_array(name)
+    if a is None or np.asarray(a).ndim != 1:
+        raise ValueError("unknown scalar variable " + repr(name))
+    a = np.asarray(a, dtype=np.float64)
+    centers = _cell_centers_fph(ff)
+    if centers is None or centers.shape[0] != len(a):
+        raise ValueError("cannot compute cell centres")
+    try:
+        from scipy.spatial import cKDTree
+    except ImportError:
+        raise ValueError("scipy required for delx/dely/delz")
+    ax = {"X": 0, "Y": 1, "Z": 2}[axis]
+    other = [c for c in range(3) if c != ax]
+    tree = cKDTree(centers)
+    k = min(24, len(a))
+    _d, nbr = tree.query(centers, k=k)
+    if len(a) == 1:
+        nbr = nbr.reshape(1, -1)
+    out = np.zeros(len(a), dtype=np.float64)
+    lat_scale = max(1e-9, float(np.abs(centers[:, other]).std(axis=0).sum()))
+    for i in range(len(a)):
+        idx = np.asarray(nbr[i]).astype(np.int64)
+        idx = idx[idx != i]
+        if idx.size == 0:
+            continue
+        delta = centers[idx] - centers[i]
+        da = delta[:, ax]
+        lat = np.abs(delta[:, other]).sum(axis=1)
+        mask = lat < lat_scale * 0.05
+        pos = np.where(mask & (da > 0))[0]
+        neg = np.where(mask & (da < 0))[0]
+        if pos.size == 0 or neg.size == 0:
+            continue
+        p = pos[np.argmin(da[pos])]
+        m = neg[np.argmax(da[neg])]
+        h = da[p] - da[m]
+        if abs(h) > 1e-12:
+            out[i] = (a[idx[p]] - a[idx[m]]) / h
+    return out
+
+
+def _cell_centers_fph(ff):
+    """FPH cell centre coordinates as an (n_cells, 3) array."""
+    ld = ff.link_data
+    if ld is None or ff.vertices is None:
+        return None
+    face_nodes = np.asarray(ld["face_nodes"], dtype=np.int64)
+    face_offsets = np.asarray(ld["face_offsets"], dtype=np.int64)
+    verts = np.asarray(ff.vertices, dtype=np.float64)
+    out = np.zeros((ff.n_cells, 3))
+    for c, pf in ld["cell_owner_faces"].items():
+        pts = []
+        for fi in pf:
+            lo, hi = int(face_offsets[fi]), int(face_offsets[fi + 1])
+            pts.extend(face_nodes[lo:hi].tolist())
+        if pts and 0 <= c < ff.n_cells:
+            out[c] = verts[pts].mean(axis=0)
     return out
