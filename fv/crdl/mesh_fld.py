@@ -19,6 +19,7 @@ from .core import (
     iter_data_blocks,
     read_i32_be,
     open_buffer,
+    parse_header_meta,
 )
 
 
@@ -540,6 +541,7 @@ def parse_fld(filepath: str) -> dict[str, Any]:
             "fields": {},
             "bc_sections": [],
             "ls_sfile": None,
+            "meta": {},
         }
 
         xyz, n_verts = _parse_ls_nodes(data)
@@ -605,6 +607,7 @@ def parse_fld(filepath: str) -> dict[str, Any]:
         result["fields"] = fields
         result["bc_sections"] = _parse_bc_sections(data)
         result["ls_sfile"] = _parse_ls_sfile(data)
+        result["meta"] = parse_header_meta(data)
 
         return result
 
