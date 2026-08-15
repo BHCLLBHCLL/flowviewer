@@ -2478,6 +2478,59 @@ def test_nastran_reader(tmp_path):
     assert ff.n_vertices == 8 and ff.n_cells == 1
     assert ff.cell_types.tolist() == [12]
 
+def test_neutral_ply_variables(tmp_path):
+    """PLY per-vertex scalar properties import as node variables (7)."""
+    import struct
+    from fv.model.dataset import neutral_load
+    # ASCII PLY
+    ply = "\n".join([
+        "ply", "format ascii 1.0", "element vertex 4",
+        "property float x", "property float y", "property float z",
+        "property float quality", "element face 2",
+        "property list uchar int vertex_indices", "end_header",
+        "0 0 0 1.0", "1 0 0 2.0", "1 1 0 3.0", "0 1 0 4.0",
+        "3 0 1 2", "3 0 2 3",
+    ])
+    a = tmp_path / "a.ply"
+    a.write_text(ply, encoding="utf-8")
+    ff = neutral_load(str(a))
+    assert ff.kind == "neutral" and ff.n_vertices == 4
+    assert ff.variables["quality"].location == "node"
+    assert ff.variables["quality"].array.tolist() == [1.0, 2.0, 3.0, 4.0]
+    # Binary little-endian PLY
+    verts = [(0, 0, 0, 1.0), (1, 0, 0, 2.0), (1, 1, 0, 3.0), (0, 1, 0, 4.0)]
+    faces = [[0, 1, 2], [0, 2, 3]]
+    hdr = ("ply\nformat binary_little_endian 1.0\nelement vertex 4\n"
+           "property float x\nproperty float y\nproperty float z\n"
+           "property float quality\nelement face 2\n"
+           "property list uchar int vertex_indices\nend_header\n")
+    body = b""
+    for x, y, z, q in verts:
+        body += struct.pack("<4f", x, y, z, q)
+    for f in faces:
+        body += struct.pack("B", len(f)) + struct.pack("<3i", *f)
+    b = tmp_path / "b.ply"
+    b.write_bytes(hdr.encode() + body)
+    ffb = neutral_load(str(b))
+    assert ffb.n_vertices == 4
+    assert ffb.variables["quality"].array.tolist() == [1.0, 2.0, 3.0, 4.0]
+
+def test_marc_results_sidecar(tmp_path):
+    """Marc .dat + .res node results sidecar imports variables (7)."""
+    from fv.model.dataset import marc_load
+    dat = tmp_path / "box.dat"
+    dat.write_text("\n".join([
+        "$ sample", "1,0,0,0", "2,1,0,0", "3,1,1,0", "4,0,1,0",
+        "5,0,0,1", "6,1,0,1", "7,1,1,1", "8,0,1,1",
+        "1,7,1,2,3,4,5,6,7,8",
+    ]), encoding="utf-8")
+    (tmp_path / "box.res").write_text(
+        "1 10.0\n2 20.0\n3 30.0\n4 40.0\n5 50.0\n6 60.0\n7 70.0\n8 80.0\n",
+        encoding="utf-8")
+    ff = marc_load(str(dat))
+    assert "RES1" in ff.variables
+    assert ff.variables["RES1"].location == "node"
+    assert ff.variables["RES1"].array.tolist() == [10, 20, 30, 40, 50, 60, 70, 80]
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")

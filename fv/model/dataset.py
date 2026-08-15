@@ -175,11 +175,16 @@ def nastran_load(filepath: str) -> FieldFile:
 
 
 def neutral_load(filepath: str) -> FieldFile:
-    """Neutral geometry loader (OBJ/STL) (1)."""
-    from ..crdl.neutral import parse_obj, parse_stl
+    """Neutral geometry loader (OBJ/STL/PLY) (1, 7)."""
+    from ..crdl.neutral import parse_obj, parse_stl, parse_ply
     path = Path(filepath)
     suf = path.suffix.lower()
-    mesh = parse_obj(str(path)) if suf == ".obj" else parse_stl(str(path))
+    if suf == ".ply":
+        mesh = parse_ply(str(path))
+    elif suf == ".obj":
+        mesh = parse_obj(str(path))
+    else:
+        mesh = parse_stl(str(path))
     if mesh is None:
         raise ValueError("not a readable neutral mesh: " + filepath)
     ff = FieldFile(path=str(path), kind="neutral")
@@ -188,12 +193,17 @@ def neutral_load(filepath: str) -> FieldFile:
     ff.faces = mesh["faces"]
     ff.surface_regions = [("Neutral", np.arange(mesh["n_faces"], dtype=np.int64))]
     ff.file_size = mesh["vertices"].nbytes
+    for name, (arr, loc) in (mesh.get("fields") or {}).items():
+        ff.variables[name] = VarInfo(
+            name=name, kind=FIELD_KIND_SCALAR, location=loc,
+            array=np.asarray(arr, dtype=np.float64),
+        )
     return ff
 
 
 def marc_load(filepath: str) -> FieldFile:
-    """Marc/Mentat .dat mesh loader (3)."""
-    from ..crdl.marc import parse_marc
+    """Marc/Mentat .dat mesh loader + optional node results sidecar (3, 7)."""
+    from ..crdl.marc import parse_marc, parse_marc_results
     path = Path(filepath)
     mesh = parse_marc(str(path))
     if mesh is None:
@@ -206,6 +216,18 @@ def marc_load(filepath: str) -> FieldFile:
     ff.n_cells = mesh["n_cells"]
     ff.volume_regions = mesh["volume_regions"]
     ff.file_size = mesh["vertices"].nbytes
+    # optional ASCII node results sidecar (same stem, .res/.csv)
+    for suf in (".res", ".csv"):
+        side = path.with_suffix(suf)
+        if side.exists():
+            fields = parse_marc_results(
+                str(side), mesh["node_order"], mesh["n_vertices"])
+            for name, (arr, loc) in fields.items():
+                ff.variables[name] = VarInfo(
+                    name=name, kind=FIELD_KIND_SCALAR, location=loc,
+                    array=np.asarray(arr, dtype=np.float64),
+                )
+            break
     return ff
 
 def _register_loaders() -> None:

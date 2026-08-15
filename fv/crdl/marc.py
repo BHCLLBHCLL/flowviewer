@@ -63,7 +63,59 @@ def parse_marc(path: str):
         "cell_types": np.asarray(cell_types, dtype=np.int64),
         "n_vertices": n_vertices,
         "n_cells": len(cells),
+        "node_order": order,
         "fields": {},
         "surface_regions": [],
         "volume_regions": ["Marc"],
     }
+
+
+def parse_marc_results(path: str, order: dict, n_vertices: int,
+                       names: Optional[list] = None):
+    """Import node scalar results from an ASCII results file (7).
+
+    Each non-comment line is ``node_id value [value ...]`` where ``node_id``
+    is the Marc global node id (matching the .dat).  Values are mapped
+    through ``order`` (global -> local index) into node-located variables.
+    Column 1 -> name ``RES1`` (or ``names[0]``), column 2 -> ``RES2``, ...
+    """
+    if not order or n_vertices <= 0:
+        return {}
+    cols = []
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                s = line.strip()
+                if not s or s[0] in ("$", "*", "!", "#"):
+                    continue
+                parts = s.replace(",", " ").split()
+                if len(parts) < 2:
+                    continue
+                try:
+                    gid = int(float(parts[0]))
+                    vals = [float(x) for x in parts[1:]]
+                except ValueError:
+                    continue
+                if gid not in order:
+                    continue
+                li = order[gid]
+                if li >= n_vertices:
+                    continue
+                if not cols:
+                    cols = [[] for _ in vals]
+                for ci, v in enumerate(vals):
+                    if ci >= len(cols):
+                        cols.append([])
+                    cols[ci].append((li, v))
+    except Exception:
+        return {}
+    if not cols or not cols[0]:
+        return {}
+    fields = {}
+    for ci, pairs in enumerate(cols):
+        arr = np.full(n_vertices, np.nan, dtype=np.float64)
+        for li, v in pairs:
+            arr[li] = v
+        name = (names[ci] if names and ci < len(names) else "RES" + str(ci + 1))
+        fields[name] = (arr, "node")
+    return fields
