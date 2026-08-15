@@ -173,6 +173,23 @@ def nastran_load(filepath: str) -> FieldFile:
     ff.file_size = mesh["vertices"].nbytes
     return ff
 
+
+def neutral_load(filepath: str) -> FieldFile:
+    """Neutral geometry loader (OBJ/STL) (1)."""
+    from ..crdl.neutral import parse_obj, parse_stl
+    path = Path(filepath)
+    suf = path.suffix.lower()
+    mesh = parse_obj(str(path)) if suf == ".obj" else parse_stl(str(path))
+    if mesh is None:
+        raise ValueError("not a readable neutral mesh: " + filepath)
+    ff = FieldFile(path=str(path), kind="neutral")
+    ff.vertices = mesh["vertices"]
+    ff.n_vertices = mesh["n_vertices"]
+    ff.faces = mesh["faces"]
+    ff.surface_regions = [("Neutral", np.arange(mesh["n_faces"], dtype=np.int64))]
+    ff.file_size = mesh["vertices"].nbytes
+    return ff
+
 def _register_loaders() -> None:
     """Advertise the real parsers in :mod:`fv.model.loaders` registry."""
     try:
@@ -187,6 +204,9 @@ def _register_loaders() -> None:
         loaders.register("xdmf", xdmf_load)
         loaders.register("nas", nastran_load)
         loaders.register("bdf", nastran_load)
+        loaders.register("obj", neutral_load)
+        loaders.register("stl", neutral_load)
+        loaders.register("neu", neutral_load)
     except Exception:  # pragma: no cover - registry is best-effort
         pass
 

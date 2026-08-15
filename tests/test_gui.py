@@ -2485,6 +2485,45 @@ def test_ifld_metadata_scan():
     assert scan_ifld(r"D:\training\cgns\no_such.fld") is None
 
 
+def test_neutral_reader(tmp_path):
+    """OBJ/STL neutral meshes load as a surface FieldFile (1)."""
+    from fv.model.dataset import neutral_load
+    from fv.model.loaders import can_load
+    obj = tmp_path / "tri.obj"
+    obj.write_text("v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n", encoding="utf-8")
+    assert can_load(str(obj)) is True
+    ff = neutral_load(str(obj))
+    assert ff.kind == "neutral"
+    assert ff.n_vertices == 3 and len(ff.faces) == 1
+    assert ff.surface_regions[0][0] == "Neutral"
+    # STL
+    stl = tmp_path / "tri.stl"
+    stl.write_text(
+        "solid t\n  facet normal 0 0 1\n    outer loop\n"
+        "      vertex 0 0 0\n      vertex 1 0 0\n      vertex 0 1 0\n"
+        "    endloop\n  endfacet\nendsolid t\n", encoding="utf-8")
+    ff2 = neutral_load(str(stl))
+    assert ff2.n_vertices == 3 and len(ff2.faces) == 1
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+def test_neutral_scene():
+    """Neutral mesh renders in the scene (1)."""
+    from fv.model.objects import MainObject
+    from fv.render.scene import Scene
+    from fv.model.dataset import neutral_load
+    import tempfile, os
+    fd, path = tempfile.mkstemp(suffix=".obj")
+    os.write(fd, b"v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n")
+    os.close(fd)
+    try:
+        ff = neutral_load(path)
+        sc = Scene(enable_3d=False)
+        sc.build(ff, main=MainObject.from_field_file(ff))
+        assert "grid" in sc.actor_names()
+    finally:
+        os.unlink(path)
+
+
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_export_animation_frames_headless(tmp_path):

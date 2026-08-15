@@ -382,6 +382,8 @@ class Scene:
 
         if ff.kind == "fph":
             self._build_fph_wireframe(ff)
+        elif ff.kind == "neutral":
+            self._build_neutral_wireframe(ff)
         else:
             self._build_fld_wireframe(ff)
 
@@ -491,6 +493,37 @@ class Scene:
         pd.SetPoints(points)
         pd.SetPolys(polys)
         return pd
+
+    def _build_neutral_wireframe(self, ff: FieldFile) -> None:
+        """Neutral surface mesh (OBJ/STL) -> boundary polydata edges (1)."""
+        if ff.vertices is None or not ff.faces:
+            return
+        verts = np.asarray(ff.vertices, dtype=np.float64)
+        self._bounds = (tuple(verts.min(axis=0).tolist()),
+                        tuple(verts.max(axis=0).tolist()))
+        points = vtk.vtkPoints()
+        points.SetData(_vns.numpy_to_vtk(verts, deep=True))
+        polys = vtk.vtkCellArray()
+        ids = vtk.vtkIdList()
+        for f in ff.faces:
+            ids.Reset()
+            for vi in f:
+                ids.InsertNextId(int(vi))
+            polys.InsertNextCell(ids)
+        pd = vtk.vtkPolyData()
+        pd.SetPoints(points)
+        pd.SetPolys(polys)
+        edges = vtk.vtkExtractEdges()
+        edges.SetInputData(pd)
+        edges.Update()
+        mapper = vtk.vtkPolyDataMapper()
+        mapper.SetInputConnection(edges.GetOutputPort())
+        actor = vtk.vtkActor()
+        actor.SetMapper(mapper)
+        prop = actor.GetProperty()
+        prop.SetColor(0.05, 0.05, 0.08)
+        prop.SetLineWidth(1.0)
+        self.add_actor("grid", actor)
 
     def _build_fph_wireframe(self, ff: FieldFile) -> None:
         pd = self._polydata_boundary(ff)
