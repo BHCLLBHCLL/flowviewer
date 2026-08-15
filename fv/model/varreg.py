@@ -450,3 +450,119 @@ def _cell_centers_fph(ff):
         if pts and 0 <= c < ff.n_cells:
             out[c] = verts[pts].mean(axis=0)
     return out
+
+
+# ── extended variables (scPOST CreateVar family, P1.1) ──────────────────
+
+def _wall_points(ff, surface_regions=None):
+    """(m, 3) coordinates of wall-face vertices for DST/NORMAL fields."""
+    verts = np.asarray(ff.vertices, dtype=np.float64)
+    ids = set()
+    for name, face_ids in ff.surface_regions:
+        if surface_regions and name not in surface_regions:
+            continue
+        if getattr(ff, "kind", "") == "fph":
+            ld = ff.link_data
+            fn = np.asarray(ld["face_nodes"], dtype=np.int64)
+            off = np.asarray(ld["face_offsets"], dtype=np.int64)
+            for f in face_ids:
+                lo, hi = int(off[f]), int(off[f + 1])
+                ids.update(int(x) for x in fn[lo:hi])
+    if not ids:
+        return None
+    return verts[sorted(ids)]
+
+
+def register_dst(ff, name="DST", surface_regions=None):
+    """Distance-to-wall field (scPOST CreateVarDST).
+
+    Computes the nearest distance from each cell centre (FPH) or vertex
+    (FLD) to the wall-face vertices.  FPH cells give a cell-located field;
+    FLD falls back to a node-located field.
+    """
+    wall = _wall_points(ff, surface_regions)
+    if wall is None or len(wall) == 0:
+        raise ValueError("no wall faces for DST")
+    try:
+        from scipy.spatial import cKDTree
+    except ImportError:
+        raise ValueError("scipy required for DST")
+    tree = cKDTree(wall)
+    if getattr(ff, "kind", "") == "fph":
+        centers = _cell_centers_fph(ff)
+        if centers is None or centers.shape[0] != ff.n_cells:
+            raise ValueError("cannot compute cell centres for DST")
+        dist, _ = tree.query(centers)
+        vi = VarInfo(name=name, kind=FIELD_KIND_SCALAR,
+                     location="cell", array=dist)
+    else:
+        verts = np.asarray(ff.vertices, dtype=np.float64)
+        dist, _ = tree.query(verts)
+        vi = VarInfo(name=name, kind=FIELD_KIND_SCALAR,
+                     location="node", array=dist)
+    ff.variables[name] = vi
+    return vi
+
+
+def register_normal(ff, name="NORMAL", surface_regions=None):
+    """Wall-normal vector field (scPOST CreateVarNORMAL).
+
+    Registers NORMALX/NORMALY/NORMALZ: for each sample point the unit
+    vector from the nearest wall point toward the sample.
+    """
+    wall = _wall_points(ff, surface_regions)
+    if wall is None or len(wall) == 0:
+        raise ValueError("no wall faces for NORMAL")
+    try:
+        from scipy.spatial import cKDTree
+    except ImportError:
+        raise ValueError("scipy required for NORMAL")
+    tree = cKDTree(wall)
+    if getattr(ff, "kind", "") == "fph":
+        pts = _cell_centers_fph(ff)
+        loc = "cell"
+    else:
+        pts = np.asarray(ff.vertices, dtype=np.float64)
+        loc = "node"
+    if pts is None:
+        raise ValueError("cannot compute sample points for NORMAL")
+    _, idx = tree.query(pts)
+    d = pts - wall[idx]
+    n = np.linalg.norm(d, axis=1, keepdims=True)
+    n = np.where(n < 1e-12, 1.0, n)
+    u = d / n
+    for k, c in enumerate("XYZ"):
+        ff.variables[name + c] = VarInfo(name=name + c,
+            kind=FIELD_KIND_SCALAR, location=loc, array=u[:, k].copy())
+    return [ff.variables[name + c] for c in "XYZ"]
+
+
+def register_combination_velocity(ff, name="CMBVEL"):
+    """Combination velocity magnitude (scPOST CreateVarCombinationVelocity).
+
+    CMBVEL = sqrt(VELX^2 + VELY^2 + VELZ^2)."""
+    vx = ff.variable_array("VELX")
+    vy = ff.variable_array("VELY")
+    vz = ff.variable_array("VELZ")
+    if vx is None or vy is None or vz is None:
+        raise ValueError("CMBVEL needs VELX/VELY/VELZ")
+    mag = np.sqrt(np.asarray(vx) ** 2 + np.asarray(vy) ** 2
+                  + np.asarray(vz) ** 2)
+    loc = getattr(ff.variables.get("VELX"), "location", "cell")
+    vi = VarInfo(name=name, kind=FIELD_KIND_SCALAR, location=loc, array=mag)
+    ff.variables[name] = vi
+    return vi
+
+
+def delete_variable(ff, name):
+    """Remove a registered variable (scPOST DeleteVar)."""
+    return ff.variables.pop(name, None)
+
+
+def set_variable_title(ff, name, title):
+    """Store a display title for a variable (scPOST SetVarTitle)."""
+    vi = ff.variables.get(name)
+    if vi is None:
+        raise ValueError("unknown variable " + repr(name))
+    vi.title = title
+    return vi

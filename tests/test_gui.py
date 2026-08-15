@@ -1747,6 +1747,28 @@ def test_api_material_region_lookups():
     assert len(mids) > 0
     assert api.material_id_at(fld, 0) in mids
 
+def test_api_extended_variables():
+    """fv.api exposes CreateVarDST/NORMAL/CMBVEL + DeleteVar (P1.1)."""
+    import numpy as np
+    from fv import api
+    ff = api.open_file(FPH)
+    vi = api.register_dst(ff, "DST")
+    assert vi.location == "cell" and vi.array.shape == (ff.n_cells,)
+    assert float(np.nanmin(vi.array)) >= 0
+    ns = api.register_normal(ff, "NORMAL")
+    assert len(ns) == 3
+    for vi3 in ns:
+        assert vi3.array.shape == (ff.n_cells,)
+        assert np.all(np.abs(vi3.array) <= 1.0 + 1e-9)
+    cmb = api.register_combination_velocity(ff, "CMBVEL")
+    base = np.sqrt(ff.variables["VELX"].array ** 2
+                   + ff.variables["VELY"].array ** 2
+                   + ff.variables["VELZ"].array ** 2)
+    np.testing.assert_allclose(cmb.array, base, rtol=1e-9)
+    api.set_variable_title(ff, "CMBVEL", "Combined speed")
+    assert ff.variables["CMBVEL"].title == "Combined speed"
+    assert api.delete_variable(ff, "CMBVEL") is not None
+    assert "CMBVEL" not in ff.variables
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_export_stl(tmp_path):

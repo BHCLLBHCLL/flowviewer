@@ -492,3 +492,34 @@ def cells_of_part(ff, part_name: str) -> list:
         import numpy as np
         return [int(i) for i in np.flatnonzero(mask)]
     return elements_of_region(ff, part_name)
+
+# ── extended variables (scPOST CreateVarDST/NORMAL/CMBVEL, P1.1) ────────
+
+def register_dst(ff, name="DST", surface_regions=None):
+    """Distance-to-wall field (CreateVarDST)."""
+    from .model.varreg import register_dst as _f
+    return _f(ff, name, surface_regions)
+
+
+def register_normal(ff, name="NORMAL", surface_regions=None):
+    """Wall-normal vector field, registers NORMALX/Y/Z (CreateVarNORMAL)."""
+    from .model.varreg import register_normal as _f
+    return _f(ff, name, surface_regions)
+
+
+def register_combination_velocity(ff, name="CMBVEL"):
+    """Combined velocity magnitude (CreateVarCombinationVelocity)."""
+    from .model.varreg import register_combination_velocity as _f
+    return _f(ff, name)
+
+
+def delete_variable(ff, name):
+    """Remove a registered variable (DeleteVar)."""
+    from .model.varreg import delete_variable as _f
+    return _f(ff, name)
+
+
+def set_variable_title(ff, name, title):
+    """Store a display title for a variable (SetVarTitle)."""
+    from .model.varreg import set_variable_title as _f
+    return _f(ff, name, title)
