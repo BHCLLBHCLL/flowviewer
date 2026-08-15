@@ -8,6 +8,8 @@ respected by decimating the cell list for large grids (``obj.sampling``).
 
 from typing import Optional
 
+import numpy as np
+
 try:
     import vtk
     from vtk.util import numpy_support as _vns
@@ -63,21 +65,23 @@ def build_volume_actors(ff: FieldFile, obj,
 
 
 def _apply_sampling(ugrid, obj):
-    """Decimate hexahedra when ``sampling`` > 1 (Sampled / accuracy)."""
+    """Stride-decimate cells when ``sampling`` > 1 (Sampled / accuracy).
+
+    P1.1: keeps every *sampling*-th cell across the whole domain instead
+    of truncating to the first ``n//sampling`` cells (which dropped the
+    entire tail of the grid).
+    """
     sampling = int(getattr(obj, "sampling", 1) or 1)
     if sampling <= 1:
         return ugrid
     cells = ugrid.GetCells()
     if cells is None or cells.GetNumberOfCells() < 8:
         return ugrid
-    keep_cells = cells.GetNumberOfCells() // sampling
-    if keep_cells < 1:
-        keep_cells = 1
-    cell_ids = list(range(keep_cells))
+    cell_ids = list(range(0, cells.GetNumberOfCells(), sampling))
     ids = vtk.vtkIdList()
     for c in cell_ids:
         ids.InsertNextId(c)
-    extract = vtk.vtkExtractUnstructuredGrid()
+    extract = vtk.vtkExtractCells()
     extract.SetInputData(ugrid)
     extract.SetCellList(ids)
     extract.Update()
@@ -91,9 +95,13 @@ def _attach_scalar(ugrid, ff, var, cell_centered):
 
 
 def _volume_actor(ugrid, var: str, obj) -> Optional[object]:
-    """Real volume rendering (P1.3): vtkSmartVolumeMapper + transfer
-    functions; falls back to a translucent vtkDataSetMapper when the
-    smart mapper is unavailable."""
+    """Real volume rendering (P1.1/P1.3).
+
+    * hex/tet/wedge/pyramid cells → unstructured ray-cast volume;
+    * polyhedral cells (FPH ConvexPointSet-family) → vtkResampleToImage
+      → vtkSmartVolumeMapper (P1.1), bypassing the cell-type limitation;
+    * mono-colour mode → translucent dataset actor.
+    """
     draw_type = (getattr(obj, "draw_type", "Solid") or "Solid")
     opacity = 1.0
     if draw_type in ("Transparent", "Sampled"):
@@ -104,35 +112,119 @@ def _volume_actor(ugrid, var: str, obj) -> Optional[object]:
                                     or 1.0))
     if getattr(obj, "scalar_mono_color", False):
         return _plain_volume_actor(ugrid, var, obj, opacity)
-    # vtkSmartVolumeMapper only accepts image/rectilinear grids; for
-    # unstructured volume cells (FLD hex / CGNS tet) use the ray-cast
-    # mapper; polyhedral FPH grids fall back to the translucent actor.
     try:
-        if ugrid.GetNumberOfCells() > 0 and ugrid.GetCellType(0) in (
+        n_cells = ugrid.GetNumberOfCells()
+        first_type = ugrid.GetCellType(0) if n_cells > 0 else -1
+        if n_cells > 0 and first_type in (
                 vtk.VTK_HEXAHEDRON, vtk.VTK_TETRA, vtk.VTK_WEDGE,
                 vtk.VTK_PYRAMID):
             return _raycast_volume_actor(ugrid, var, obj, opacity)
+        if n_cells > 0:
+            resampled = _resampled_volume_actor(ugrid, var, obj, opacity)
+            if resampled is not None:
+                return resampled
     except Exception:
         pass
     return _plain_volume_actor(ugrid, var, obj, opacity)
 
 
+def _transfer_functions(obj, lo: float, hi: float, opacity: float):
+    """Colour/opacity transfer functions from object parameters (P1.1).
+
+    Colours follow the object's colorbar palette (Rainbow default, Gray /
+    Invert honoured via :func:`fv.render.colorbar.build_lut`) instead of a
+    hard-coded 4-stop ramp; opacity ramps low→high for a depth cue, with
+    the floor lowered for Transparent / Sampled draw types.
+    """
+    from .colorbar import build_lut
+    palette = (getattr(obj, "colorbar", "") or "").strip() or "Rainbow"
+    lut = build_lut(gradation=8, color_map=palette)
+    ctf = vtk.vtkColorTransferFunction()
+    span = (hi - lo) or 1.0
+    n = lut.GetNumberOfTableValues()
+    for i in range(n):
+        v = lut.GetTableValue(i)  # (r, g, b, a)
+        ctf.AddRGBPoint(lo + (i / max(1, n - 1)) * span, v[0], v[1], v[2])
+    otf = vtk.vtkPiecewiseFunction()
+    floor = opacity * (0.25 if getattr(obj, "transparent", False)
+                       or (getattr(obj, "draw_type", "") or ""
+                           in ("Transparent", "Sampled"))
+                       else 0.6)
+    otf.AddPoint(lo, floor)
+    otf.AddPoint(hi, opacity)
+    return ctf, otf
+
+
 def _raycast_volume_actor(ugrid, var: str, obj, opacity: float):
-    """Unstructured-grid ray-cast volume (P1.3)."""
+    """Unstructured-grid ray-cast volume (P1.3) with parameterised TFs."""
     lo, hi = _data_range(ugrid, var)
     if not (hi > lo):
         hi = lo + 1.0
-    ctf = vtk.vtkColorTransferFunction()
-    for t, rgb in ((0.0, (0.2, 0.2, 1.0)),
-                   (0.33, (0.2, 1.0, 0.2)),
-                   (0.66, (1.0, 1.0, 0.2)),
-                   (1.0, (1.0, 0.2, 0.2))):
-        ctf.AddRGBPoint(lo + t * (hi - lo), *rgb)
-    otf = vtk.vtkPiecewiseFunction()
-    otf.AddPoint(lo, opacity);
-    otf.AddPoint(hi, opacity)
+    ctf, otf = _transfer_functions(obj, lo, hi, opacity)
     smap = vtk.vtkUnstructuredGridVolumeRayCastMapper()
     smap.SetInputData(ugrid)
+    vol = vtk.vtkVolume()
+    vol.SetMapper(smap)
+    prop = vol.GetProperty()
+    prop.SetColor(ctf)
+    prop.SetScalarOpacity(otf)
+    prop.ShadeOn()
+    prop.SetAmbient(0.25)
+    prop.SetDiffuse(0.8)
+    prop.SetSpecular(0.3)
+    return vol
+
+
+def _resampled_volume_actor(ugrid, var: str, obj, opacity: float):
+    """Polyhedral volume path (P1.1): resample to a vtkImageData and
+    render with vtkSmartVolumeMapper.
+
+    ``obj.sampling`` trades resolution for speed (1 → 64³, 2 → 32³ …).
+    Cell-centred scalars are converted to point data before resampling;
+    out-of-domain NaN samples are clamped to the scalar minimum.
+    """
+    if not hasattr(vtk, "vtkResampleToImage") or \
+            not hasattr(vtk, "vtkSmartVolumeMapper"):
+        return None
+    work = ugrid
+    if work.GetPointData().GetArray(var) is None:
+        c2p = vtk.vtkCellDataToPointData()
+        c2p.SetInputData(work)
+        c2p.Update()
+        work = c2p.GetOutput()
+        if work.GetPointData().GetArray(var) is None:
+            return None
+    sampling = max(1, int(getattr(obj, "sampling", 1) or 1))
+    # 64³ default balances fidelity against the ConvexPointSet probe cost
+    # (96³ ≈ 885k samples over 63k polyhedra ≈ minutes).
+    dim = max(16, min(64, 64 // sampling))
+    rs = vtk.vtkResampleToImage()
+    # VTK ≥9.2 ships the parallel vtkPResampleToImage under this alias,
+    # which only accepts connections — bridge the data object through a
+    # trivial producer.
+    if hasattr(rs, "SetInputData"):
+        rs.SetInputData(work)
+    else:
+        tp = vtk.vtkTrivialProducer()
+        tp.SetOutput(work)
+        rs.SetInputConnection(tp.GetOutputPort())
+    rs.SetSamplingDimensions(dim, dim, dim)
+    rs.Update()
+    img = rs.GetOutput()
+    arr = img.GetPointData().GetArray(var)
+    if arr is None:
+        return None
+    vals = _vns.vtk_to_numpy(arr)
+    if not np.isfinite(vals).all():
+        lo = float(np.nanmin(vals[np.isfinite(vals)]))
+        vals = np.where(np.isfinite(vals), vals, lo)
+        arr.DeepCopy(_vns.numpy_to_vtk(vals))
+    lo, hi = _data_range(img, var)
+    if not (hi > lo):
+        hi = lo + 1.0
+    ctf, otf = _transfer_functions(obj, lo, hi, opacity)
+    smap = vtk.vtkSmartVolumeMapper()
+    smap.SetInputData(img)
     vol = vtk.vtkVolume()
     vol.SetMapper(smap)
     prop = vol.GetProperty()

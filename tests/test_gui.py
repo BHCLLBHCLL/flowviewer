@@ -1356,6 +1356,7 @@ def test_streamline_render_pipeline_fld():
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_volume_render_pipeline_fph():
+    """P1.1: FPH polyhedra render via ResampleToImage→SmartVolumeMapper."""
     from fv.model.dataset import load_file
     from fv.model.objects import VolumeObject
     from fv.render import volume as vol_render
@@ -1365,7 +1366,18 @@ def test_volume_render_pipeline_fph():
     obj.scalar_var = "PRES"
     obj.draw_type = "Transparent"
     out = vol_render.build_volume_actors(ff, obj)
-    assert out.get("scalar") is not None
+    a = out.get("scalar")
+    assert a is not None
+    # polyhedral grid → resampled image → smart volume mapper
+    assert "vtkVolume" in type(a).__name__
+    assert "SmartVolumeMapper" in type(a.GetMapper()).__name__
+    img = a.GetMapper().GetInput()
+    assert img is not None and img.IsA("vtkImageData")
+    # transfer functions parameterised from the object (P1.1)
+    ctf = a.GetProperty().GetRGBTransferFunction()
+    assert ctf is not None and ctf.GetSize() >= 2
+    otf = a.GetProperty().GetScalarOpacity()
+    assert otf is not None and otf.GetSize() >= 2
 
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
@@ -1384,6 +1396,36 @@ def test_volume_raycast_fld():
     assert "vtkVolume" in type(a).__name__
     assert "RayCastMapper" in type(a.GetMapper()).__name__
     assert a.GetProperty().GetScalarOpacity() is not None
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
+def test_volume_transfer_and_sampling_p11():
+    """P1.1: TF reads colorbar palette; sampling strides (keeps tail)."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import VolumeObject
+    from fv.render import volume as vol_render
+    ff = load_file(FLD)
+    obj = VolumeObject(index=1)
+    obj.show_scalar = True
+    obj.scalar_var = "PRES"
+    obj.colorbar = "Gray"
+    out = vol_render.build_volume_actors(ff, obj)
+    a = out["scalar"]
+    ctf = a.GetProperty().GetRGBTransferFunction()
+    # Gray palette: first/last colour stops are near-black / near-white
+    c0 = [0.0, 0.0, 0.0]
+    c1 = [0.0, 0.0, 0.0]
+    ctf.GetColor(ctf.GetRange()[0], c0)
+    ctf.GetColor(ctf.GetRange()[1], c1)
+    assert sum(c0) < 0.6 and sum(c1) > 2.0
+    # stride sampling keeps cells across the whole domain
+    from fv.render.plane import build_ugrid
+    grid, _ = build_ugrid(ff)
+    decimated = vol_render._apply_sampling(grid, type("O", (), {"sampling": 4})())
+    assert decimated.GetNumberOfCells() == \
+        (grid.GetNumberOfCells() + 3) // 4
+
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
@@ -2302,24 +2344,23 @@ def test_surface_volume_region_filter():
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_volume_volume_region_filter():
-    """Volume honours Volume Region filtering (P0.5): fewer cells."""
+    """Volume honours Volume Region filtering (P0.5): fewer cells.
+
+    P1.1 note: the FPH actor input is now a resampled vtkImageData with
+    dimensions independent of the mask, so the filtering effect is
+    asserted on the pre-resample unstructured grid.
+    """
     from fv.model.dataset import load_file
     from fv.model.objects import VolumeObject
-    from fv.render.volume import build_volume_actors
+    from fv.render.plane import build_ugrid, cell_filter_mask
     ff = load_file(FPH)
     full = VolumeObject(index=1)
-    full.show_scalar = True
-    full.scalar_var = "PRES"
-    out_all = build_volume_actors(ff, full)
-    n_all = out_all["scalar"].GetMapper().GetInput().GetNumberOfCells()
-    assert n_all > 0
+    ug_all, _ = build_ugrid(ff, cell_filter_mask(ff, full))
+    assert ug_all is not None and ug_all.GetNumberOfCells() > 0
     obj = VolumeObject(index=1,
                         display_volume_regions=["Case[2]"])
-    obj.show_scalar = True
-    obj.scalar_var = "PRES"
-    out_f = build_volume_actors(ff, obj)
-    n_f = out_f["scalar"].GetMapper().GetInput().GetNumberOfCells()
-    assert 0 < n_f < n_all
+    ug_f, _ = build_ugrid(ff, cell_filter_mask(ff, obj))
+    assert 0 < ug_f.GetNumberOfCells() < ug_all.GetNumberOfCells()
 
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
