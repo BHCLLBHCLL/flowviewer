@@ -528,3 +528,63 @@ def register_var_all_cycles(file_set, name, expr):
     """Register an expression on every cycle of a FileSet (CreateVarALLCYC)."""
     from .model.varreg import register_var_all_cycles as _f
     return _f(file_set, name, expr)
+
+# ── object management (scPOST GetObjNum/GetObjectByType/Remove*, P2) ────
+
+def object_count(main) -> int:
+    """Number of child objects (GetObjNum)."""
+    return len(getattr(main, "children", None) or [])
+
+
+def object_types(main) -> list:
+    """Kinds of all child objects in order (GetObjType face)."""
+    return [getattr(o, "kind", "") for o in
+            (getattr(main, "children", None) or [])]
+
+
+def objects_by_type(main, kind: str) -> list:
+    """Child objects of one kind (GetObjectByType)."""
+    return [o for o in (getattr(main, "children", None) or [])
+            if getattr(o, "kind", "") == kind]
+
+
+def object_by_number(main, index: int):
+    """Child object with PostObject.index == index (GetObjectByNumber)."""
+    for o in (getattr(main, "children", None) or []):
+        if int(getattr(o, "index", -1)) == int(index):
+            return o
+    return None
+
+
+def object_by_gid(main, gid: int):
+    """Child object by global id (index here; GetObjectByGID)."""
+    return object_by_number(main, gid)
+
+
+def remove_object(main, obj) -> bool:
+    """Remove one child object (RemoveRelatedObj single)."""
+    children = getattr(main, "children", None)
+    if not children:
+        return False
+    for i, o in enumerate(children):
+        if o is obj:
+            del children[i]
+            return True
+    return False
+
+
+def remove_all_objects(main) -> int:
+    """Remove every child object (RemoveAllObj); returns removed count."""
+    children = getattr(main, "children", None) or []
+    n = len(children)
+    children[:] = []
+    return n
+
+
+def remove_related_objects(main, kind: str) -> int:
+    """Remove every child object of one kind (RemoveRelatedObj)."""
+    children = getattr(main, "children", None) or []
+    keep = [o for o in children if getattr(o, "kind", "") != kind]
+    n = len(children) - len(keep)
+    children[:] = keep
+    return n

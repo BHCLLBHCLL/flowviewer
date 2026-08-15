@@ -1786,6 +1786,55 @@ def test_api_create_var_all_cycles(tmp_path):
     assert [c for c, _ in results] == [1, 2, 3]
     for _, vi in results:
         assert vi.name == "PP2" and vi.array.shape[0] > 0
+def test_fileset_cycle_management(tmp_path):
+    """AddCycList/DelCycList/SetCycOpeMode (P2)."""
+    import shutil
+    from pathlib import Path
+    from fv.model.fileset import (add_cycle, remove_cycle,
+        scan_sequence, set_cycle_operation)
+    base = Path(tmp_path)
+    for stale in base.glob("*.fph"):  # pytest_tmp is reused across sessions
+        stale.unlink()
+    shutil.copyfile(FPH, str(base / "flow_1.fph"))
+    shutil.copyfile(FPH, str(base / "flow_2.fph"))
+    fs = scan_sequence(str(base / "flow_1.fph"))
+    assert len(fs) == 2
+    shutil.copyfile(FPH, str(base / "flow_5.fph"))
+    add_cycle(fs, str(base / "flow_5.fph"), 5)
+    assert [m.cycle for m in fs.members] == [1, 2, 5]
+    assert remove_cycle(fs, 2) is True
+    assert remove_cycle(fs, 9) is False
+    assert [m.cycle for m in fs.members] == [1, 5]
+    assert set_cycle_operation(fs, "add") == "Add"
+    assert fs.operation_mode == "Add"
+    try:
+        set_cycle_operation(fs, "bogus")
+        raise AssertionError("should have raised")
+    except ValueError:
+        pass
+
+def test_api_object_management():
+    """GetObjNum/GetObjectByType/Remove* (P2)."""
+    from fv import api
+    from fv.model.objects import MainObject
+    ff = api.open_file(FPH)
+    main = MainObject(path=FPH, display_name="t")
+    main.children = []
+    s1 = api.create_object(ff, "surface")
+    s2 = api.create_object(ff, "surface")
+    p1 = api.create_object(ff, "plane")
+    main.children.extend([s1, s2, p1])
+    assert api.object_count(main) == 3
+    assert api.object_types(main) == ["surface", "surface", "plane"]
+    assert len(api.objects_by_type(main, "surface")) == 2
+    assert api.object_by_number(main, 1) is s1
+    assert api.object_by_gid(main, 1) is s1
+    assert api.remove_object(main, s1) is True
+    assert api.object_count(main) == 2
+    assert api.remove_related_objects(main, "surface") == 1
+    assert api.object_count(main) == 1
+    assert api.remove_all_objects(main) == 1
+    assert api.object_count(main) == 0
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")

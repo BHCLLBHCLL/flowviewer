@@ -47,6 +47,7 @@ class FileSet:
 
     directory: str                  # parent dir of the opened file
     members: list[SequenceMember] = field(default_factory=list)
+    operation_mode: str = "None"    # SetCycOpeMode: None|Add|Sub|Mul|Div
 
     def __bool__(self) -> bool:
         return bool(self.members)
@@ -110,3 +111,30 @@ def scan_sequence(first_file: str, limit: int = 500) -> FileSet:
         ))
     members.sort(key=lambda m: m.cycle)
     return FileSet(directory=str(path.parent), members=members)
+
+def add_cycle(fs, path, cycle=None):
+    """Append a file to the cycle list (scPOST AddCycList)."""
+    member_path = str(Path(path).resolve())
+    if cycle is None:
+        _, num = _split_stem(Path(member_path).stem)
+        cycle = num if num is not None else (len(fs.members) + 1)
+    m = SequenceMember(path=member_path, cycle=int(cycle))
+    fs.members.append(m)
+    fs.members.sort(key=lambda x: x.cycle)
+    return m
+
+
+def remove_cycle(fs, cycle):
+    """Drop the member with the given cycle (scPOST DelCycList)."""
+    before = len(fs.members)
+    fs.members = [m for m in fs.members if m.cycle != int(cycle)]
+    return len(fs.members) < before
+
+
+def set_cycle_operation(fs, mode):
+    """Set the cycle-to-cycle operation mode (scPOST SetCycOpeMode)."""
+    mode = (mode or "None").capitalize()
+    if mode not in ("None", "Add", "Sub", "Mul", "Div"):
+        raise ValueError("unknown cycle operation " + repr(mode))
+    fs.operation_mode = mode
+    return mode
