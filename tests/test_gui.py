@@ -2468,7 +2468,21 @@ def test_nastran_reader(tmp_path):
     ff = nastran_load(str(nas))
     assert ff.kind == "nastran"
     assert ff.n_vertices == 8 and ff.n_cells == 1
-    assert ff.cell_types.tolist() == [12]  # HEXAHEDRON
+    assert ff.cell_types.tolist() == [12]
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_export_obj(tmp_path):
+    """Boundary surface exports to OBJ (4)."""
+    from fv.model.dataset import load_file
+    from fv.render.export import export_surface_obj
+    ff = load_file(FPH)
+    out = tmp_path / "model.obj"
+    assert export_surface_obj(ff, str(out)) is True
+    txt = out.read_text(encoding="utf-8")
+    assert txt.startswith("# flowviewer OBJ export")
+    assert "v " in txt and "f " in txt  # HEXAHEDRON
 
 
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")

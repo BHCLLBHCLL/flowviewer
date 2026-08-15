@@ -279,6 +279,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         add(m, "Print", self.on_print)
         add(m, "Export PNG…", self.on_export_png)
         add(m, "Export STL…", self.on_export_stl)
+        add(m, "Export OBJ…", self.on_export_obj)
         add(m, "Export VRML…", self.on_export_vrml)
         add(m, "Export glTF…", self.on_export_gltf)
         add(m, "Export Animation Frames…", self.on_export_animation_frames)
@@ -654,6 +655,19 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         path, _ = QFileDialog.getSaveFileName(
             self, caption, default, filter_)
         return path or ""
+
+    def on_export_obj(self) -> None:
+        """File > Export OBJ… (4, FBX-neutral)."""
+        if self.dataset is None:
+            self.status.showMessage("Open a field file first", 4000)
+            return
+        from ..render.export import export_surface_obj
+        path = self._export_dialog("Export OBJ", "OBJ (*.obj)", "model.obj")
+        if not path:
+            return
+        ok = export_surface_obj(self.dataset, path)
+        self.message_win.log(f"Export OBJ {'OK' if ok else 'failed'}: {path}")
+        self.status.showMessage(f"OBJ {'exported' if ok else 'failed'}", 4000)
 
     def on_export_stl(self) -> None:
         """File > Export STL… (P3.2)."""

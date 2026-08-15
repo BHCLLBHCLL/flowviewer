@@ -248,6 +248,37 @@ def export_animation_frames(ff, main, scene, render_window,
     return written
 
 
+def export_surface_obj(ff, filename: str, obj=None) -> bool:
+    """Write the boundary surface as Wavefront OBJ (4, FBX-neutral).
+
+    FBX has no native VTK writer; OBJ is the neutral interchange format
+    most FBX converters accept.
+    """
+    if not _HAS_VTK:
+        return False
+    from .surface import build_surface_polydata
+    from ..model.objects import SurfaceObject
+    obj = obj or SurfaceObject(index=1)
+    pd, _, _ = build_surface_polydata(ff, obj)
+    if pd is None or pd.GetNumberOfCells() == 0:
+        return False
+    try:
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write("# flowviewer OBJ export\n")
+            for i in range(pd.GetNumberOfPoints()):
+                x, y, z = pd.GetPoint(i)
+                f.write(f"v {x} {y} {z}\n")
+            for i in range(pd.GetNumberOfCells()):
+                cell = pd.GetCell(i)
+                ids = cell.GetPointIds()
+                verts = [str(ids.GetId(k) + 1)
+                         for k in range(ids.GetNumberOfIds())]
+                f.write("f " + " ".join(verts) + "\n")
+        return True
+    except OSError:
+        return False
+
+
 def print_scene(scene, parent=None) -> bool:
     """Print the current scene to the default printer (fallback PNG).
 
