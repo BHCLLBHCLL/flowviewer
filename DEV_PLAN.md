@@ -829,3 +829,16 @@ cylinder/circle/text/bitmap/information/mirror/curve/periodical/bar/gradation）
 
 **降级说明**：D2 仅实现 Nastran 文本网格（.nas/.bdf，GRID/CHEXA/CTETRA/CPENTA/CPYRAM）；
 Marc .t16/.t19 二进制结果格式未实现；D4 FBX 导出经评估无 VTK 原生写器，维持不做。
+
+## 17. 第三轮完整度复查（2026-08-09，§16 梯队后）
+
+规模：fv/ 52 文件 14,533 行、27 种 PostObject、10 种 loader、149 项测试。
+
+- 对象面：32 完整 + 4 部分 + 5 缺失（Neutral File 可做；Application/UFO/Turbo 不做），
+  可做对象面 36/38 ≈ 95%。
+- 数据面：微分算子（节点场）、查询 API、变量注册引擎已闭环；FPH 单元场差分缺失。
+- 格式面：+XDMF +Nastran +iFLD 扫描；Neutral/Marc/FBX 缺失。
+- **整体完整度约 85–90%**（第二轮 75–80%）。
+
+主要差距（价值序）：Neutral File → FPH 单元场微分 → Marc 二进制 → FBX → 4 个部分对象深化 →
+Graph-Curve 联动 →（明确不做 Turbo/UFO/COM/VR）。

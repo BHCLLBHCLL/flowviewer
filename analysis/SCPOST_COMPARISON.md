@@ -374,3 +374,57 @@ TM/OT ✅ · XDMF/Adams/Nastran/Marc ❌ · Neutral File ❌ · FBX ❌
 5. **iFLD 局部读取 + FBX 导出**。
 6. **公开查询 API**（把内部 region/MAT/cell 查询封装成 fv/api 函数）。
 7. **对象名气球显示、粒子 Trim/Attribute 渲染、多对象手柄**（体验细节）。
+
+## 16. 第三轮完整度评估（2026-08-09，§16 梯队开发之后）
+
+> 规模：fv/ 52 文件、14,533 行、27 种 PostObject、10 种 loader、149 项测试。
+> 对比基准：scPOST VB 接口 41 个公开类。
+
+### 16.1 对象覆盖（41 类 → flowviewer，本轮更新）
+
+**✅ 完整 32 类**：FLD File、Object、Message Window、Draw Window、Surface、IsoSurface、
+Unlimited Plane、Plane(cutplane)、Colorbar、Streamline、Graph、Point、Text、
+Curve、Volume、Pathline、Particle、Bitmap、Circle、Cylinder、Gradation、Grouping、
+Information、Light、Mirror Copy、Periodical Copy、RegionBC、Compare Scales(Measure)、
+Folder、Time Series、Environment、Max and Min、Bar。
+
+**🟡 部分 4 类**：Global Window（树节点无独立类）、Camera（导航✅/设置缺）、
+Limited Plane（坐标范围近似真语义）、Region（数据层无独立可创建对象）。
+
+**❌ 缺失 5 类**：Neutral File（可做未做）；Application(COM)、UFO、Turbo（明确不做）。
+
+**对象面完整度**：32 完整 + 4 部分 = 36/41 ≈ 88%；排除 3 类明确不做项后，
+可做对象面 36/38 ≈ 95%。较第二轮（26 完整 + 5 部分）新增 Curve/Periodical Copy/
+Folder/Bar/RegionBC/Gradation/Measure 七类。
+
+### 16.2 数据层
+
+| 能力 | 状态 |
+|---|---|
+| 微分算子 grad/div/rot/delx | 🟡 节点场(FLD/CGNS) ✅；FPH 单元场差分 ❌（需 LS_Links 邻接） |
+| 变量注册表达式引擎 | ✅ + 微分算子并入 |
+| 查询 API | ✅ regions/materials/cell_centers/adjacent_cells |
+| Cycle 管理 | 🟡 无自定义 cycle 列表 Add/Del |
+| 导出 | ✅ STA/STL/VRML/GLTF/PNG/动画帧；FBX ❌ |
+
+### 16.3 格式面
+
+✅ FLD/FPH/GPH/CGNS/EMT/XDMF/Nastran(.nas/.bdf)/STA/TM/OT + iFLD 扫描；
+❌ Neutral File、Marc(.t16/.t19)、Adams、FBX。
+
+### 16.4 整体完整度结论
+
+**约 85–90%**（第二轮 75–80%）。对象面 88–95%、数据面（含微分算子/查询 API）、
+渲染面（体渲染/光照/渐变/量测/多对象手柄/粒子 trim）均已达 scPOST 实用级。
+
+### 16.5 主要差距点（按价值排序）
+
+1. **Neutral File 对象** —— 最后一个可做的缺失对象（scPOST 中立体/网格交换文件容器）。
+2. **FPH 单元场微分算子** —— grad/div/rot 目前仅节点场；FPH 多面体单元场需经
+   LS_Links owner/neighbour 邻接实现 cell 中心差分（涡量/散度在 FPH 上不可用）。
+3. **Marc 二进制结果**（.t16/.t19）—— D2 仅做 Nastran 文本，Marc 未实现。
+4. **FBX 导出** —— VTK 无原生写器，需 assimp 绑定或维持不做。
+5. **4 个"部分"对象深化** —— Global Window 独立类、Camera 设置对话框、
+   Limited Plane 真语义（有限平面裁剪）、Region 独立可创建对象。
+6. **Graph 的 Curve 数据源联动** —— Graph 已可沿 cycle，但未接 Curve 弧长作为 X 轴。
+7. **明确不做** —— Turbo 机械、UFO、COM 自动化、VR。
