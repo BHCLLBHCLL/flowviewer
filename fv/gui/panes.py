@@ -325,7 +325,8 @@ class ObjectTree(QTreeWidget if _HAS_QT else object):
                          "text", "bitmap", "information", "mirror",
                          "timeseries", "maxmin", "graph", "grouping",
                          "curve", "periodical", "measure", "folder",
-                         "bar", "regionbc", "gradation", "camera", "region")
+                         "bar", "regionbc", "gradation", "camera", "region",
+                         "turbo", "ufo")
 
     def _on_selection_changed(self) -> None:
         """Single-click a renderable object → show tiled settings (scPOST)."""
@@ -476,7 +477,7 @@ class PropertyHost(QWidget if _HAS_QT else object):
         from .object_dialogs import ParticleDialog, PlaneDialog, SurfaceDialog
         from .object_dialogs2 import (
             BarDialog, BitmapDialog, CameraDialog, CircleDialog, ColorbarDialog,
-            CurveDialog, RegionDialog,
+            CurveDialog, RegionDialog, TurboDialog, UFODialog,
             GradationDialog, RegionBCDialog,
             CylinderDialog, GraphDialog, GroupingDialog, InformationDialog,
             IsosurfaceDialog, LightDialog, MaxMinDialog, MeasureDialog,
@@ -514,6 +515,8 @@ class PropertyHost(QWidget if _HAS_QT else object):
             "gradation": GradationDialog,
             "camera": CameraDialog,
             "region": RegionDialog,
+            "turbo": TurboDialog,
+            "ufo": UFODialog,
         }.get(kind)
         if cls is None:
             return

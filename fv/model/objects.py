@@ -472,6 +472,27 @@ class RegionObject(PostObject):
     color: tuple = (0.3, 0.6, 0.9)
     transparent: bool = False
 
+
+
+@dataclass
+class UFOObject(PostObject):
+    """Universal field object container (scPOST UFO, 7b)."""
+
+    kind: str = "ufo"
+    title: str = "UFO"
+    data: dict = field(default_factory=dict)
+
+@dataclass
+class TurboObject(PostObject):
+    """Turbomachinery meridional / blade-to-blade views (scPOST Turbo, 7a)."""
+
+    kind: str = "turbo"
+    title: str = "Turbo"
+    view: str = "Meridional"              # Meridional | Blade-to-Blade
+    axis: str = "Z"
+    radius: float = 0.05
+    tolerance: float = 0.005
+
 @dataclass
 class RegionBCObject(PostObject):
     """Boundary region names + BC attributes (scPOST RegionBC, A5)."""

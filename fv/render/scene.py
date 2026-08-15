@@ -664,6 +664,15 @@ class Scene:
             if not isinstance(actor, str):
                 self.register_actor_object(actor, "streamline", obj)
 
+    def _add_turbo_actor(self, ff, obj) -> None:
+        """Turbo 2D view scatter (7a)."""
+        from .turbo import build_turbo_actors
+        actors = build_turbo_actors(ff, obj)
+        for key, actor in actors.items():
+            self.add_actor(f"turbo:{key}", actor)
+            if not isinstance(actor, str):
+                self.register_actor_object(actor, "turbo", obj)
+
     def _add_region_actor(self, ff, obj) -> None:
         """Independent boundary-region surface (5d)."""
         from .surface import build_surface_polydata

@@ -2570,6 +2570,50 @@ def test_graph_curve_mode():
     assert np.all(np.diff(xs) >= 0)
 
 
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_turbo_views():
+    """Meridional / blade-to-blade transforms produce 2D points (7a)."""
+    import numpy as np
+    from fv.model.dataset import load_file
+    from fv.render.turbo import (blade_to_blade_points, build_turbo_actors,
+        meridional_points)
+    ff = load_file(FPH)
+    rz = meridional_points(ff, "Z")
+    assert rz.shape == (ff.n_vertices, 2)
+    assert np.all(rz[:, 0] >= 0)  # radius non-negative
+    rmid = float(np.median(rz[:, 0]))
+    b2b = blade_to_blade_points(ff, rmid, "Z", tol=rmid * 0.1)
+    assert b2b.shape[1] == 2
+    assert b2b.shape[0] > 0
+
+
+def test_ufo_object(qapp):
+    """UFO object + dialog build (7b)."""
+    from fv.gui.object_dialogs2 import UFODialog
+    from fv.model.objects import UFOObject
+    u = UFOObject(index=1)
+    d = UFODialog(u)
+    assert d.tabs.tabText(0) == "UFO"
+
+def test_com_interface():
+    """COM Application object loads a file and reports metadata (7c)."""
+    from fv.com import FlowviewerApplication, _HAS_COM
+    app = FlowviewerApplication()
+    meta = app.open_file(FPH)
+    assert meta["kind"] == "fph"
+    assert "PRES" in app.variables()
+    assert app.cycles() == 9
+    app.quit()
+    assert app.variables() == []
+    assert isinstance(_HAS_COM, bool)
+
+def test_vr_detection():
+    """VR availability detection returns a bool (7d)."""
+    from fv.render.vr import vr_available, vr_render_window_supported
+    assert isinstance(vr_available(), bool)
+    assert vr_render_window_supported() is True  # vtkVRRenderWindow present
+
+
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
 def test_ifld_metadata_scan():
     """scan_ifld returns counts/variables without loading arrays (D3)."""

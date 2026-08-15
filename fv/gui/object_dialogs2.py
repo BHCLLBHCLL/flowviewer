@@ -1539,3 +1539,59 @@ class RegionDialog(ObjectSettingsPanel):
         obj.region_name = self.region.currentData() or ""
         obj.color = self.color.rgb()
         obj.transparent = self.transp.isChecked()
+
+class TurboDialog(ObjectSettingsPanel):
+    """Turbo — view / axis / radius (7a)."""
+
+    def __init__(self, obj, field_file=None, parent=None):
+        super().__init__(getattr(obj, "label", "Turbo"), parent)
+        if not _HAS_QT:
+            self.obj = obj
+            return
+        self.obj = obj
+        page = QWidget(self)
+        form = QFormLayout()
+        self.view = QComboBox(page)
+        for v in ("Meridional", "Blade-to-Blade"):
+            self.view.addItem(v, v)
+        self.view.setCurrentIndex(max(0, self.view.findData(
+            getattr(obj, "view", "Meridional"))))
+        form.addRow("View:", self.view)
+        self.axis = QComboBox(page)
+        for a in ("X", "Y", "Z"):
+            self.axis.addItem(a, a)
+        self.axis.setCurrentIndex(max(0, self.axis.findData(
+            getattr(obj, "axis", "Z"))))
+        form.addRow("Axis:", self.axis)
+        self.radius = _dspin(getattr(obj, "radius", 0.05), 1e-6, 1e9, 6)
+        form.addRow("Radius:", self.radius)
+        lay = QVBoxLayout(page); lay.addLayout(form); lay.addStretch(1)
+        self.tabs.addTab(page, "Turbo")
+
+    def apply_to(self, obj) -> None:
+        if not _HAS_QT:
+            return
+        obj.view = self.view.currentData() or "Meridional"
+        obj.axis = self.axis.currentData() or "Z"
+        obj.radius = float(self.radius.value())
+
+class UFODialog(ObjectSettingsPanel):
+    """UFO — universal field object container (7b)."""
+
+    def __init__(self, obj, field_file=None, parent=None):
+        super().__init__(getattr(obj, "label", "UFO"), parent)
+        if not _HAS_QT:
+            self.obj = obj
+            return
+        self.obj = obj
+        page = QWidget(self)
+        lay = QVBoxLayout(page)
+        lay.addWidget(QLabel("UFO is a generic data container.", page))
+        lay.addWidget(QLabel("flowviewer approximates it with Grouping /", page))
+        lay.addWidget(QLabel("Folder for object organisation.", page))
+        lay.addStretch(1)
+        self.tabs.addTab(page, "UFO")
+
+    def apply_to(self, obj) -> None:
+        if not _HAS_QT:
+            return
