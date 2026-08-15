@@ -8,8 +8,6 @@ rendered as scatter actors.
 from __future__ import annotations
 
 import numpy as np
-import vtk
-from vtk.util import numpy_support as _vns
 
 
 def meridional_points(ff, axis="Z"):
@@ -47,6 +45,8 @@ def blade_to_blade_points(ff, radius, axis="Z", tol=0.005):
 
 def build_turbo_actors(ff, obj):
     """2D scatter actor for the selected turbo view (7a)."""
+    import vtk
+    from vtk.util import numpy_support as _vns
     view = (getattr(obj, "view", "Meridional") or "Meridional")
     if view.lower().startswith("blade"):
         pts = blade_to_blade_points(ff, getattr(obj, "radius", 0.05),
