@@ -38,6 +38,18 @@ def create_object(ff, kind: str = "surface", **kw):
         "graph": om.GraphObject,
         "timeseries": om.TimeSeriesObject,
         "maxmin": om.MaxMinObject,
+        "curve": om.CurveObject,
+        "periodical": om.PeriodicalCopyObject,
+        "bar": om.BarObject,
+        "regionbc": om.RegionBCObject,
+        "gradation": om.GradationObject,
+        "camera": om.CameraObject,
+        "region": om.RegionObject,
+        "turbo": om.TurboObject,
+        "ufo": om.UFOObject,
+        "folder": om.FolderObject,
+        "light": om.LightObject,
+        "measure": om.MeasureObject,
     }
     maker = makers.get(kind)
     if maker is None:

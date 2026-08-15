@@ -1629,6 +1629,19 @@ def test_api_facade():
     except ValueError:
         pass
 
+def test_api_create_object_all_kinds():
+    """api.create_object covers every scPOST object kind (P0.1)."""
+    from fv import api
+    ff = api.open_file(FPH)
+    kinds = ["surface", "plane", "particle", "isosurface", "point",
+             "streamline", "volume", "colorbar", "cylinder", "circle",
+             "pathline", "text", "bitmap", "information", "mirror",
+             "grouping", "graph", "timeseries", "maxmin", "curve",
+             "periodical", "bar", "regionbc", "gradation", "camera",
+             "region", "turbo", "ufo", "folder", "light", "measure"]
+    for kind in kinds:
+        obj = api.create_object(ff, kind)
+        assert getattr(obj, "kind", "") == kind, kind
 def test_api_post_processing_facade():
     """fv.api exposes turbo_ post-processing quantities (①)."""
     import numpy as np
