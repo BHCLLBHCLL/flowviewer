@@ -4903,3 +4903,29 @@ def test_r27_save_sta_bridge(tmp_path):
         assert out.exists()
     finally:
         detach_gui(gui)
+
+
+def test_r33_camera_slerp():
+    """R3.3: view_up interpolation uses unit-length SLERP (no over-top jump)."""
+    from fv.render.camera import _slerp_v3, interpolate_pose
+    a = (0.0, 1.0, 0.0)
+    b = (0.0, 0.0, 1.0)
+    up = _slerp_v3(a, b, 0.5)
+    n = (up[0] ** 2 + up[1] ** 2 + up[2] ** 2) ** 0.5
+    assert abs(n - 1.0) < 1e-9
+    assert abs(up[1] - up[2]) < 1e-9  # halfway between +Y and +Z
+    # end points are the (normalized) inputs
+    assert _slerp_v3(a, b, 0.0) == a
+    assert _slerp_v3(a, b, 1.0) == b
+    # degenerate zero vector falls back to a sane up
+    z = _slerp_v3((0.0, 0.0, 0.0), (0.0, 0.0, 0.0), 0.5)
+    assert z == (0.0, 0.0, 1.0)
+    # interpolate_pose routes view_up through SLERP
+    p0 = {"position": (0, 0, 0), "focal_point": (0, 0, -1),
+          "view_up": a, "parallel": True}
+    p1 = {"position": (1, 0, 0), "focal_point": (0, 0, -1),
+          "view_up": b, "parallel": True}
+    mid = interpolate_pose(p0, p1, 0.5)
+    m = mid["view_up"]
+    mn = (m[0] ** 2 + m[1] ** 2 + m[2] ** 2) ** 0.5
+    assert abs(mn - 1.0) < 1e-9
