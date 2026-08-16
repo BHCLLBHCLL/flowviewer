@@ -1,4 +1,4 @@
-﻿"""Headless GUI / scene tests (offscreen platform, enable_3d=False)."""
+"""Headless GUI / scene tests (offscreen platform, enable_3d=False)."""
 
 import os
 import sys
@@ -2773,6 +2773,37 @@ def test_timeline_cycle_switch(qapp, tmp_path):
     w._on_timeline_pause()
 
 
+def test_object_delete_duplicate_and_undo(qapp):
+    """R0.2/R0.3: Edit delete/duplicate + undo covers edits, not just create."""
+    w = _make(qapp, FPH)
+    n0 = len(w.main_object.children)
+    obj = w.main_object.children[0]
+    label = obj.label
+
+    w.on_duplicate_object(label)
+    assert len(w.main_object.children) == n0 + 1
+    dup = w.main_object.children[-1]
+    assert dup.label != label and dup.kind == obj.kind
+
+    w.on_delete_object(dup.label)
+    assert len(w.main_object.children) == n0
+
+    # undo restores the duplicate
+    w.on_undo()
+    assert len(w.main_object.children) == n0 + 1
+    w.on_redo()
+    assert len(w.main_object.children) == n0
+
+    # property-edit undo: change a plane coordinate, apply, undo restores it
+    plane = next(o for o in w.main_object.children if o.kind == "plane")
+    before = plane.coordinate
+    plane.coordinate = before + 7.5
+    w._on_property_applied(plane)
+    w.on_undo()
+    plane2 = next(o for o in w.main_object.children if o.kind == "plane")
+    assert plane2.coordinate == before
+
+
 def test_timeline_time_interpolation_gui(qapp, tmp_path):
     """R0.1: Time mode fractional cycle / physical time drive interpolate_at."""
     import shutil
@@ -2910,6 +2941,33 @@ def test_environment_dialog(qapp):
     assert hasattr(dlg, "chk_bggrad")
     dlg.chk_status.setChecked(False)
     dlg._on_ok()
+
+
+def test_unit_settings_dialog_and_camera_wiring(qapp):
+    """R0.4: UnitDialog factor/round-trip; Camera+Unit handlers wired."""
+    from fv.gui.dialogs import UnitDialog, unit_factor
+    assert unit_factor("m") == 1.0
+    assert unit_factor("mm") == 1000.0
+    assert abs(unit_factor("inch") - 39.3700787) < 1e-6
+    assert unit_factor("bogus") == 1.0  # unknown falls back to metres
+
+    w = _make(qapp, FPH)
+    assert w.options.length_unit == "m"
+    assert w.options.angle_unit == "deg"
+    # Tree activation routes Unit/Camera to real handlers (not _nyi)
+    assert callable(w.on_unit_settings)
+    assert callable(w._open_camera_dialog)
+
+    dlg = UnitDialog(w, bounds=(0.0, 2.0, 0.0, 4.0, 0.0, 6.0))
+    dlg.cmb_length.setCurrentText("mm")
+    dlg.cmb_angle.setCurrentText("rad")
+    # Extent preview scales with the length factor
+    txt = dlg.lbl_extent.text()
+    assert "2000" in txt and "6000" in txt
+    dlg._on_ok()
+    assert dlg._applied is True
+    assert dlg.length_unit == "mm"
+    assert dlg.angle_unit == "rad"
 
 
 def test_on_contour_display_headless(qapp):

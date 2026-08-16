@@ -598,6 +598,81 @@ class OpenDialog(QDialog if _HAS_QT else object):
         self.accept()
 
 
+UNIT_FACTORS = {
+    "m": 1.0, "cm": 100.0, "mm": 1000.0,
+    "inch": 39.3700787, "ft": 3.2808399,
+}
+
+
+def unit_factor(name: str) -> float:
+    """Metres-per-display-unit factor (1 m expressed in *name* units)."""
+    return UNIT_FACTORS.get(name, 1.0)
+
+
+class UnitDialog(PostDialogBase):
+    """Option → Unit settings: display length/angle units (R0.4).
+
+    Chooses the *display* unit only — geometry stays in file units;
+    the factor converts model extents for the status-bar readout.
+    """
+
+    def __init__(self, parent=None, bounds=None,
+                 length_unit="m", angle_unit="deg"):
+        self._bounds = bounds
+        self._length = length_unit
+        self._angle = angle_unit
+        super().__init__("Unit Settings", "Unit Settings",
+                         icon="unit", parent=parent,
+                         buttons=("OK", "Cancel"))
+
+    def _build_body(self, layout) -> None:
+        if not _HAS_QT:
+            return
+        group = QGroupBox("Display Units", self)
+        g = QGridLayout(group)
+        g.addWidget(QLabel("Length", self), 0, 0)
+        self.cmb_length = QComboBox(self)
+        for name in ("m", "cm", "mm", "inch", "ft"):
+            self.cmb_length.addItem(name)
+        self.cmb_length.setCurrentText(self._length)
+        g.addWidget(self.cmb_length, 0, 1)
+        g.addWidget(QLabel("Angle", self), 1, 0)
+        self.cmb_angle = QComboBox(self)
+        self.cmb_angle.addItem("deg")
+        self.cmb_angle.addItem("rad")
+        self.cmb_angle.setCurrentText(self._angle)
+        g.addWidget(self.cmb_angle, 1, 1)
+        layout.addWidget(group)
+        self.lbl_extent = QLabel(self._extent_text(), self)
+        self.lbl_extent.setStyleSheet("color:#666; font-size:11px;")
+        self.cmb_length.currentTextChanged.connect(
+            lambda _t: self.lbl_extent.setText(self._extent_text()))
+        layout.addWidget(self.lbl_extent)
+
+    def _extent_text(self) -> str:
+        b = self._bounds
+        if not b or len(b) < 6:
+            return "Open a field file to preview model extents."
+        f = unit_factor(self.cmb_length.currentText()
+                        if _HAS_QT else "m")
+        dx, dy, dz = (b[1] - b[0]) * f, (b[3] - b[2]) * f, (b[5] - b[4]) * f
+        return f"Model extent: {dx:.4g} x {dy:.4g} x {dz:.4g}"
+
+    def _on_apply(self) -> None:
+        if _HAS_QT:
+            self._length = self.cmb_length.currentText()
+            self._angle = self.cmb_angle.currentText()
+        self._applied = True
+
+    @property
+    def length_unit(self) -> str:
+        return self._length
+
+    @property
+    def angle_unit(self) -> str:
+        return self._angle
+
+
 class EnvironmentDialog(PostDialogBase):
     """Option → Environment Settings: background + status/units display."""
 

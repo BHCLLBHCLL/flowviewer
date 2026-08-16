@@ -146,6 +146,9 @@ class ObjectTree(QTreeWidget if _HAS_QT else object):
     item_activated_name = pyqtSignal(str) if _HAS_QT else None
     # kind, label  (e.g. "surface", "Surface (1)")
     object_activated = pyqtSignal(str, str) if _HAS_QT else None
+    # label — context-menu / Edit operations on tree objects (R0.2)
+    delete_requested = pyqtSignal(str) if _HAS_QT else None
+    duplicate_requested = pyqtSignal(str) if _HAS_QT else None
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -160,6 +163,8 @@ class ObjectTree(QTreeWidget if _HAS_QT else object):
         self.itemChanged.connect(self._on_item_changed)
         self.itemDoubleClicked.connect(self._on_double_clicked)
         self.itemSelectionChanged.connect(self._on_selection_changed)
+        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._on_context_menu)
         self.build_startup_tree()
 
     def build_startup_tree(self) -> None:
@@ -341,6 +346,34 @@ class ObjectTree(QTreeWidget if _HAS_QT else object):
             top.setExpanded(True)
         self.blockSignals(False)
 
+    def selected_object_label(self) -> str:
+        """Label of the current tree selection ("" when none)."""
+        if not _HAS_QT:
+            return ""
+        items = self.selectedItems()
+        return items[0].text(0) if items else ""
+
+    def _on_context_menu(self, pos) -> None:
+        """Right-click on an object row: Delete / Duplicate (R0.2)."""
+        if not _HAS_QT:
+            return
+        from PyQt5.QtWidgets import QMenu
+        item = self.itemAt(pos)
+        if item is None:
+            return
+        label = item.text(0)
+        kind = self._object_kinds.get(label, "")
+        if kind not in self._RENDERABLE_KINDS or kind == "camera":
+            return  # startup/global nodes are not deletable objects
+        menu = QMenu(self)
+        act_del = menu.addAction("Delete Object")
+        act_dup = menu.addAction("Duplicate Object")
+        chosen = menu.exec_(self.viewport().mapToGlobal(pos))
+        if chosen is act_del and self.delete_requested is not None:
+            self.delete_requested.emit(label)
+        elif chosen is act_dup and self.duplicate_requested is not None:
+            self.duplicate_requested.emit(label)
+
     def _on_item_changed(self, item, column) -> None:
         if column != 0 or self.visibility_changed is None:
             return
@@ -464,6 +497,7 @@ class PropertyHost(QWidget if _HAS_QT else object):
     """
 
     applied = pyqtSignal(object) if _HAS_QT else None  # after Draw / apply
+    before_apply = pyqtSignal(object) if _HAS_QT else None  # pre-mutation (undo)
     hidden = pyqtSignal() if _HAS_QT else None
 
     def __init__(self, parent=None):
@@ -587,6 +621,8 @@ class PropertyHost(QWidget if _HAS_QT else object):
         """
         if self._panel is None or self._obj is None:
             return False
+        if self.before_apply is not None:
+            self.before_apply.emit(self._obj)  # undo checkpoint point (R0.3)
         if hasattr(self._panel, "apply_to"):
             self._panel.apply_to(self._obj)
         if self.applied is not None:

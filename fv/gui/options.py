@@ -78,6 +78,22 @@ class Options:
     # ── convenience ─────────────────────────────────────────────────────────
 
     @property
+    def length_unit(self) -> str:
+        return self.get("length_unit", "m")
+
+    @length_unit.setter
+    def length_unit(self, value: str) -> None:
+        self.set("length_unit", str(value))
+
+    @property
+    def angle_unit(self) -> str:
+        return self.get("angle_unit", "deg")
+
+    @angle_unit.setter
+    def angle_unit(self, value: str) -> None:
+        self.set("angle_unit", str(value))
+
+    @property
     def last_dir(self) -> Optional[str]:
         return self.get("last_dir")
 

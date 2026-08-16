@@ -213,10 +213,17 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.object_tree.visibility_changed.connect(self._on_tree_visibility)
         self.object_tree.item_activated_name.connect(self._on_tree_activated)
         self.object_tree.object_activated.connect(self._on_object_activated)
+        if getattr(self.object_tree, "delete_requested", None) is not None:
+            self.object_tree.delete_requested.connect(
+                lambda label: self.on_delete_object(label))
+            self.object_tree.duplicate_requested.connect(
+                lambda label: self.on_duplicate_object(label))
 
         # scPOST Control Window: tree (upper) + Draw grip + tiled settings
         self.property_host = PropertyHost(self)
         self.property_host.applied.connect(self._on_property_applied)
+        if getattr(self.property_host, "before_apply", None) is not None:
+            self.property_host.before_apply.connect(self._on_before_apply)
         left_split = DrawSplitter(Qt.Vertical, self)
         left_split.addWidget(PaneFrame("Control Window", self.object_tree))
         left_split.addWidget(self.property_host)
@@ -343,6 +350,11 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         m = mb.addMenu("Edit")
         add(m, "Undo", self.on_undo, QKeySequence.Undo)
         add(m, "Redo", self.on_redo, QKeySequence.Redo)
+        m.addSeparator()
+        add(m, "Delete Object",
+            lambda _=False: self.on_delete_object(), QKeySequence.Delete)
+        add(m, "Duplicate Object",
+            lambda _=False: self.on_duplicate_object(), "Ctrl+D")
 
         # Display
         m = mb.addMenu("Display")
@@ -493,9 +505,9 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         act(self.tb_option, "Option", "option", "Environment Settings",
             self.on_environment_settings)
         act(self.tb_option, "Camera", "camera", "Camera",
-            lambda: self._nyi("Camera"))
+            self._open_camera_dialog)
         act(self.tb_option, "Unit", "unit", "Unit settings",
-            lambda: self._nyi("Unit settings"))
+            self.on_unit_settings)
         self.addToolBar(self.tb_option)
 
     def _toggle_toolbar(self, attr: str, on: bool) -> None:
@@ -965,6 +977,70 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._restore_children(self._redo_stack.pop())
         self.message_win.log("Redo")
 
+    # ── object delete / duplicate (R0.2) ─────────────────────────────
+    def _resolve_object(self, label):
+        """Find a child object by label (None when absent)."""
+        if self.main_object is None or label is None:
+            return None
+        for o in self.main_object.children:
+            if getattr(o, "label", None) == label:
+                return o
+        return None
+
+    def on_delete_object(self, label=None) -> None:
+        """Edit > Delete / tree context menu: remove an object (R0.2)."""
+        if self.main_object is None:
+            return
+        if label is None:
+            label = self.object_tree.selected_object_label()
+        obj = self._resolve_object(label)
+        if obj is None:
+            self.status.showMessage("Delete: no object selected", 2000)
+            return
+        self._snapshot_children()  # undo checkpoint (R0.3)
+        self.main_object.children.remove(obj)
+        # Drop the label from any folder membership
+        for o in self.main_object.children:
+            members = getattr(o, "member_labels", None)
+            if members and label in members:
+                o.member_labels = [m for m in members if m != label]
+        self.scene.build(self.dataset, main=self.main_object) \
+            if self.dataset is not None else None
+        if self._enable_3d:
+            self.scene.fit()
+            self._refresh_gl()
+        self.object_tree.load_main(self.main_object)
+        panel = getattr(self.property_host, "current_panel", None)
+        shown = getattr(panel, "obj", None)
+        if shown is not None and getattr(shown, "label", None) == label:
+            self.property_host.clear()
+        self.message_win.log(f"Deleted {label}")
+        self.status.showMessage(f"Deleted {label}", 3000)
+
+    def on_duplicate_object(self, label=None) -> None:
+        """Edit > Duplicate / tree context menu: copy an object (R0.2)."""
+        import copy as _copy
+        if self.main_object is None or self.dataset is None:
+            return
+        if label is None:
+            label = self.object_tree.selected_object_label()
+        obj = self._resolve_object(label)
+        if obj is None:
+            self.status.showMessage("Duplicate: no object selected", 2000)
+            return
+        self._snapshot_children()  # undo checkpoint (R0.3)
+        clone = _copy.deepcopy(obj)
+        clone.index = obj.index + 1
+        used = {o.label for o in self.main_object.children}
+        while clone.label in used:
+            clone.index += 1
+        self.main_object.children.append(clone)
+        self.scene.build(self.dataset, main=self.main_object)
+        if self._enable_3d:
+            self._refresh_gl()
+        self.object_tree.load_main(self.main_object)
+        self.message_win.log(f"Duplicated {label} -> {clone.label}")
+
     def _open_camera_dialog(self) -> None:
         """Option > Camera / tree Camera: camera settings (5b)."""
         self.property_host.show_object(
@@ -993,6 +1069,28 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             if self._enable_3d:
                 self._refresh_gl()
         self.message_win.log("Redraw")
+
+    def on_unit_settings(self) -> None:
+        """Option → Unit settings: display length/angle units (R0.4)."""
+        bounds = None
+        if self.dataset is not None:
+            try:
+                from ..api import get_bounding_box
+                bounds = get_bounding_box(self.dataset)
+            except Exception:  # noqa: BLE001
+                bounds = None
+        from .dialogs import UnitDialog
+        dlg = UnitDialog(self, bounds=bounds,
+                         length_unit=self.options.length_unit,
+                         angle_unit=self.options.angle_unit)
+        if dlg.exec_():
+            self.options.length_unit = dlg.length_unit
+            self.options.angle_unit = dlg.angle_unit
+            self.message_win.log(
+                f"Unit settings: length [{dlg.length_unit}] "
+                f"angle [{dlg.angle_unit}]")
+            self.status.showMessage(
+                f"Units: {dlg.length_unit} / {dlg.angle_unit}", 3000)
 
     def on_environment_settings(self) -> None:
         """Option → Environment Settings: minimal settings dialog."""
@@ -1066,11 +1164,11 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
     def _on_tree_activated(self, name: str) -> None:
         if name == "Unit":
-            self._nyi("Unit settings")
+            self.on_unit_settings()
         elif name == "Option":
-            self._nyi("Option")
+            self.on_environment_settings()
         elif name == "Camera":
-            self._nyi("Camera")
+            self._open_camera_dialog()
         elif name.startswith("Draw Window"):
             self._nyi("Draw Window settings")
         elif name == "Light (1)":
@@ -1195,6 +1293,12 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             return
         if not self.property_host.apply_now():
             self._refresh_gl()
+
+    def _on_before_apply(self, obj) -> None:
+        """Pre-apply undo checkpoint: object state is still pristine (R0.3)."""
+        if (self.main_object is not None
+                and obj in getattr(self.main_object, "children", [])):
+            self._snapshot_children()
 
     def _on_property_applied(self, obj) -> None:
         """After Draw / apply_now → rebuild the affected object.
