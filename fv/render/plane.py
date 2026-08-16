@@ -183,7 +183,7 @@ def _build_fph_ugrid(ff: FieldFile, rows=None):
     return ug
 
 
-_CELL_NN = {10: 4, 12: 8, 13: 6, 14: 5}
+_CELL_NN = {3: 2, 5: 3, 9: 4, 10: 4, 12: 8, 13: 6, 14: 5}
 _VTK_CELL_CODE = {
     10: lambda: vtk.VTK_TETRA,
     12: lambda: vtk.VTK_HEXAHEDRON,
@@ -226,7 +226,11 @@ def _build_fld_ugrid(ff: FieldFile, rows=None):
     # so each row is truncated to its own node count.
     t = np.asarray(sel_types, dtype=np.int64)
     counts = np.array([_CELL_NN.get(int(x), 8) for x in t], dtype=np.int64)
-    rows8 = np.where(np.arange(8)[None, :] < counts[:, None], sel, 0)
+    width = max(int(sel.shape[1]), int(counts.max()))
+    if sel.shape[1] < width:
+        sel = np.pad(sel, ((0, 0), (0, width - sel.shape[1])))
+    rows8 = np.where(np.arange(width)[None, :] < counts[:, None],
+                     sel, 0)
     flat = np.concatenate([
         np.concatenate([[int(c)], rows8[i, :c]]) for i, c in enumerate(counts)
     ])
