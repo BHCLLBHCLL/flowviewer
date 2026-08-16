@@ -207,3 +207,66 @@ FBX 以 OBJ 中性格式替代（无 VTK 原生 FBX 写器）。
 按 DEV_PLAN §26 行动序执行：P0 贯通修复（Create 菜单/STA 反射注册/undo 接线/
 常量统一/粒子帧消费/细节清扫，纯接线低风险）→ P1 渲染深度 → P2 数据格式深度。
 P0 完成后实际可用完整度预计提升至 80–85%。
+
+---
+
+## 10. 第八轮 P0→P3 梯队改进全部完成（2026-08-16）
+
+按 §9 审计结论与 `analysis/function_gap_analysis.md` 行动序（DEV_PLAN §26），
+四个梯队 20 个功能点全部完成并逐点推送 GitHub origin/main。
+
+### 10.1 P0 贯通修复（纯接线）
+
+- **P0.1** Create 菜单补全（5 个 kind=None + 13 个无入口对象 → 30 对象全部可达）。
+- **P0.2** STA kind 表反射注册（9 → 31 kind，状态往返不再静默丢对象）。
+- **P0.3** undo/redo 接线（Edit 菜单 + Ctrl+Z/Y）。
+- **P0.4** `_RENDERABLE_KINDS` 统一（main 8 → 对齐 panes 30）。
+- **P0.5** 粒子多帧消费（Scene.animate 驱动粒子帧）。
+- **P0.6** 细节清扫（timeline 三控件 / .emt 关联 / last_dir / 消息保存 / BMP-TIF）。
+
+### 10.2 P1 渲染深度
+
+- **P1.1** 体渲染真管线（ResampleToImage → SmartVolumeMapper + 参数化传递函数）。
+- **P1.2** FLD 流线升级（RK4 积分 + pathline 步长/着色）。
+- **P1.3** Turbo 云图化（栅格热力图 + polar 渲染出口）。
+- **P1.4** Luster/Water 全对象统一 `apply_sheen`。
+- **P1.5** oilflow 变量着色 + camera spline 插值（b07e088）。
+
+### 10.3 P2 数据格式深度
+
+- **P2.1** CGNS 增强：MIXED 单元 / 多 zone / 结构化 zone（7c314b7）。
+- **P2.2** 微分算子非 hex 邻接：按 per-cell vtk 类型码查边表
+  （tet/wedge/pyra），5 类失配（无 conn / 类型长度 / 未知类型 / id 越界 /
+  变量长度）显式 raise 不再静默（053fbaa）。
+- **P2.3** varreg 算子补全：iflt/ifle/ifne + log/exp/sin（f4cb5de）。
+- **P2.4** FileSet 时间插值：`interpolate_files/interpolate_at` 小数 cycle
+  线性混合 + `CycleRuntime`（scPOST SetCurCycleID 1-based 语义、
+  SetCurCycleID_F 插值、GetCurTime/SetAutoCycle/ResetCycOpe）（7bee306）。
+- **P2.5** POD/ALLCYC 复用 `load_member` 共享缓存（同序列一次解析），
+  缺变量/坏文件显式报错不吞（3dc2091）。
+- **P2.6** iFLD Trimming Open：bounds 盒空间裁剪网格 + 字段切片（87e68b3）。
+
+### 10.4 P3 自动化扩面（b758fe2）
+
+- **COM 10 → 约 40 方法**：`open_sequence` + cycle 运行时族
+  （SetCurCycleID/_F、GetCycleNum/GetCurTime、AddCycList/DelCycList、
+  SetCycOpeMode）、几何查询（GetBoundingBox、LocalXYZ2GlobalXYZ/
+  GlobalXYZ2LocalXYZ、GetVOLNum/GetMATNumFLD/GetMATIDofVOL、
+  GetOverlappingRegionCount）、SaveSTA/ApplySTA/SaveSTL、Set* 状态族 +
+  AnimationStart/Stop、ErrorCode/ErrorString 错误通道。
+- **api.py 补方法**：`get_bounding_box`（cell_conn 缺失时回退 FPH/GPH
+  link_data owner/neighbour 面拓扑收集区域节点）、local↔global 坐标变换
+  （旋转矩阵 + 平移，单点/N×3 数组）、VOL/MAT 查询、`save_sta/apply_sta`、
+  `split_view` 多视口并排渲染 PNG。
+- **XDMF temporal collection**：`<Grid CollectionType="Temporal">` 共享
+  拓扑多步帧解析，首帧为载入网格，全部帧经 `ff.meta["xdmf_temporal"]/
+  ["xdmf_frames"]` 暴露（attribute-only 帧继承前帧网格）。
+
+### 10.5 回归与状态
+
+- 全量回归 **246 passed / 1 skipped / 2 deselected**（21.5 分钟，2026-08-16 实测）。
+- §9 列出的 5 项贯通断裂全部闭合；端到端可用深度自 65–70% 提升至
+  P0 预估的 80–85% 区间，且 P1–P3 深化后渲染/数据/自动化三层与
+  scPOST 的主要代差消除。
+- 遗留：timeline Time 模式 GUI 侧仍整步加载（runtime 插值已在 api 层可用，
+  接线留待下轮）；`_on_timeline_step` 消费 `interpolate_at` 为已知后续项。
