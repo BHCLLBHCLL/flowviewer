@@ -270,3 +270,43 @@ P0 完成后实际可用完整度预计提升至 80–85%。
   scPOST 的主要代差消除。
 - 遗留：timeline Time 模式 GUI 侧仍整步加载（runtime 插值已在 api 层可用，
   接线留待下轮）；`_on_timeline_step` 消费 `interpolate_at` 为已知后续项。
+
+---
+
+## 11. 第九轮 R3 专业深度（进行中）
+
+### 11.1 R3.1 Turbo 真实叶片表面（60f1599）
+
+- **壁面识别三层**（`_blade_wall_faces`）：L0 显式 region 名 → L1 关键字
+  （blade/impeller/rotor/…，排除 plane/cylinder/hub/shroud）→ L2 旋转部件
+  cvol 边界面（owner∈旋转部件 ∧ neighbour∉）。tr03_9 实测 L1 命中
+  `@PartSurface_Impeller` 9011 面。
+- **壁面几何**：Newell 法向 + 按 owner 单元中心定向（指向 owner 内部者翻转）
+  并归一化；面心/法向/owner 三元组 `blade_wall_faces()` 公开。
+- **PS/SS 分侧**：`blade_loading_surfaces` 改为壁面 owner 单元值 + 法向周向
+  分量 `n_θ` 符号分侧（原 θ 中位数全流场启发式降级为无壁面时的回退路径）。
+  tr03 实测两侧面数同量级、n_θ 均值符号相反。
+- **周期解卷**：`_estimate_pitch` θ 直方图自相关峰 + 显著性门限（0.35），
+  合成 4 叶片夹具恢复 pitch=2π/4，均匀分布回 2π。
+- **B2B 壁面展开**：`blade_to_blade_surface`（pitch 折叠 + k·pitch 复制）
+  替换体积容差取点；`build_turbo_actors` 叶片视图默认壁面采样
+  （`blade_surface` 开关 + `blade_regions` 显式名单，TurboDialog 已接线）。
+- 测试：`tests/test_turbo_r31.py` 7 项全过；GUI turbo 子集 12 项全过。
+
+### 11.2 R3.5 深格式（ADF + op2）
+
+- **CGNS ADF（8dbb211）**：pyCGNS 因需 HDF5 C 库+pkg-config 无法在 Windows 构建；
+  改为**纯 Python ADF 读取器+写入器**（`fv/crdl/cgns_adf.py`），磁盘布局逐字节
+  转写自 cgnslib 4.5.1 `src/adf/ADF_internals.c` 格式注释块（文件头 186B/节点头
+  246B/ASCII-hex DISK_POINTER/DaTa 块/DCtb 分块表/SNTb 子节点表）。`read_cgns_adf`
+  复用 HDF5 路径的 MIXED/结构化/多 zone 逻辑；`cgns_load` 探测回退（HDF5→ADF），
+  `probe_format` 区分 cgns-hdf5/cgns-adf。校验：写读 round-trip 双端序测试
+  （cgnslib 工具链因旧 CMakeLists 与新 CMake 4 不兼容未能构建，留作后续交叉验证）。
+- **Nastran .op2（8743c86 + f5e286d）**：`fv/crdl/op2.py` 经 pyNastran 1.4.1
+  （可选依赖：cpylog/docopt-ng）：几何取自 op2 GEOM 表或同 stem .dat/.bdf/.nas
+  sidecar（results-only POST 文件常态）；结果映射：eigenvectors→MODE1..N 节点场、
+  displacements→DISPMAG(SUB#) 节点场、solid 应力族→VONMISES(SUB#) 单元场。
+  真实夹具 vendor `tests/data/plate_py.op2/.dat`（pyNastran models/plate_py，
+  NASTRAN 官方示例）：231 节点/200 CQUAD4/10 阶模态实测全通。
+- Marc .t16/.t19 维持不做（零样例+无库，plan_r31_r35.md 已记录立项前提）。
+

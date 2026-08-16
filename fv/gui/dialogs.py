@@ -51,7 +51,7 @@ FILE_TYPE_FILTERS: list[tuple[str, tuple[str, ...]]] = [
 # Currently loadable by flowviewer core (others accepted in dialog, then NYI).
 # Kept for backward compatibility; prefer :func:`loadable_extensions`, which
 # derives the set from the live loader registry (P0.6: .emt/.cgns/… drift).
-LOADABLE_EXTENSIONS = frozenset({"fld", "ifld", "fph", "gph", "pph"})
+LOADABLE_EXTENSIONS = frozenset({"fld", "ifld", "fph", "gph", "pph", "op2"})
 
 
 def loadable_extensions() -> frozenset[str]:

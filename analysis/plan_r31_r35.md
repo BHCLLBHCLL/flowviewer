@@ -1,5 +1,12 @@
 # R3.1 / R3.5 开发难度与深度规划（2026-08-16）
 
+> **执行状态（2026-08-16）**：
+> R3.1 完成（60f1599，T1–T4 全量 + GUI 接线，7 项测试）；
+> R3.5a 完成（8dbb211，pyCGNS 构建失败改纯 Python ADF 读写器 + loader 回退，5 项测试；
+> cgnslib 工具链因旧 CMakeLists 与新 CMake 4 不兼容未能交叉验证）；
+> R3.5b 完成（8743c86+f5e286d，pyNastran 封装 + sidecar 几何 + 真实 plate_py 夹具，5 项测试）；
+> R3.5c Marc t16/t19 维持不做。全量回归 316 passed / 1 skipped / 2 deselected。
+
 > 依据：`analysis/function_gap_analysis_r9.md` §5 的 R3 梯队定义（R3.1 = Turbo 真实叶片表面；
 > R3.5 = 深格式：CGNS ADF / Nastran .op2 / Marc .t16）。
 > 本规划基于对 `fv/render/turbo.py`、`fv/crdl/cgns.py` 全文复查 + 样本/依赖环境实测。
