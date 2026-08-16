@@ -198,6 +198,13 @@ class FlowviewerApplication:
     QueryInterface(IConnectionPointContainer) and Advise a sink, or call
     app.FindConnectionPoint(iid).Advise(sink) through IDispatch;
     subscribe/unsubscribe are a Python-friendly alias.
+
+    scPOST surface (P3): the AddCycList/SetCurCycleID cycle family over
+    open_sequence, geometry/region queries (GetBoundingBox,
+    LocalXYZ2GlobalXYZ, GetOverlappingRegionCount, GetMATIDofVOL, ...),
+    SaveSTA/ApplySTA/SaveSTL and the SetDisplay*/animation state
+    setters.  Every method records failures in the ErrorCode /
+    ErrorString properties instead of raising through IDispatch.
     """
 
     _reg_clsid_ = "{A1B2C3D4-5E6F-4A7B-8C9D-0E1F2A3B4C5D}"
@@ -207,18 +214,49 @@ class FlowviewerApplication:
         "open_file", "variables", "cycles", "quit",
         "close", "release", "subscribe", "unsubscribe",
         "EnumConnectionPoints", "FindConnectionPoint",
+        # sequence / cycle runtime (scPOST AddCycList family)
+        "open_sequence", "GetCycleNum", "GetCurCycleID", "GetCurCycleID_F",
+        "GetCurTime", "GetCycleByCycleID", "GetTimeByCycleID",
+        "SetCurCycleID", "SetCurCycleID_F", "SetAutoCycle", "ResetCycOpe",
+        "SetCycOpeMode", "AddCycList", "DelCycList",
+        # geometry / region queries
+        "GetBoundingBox", "LocalXYZ2GlobalXYZ", "GlobalXYZ2LocalXYZ",
+        "GetOverlappingRegionCount", "GetMATNumFLD", "GetMATIDofVOL",
+        "GetVOLNum", "GetVOLorgnameAsArray",
+        # status / export
+        "SaveSTA", "ApplySTA", "SaveSTL",
+        # application state (Set* family + animation)
+        "SetDisplayAxis", "SetDisplayFLD", "SetDisplayTitleCycle",
+        "SetDisplayTitlePath", "SetDisplayTitleTime", "SetDisplayObjName",
+        "SetUseUndoBuffer", "SetUseAutoSave", "AnimationStart",
+        "AnimationStop", "PrepareMinMaxPos", "SplitView",
+        "ObjectNameArrange",
     ]
     _public_attrs_ = [
         "version", "file_path", "kind", "n_cells", "n_vertices",
         "cycle", "time", "variable_names", "has_file",
+        "ErrorCode", "ErrorString",
     ]
     _readonly_attrs_ = [
         "version", "file_path", "kind", "n_cells", "n_vertices",
         "cycle", "time", "variable_names", "has_file",
+        "ErrorCode", "ErrorString",
     ]
 
     def __init__(self):
         self._ff = None
+        self._fs = None          # FileSet behind open_sequence
+        self._rt = None          # CycleRuntime over _fs
+        self._main = None        # object tree from ApplySTA
+        self._err_code = 0
+        self._err_str = "OK"
+        self._flags = {
+            "display_axis": True, "display_fld": True,
+            "display_title_cycle": True, "display_title_path": True,
+            "display_title_time": True, "display_obj_name": False,
+            "use_undo_buffer": True, "use_autosave": False,
+            "minmax_pos": False, "split_view": 0, "animating": False,
+        }
         self._lock = threading.RLock()
         self._cp = ConnectionPoint(self)
         if _HAS_COM:
@@ -230,6 +268,36 @@ class FlowviewerApplication:
                 ]
             except Exception:
                 pass
+
+    # ── error channel (scPOST ErrorCode / ErrorString) ────────────────────
+
+    @property
+    def ErrorCode(self):
+        """Error code of the last method call (0 = OK)."""
+        return self._err_code
+
+    @property
+    def ErrorString(self):
+        """Error message of the last method call."""
+        return self._err_str
+
+    def _ok(self, value):
+        self._err_code, self._err_str = 0, "OK"
+        return value
+
+    def _fail(self, exc):
+        self._err_code, self._err_str = -1, str(exc)
+        return None
+
+    def _need_ff(self):
+        if self._ff is None:
+            raise ValueError("no field file open")
+        return self._ff
+
+    def _need_rt(self):
+        if self._rt is None:
+            raise ValueError("no cycle sequence open (open_sequence first)")
+        return self._rt
 
     def _query_interface_(self, iid):
         """Answer QI for the connection-point interfaces (COM events)."""
@@ -355,6 +423,309 @@ class FlowviewerApplication:
             if sink is callback:
                 self._cp.Unadvise(cookie)
         return len(self._cp._sinks)
+
+    # ── cycle sequence runtime (scPOST AddCycList / SetCurCycleID, P3) ─────
+
+    def open_sequence(self, path):
+        """Open a cycle sequence around *path* (same-stem siblings) and
+        load its first member as the current file (fires on_open)."""
+        try:
+            from . import api
+            from .model.fileset import load_member, scan_sequence
+            fs = scan_sequence(str(path))
+            if not len(fs):
+                raise ValueError("no sibling cycle files around %r" % path)
+            rt = api.cycle_runtime(fs)
+            with self._lock:
+                self._fs, self._rt = fs, rt
+                self._ff = load_member(fs, 1, cache=rt.cache)
+            self._cp.fire("on_open", str(path))
+            return self._ok(len(fs))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetCycleNum(self):
+        """Number of files in the open cycle series (GetCycleNum)."""
+        try:
+            return self._ok(self._need_rt().get_cycle_num())
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetCurCycleID(self):
+        """Current (1-based, integer) cycle id (GetCurCycleID)."""
+        try:
+            return self._ok(self._need_rt().get_cur_cycle_id())
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetCurCycleID_F(self):
+        """Fractional part of the current cycle id (GetCurCycleID_F)."""
+        try:
+            from . import api
+            return self._ok(api.get_cur_cycle_id_f(self._need_rt()))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetCurTime(self):
+        """Time stored in the current cycle file (GetCurTime)."""
+        try:
+            return self._ok(self._need_rt().get_cur_time())
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetCycleByCycleID(self, cycle_id):
+        """Cycle number of the member at 1-based *cycle_id*."""
+        try:
+            from . import api
+            return self._ok(api.get_cycle_by_cycle_id(self._need_rt().fs,
+                                                      cycle_id))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetTimeByCycleID(self, cycle_id):
+        """Time of the member at 1-based *cycle_id* (GetTimeByCycleID)."""
+        try:
+            from . import api
+            return self._ok(api.get_time_by_cycle_id(self._need_rt().fs,
+                                                     cycle_id))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def SetCurCycleID(self, cycid):
+        """Jump to cycle *cycid*; new id, or -1 when out of range."""
+        try:
+            from . import api
+            return self._ok(api.set_cur_cycle_id(self._need_rt(), cycid))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def SetCurCycleID_F(self, cyc_i, cyc_f):
+        """Fractional cycle id with time interpolation (SetCurCycleID_F)."""
+        try:
+            from . import api
+            return self._ok(api.set_cur_cycle_id_f(self._need_rt(),
+                                                   cyc_i, cyc_f))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def SetAutoCycle(self, is_auto):
+        """Select the cycle-shift [Auto Set] checkbox (SetAutoCycle)."""
+        try:
+            from . import api
+            return self._ok(api.set_auto_cycle(self._need_rt(), is_auto))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def ResetCycOpe(self):
+        """Reset the between-cycle operation (ResetCycOpe)."""
+        try:
+            from . import api
+            return self._ok(api.reset_cyc_ope(self._need_rt()))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def SetCycOpeMode(self, mode):
+        """Between-cycle operation None|Add|Sub|Mul|Div (SetCycOpeMode)."""
+        try:
+            from . import api
+            return self._ok(api.set_cyc_ope_mode(self._need_rt().fs, mode))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def AddCycList(self, path, cycle=0):
+        """Append a file to the cycle list (AddCycList)."""
+        try:
+            from . import api
+            cyc = int(cycle) if int(cycle) > 0 else None
+            m = api.add_cyc_list(self._need_rt().fs, str(path), cyc)
+            return self._ok(int(m.cycle))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def DelCycList(self, cycle):
+        """Drop the member with the given cycle (DelCycList)."""
+        try:
+            from . import api
+            return self._ok(api.del_cyc_list(self._need_rt().fs, cycle))
+        except Exception as exc:
+            return self._fail(exc)
+
+    # ── geometry / region queries (P3) ────────────────────────────────────
+
+    def GetBoundingBox(self, volume_region=None):
+        """Bounding box (xmin, xmax, ymin, ymax, zmin, zmax) of the file
+        or one volume region (GetBoundingBox)."""
+        try:
+            from . import api
+            return self._ok(api.get_bounding_box(self._need_ff(),
+                                                 volume_region))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def LocalXYZ2GlobalXYZ(self, x, y, z, ox=0.0, oy=0.0, oz=0.0,
+                           axis="z", angle_deg=0.0):
+        """Convert a local-frame coordinate to global
+        (LocalXYZ2GlobalXYZ); returns (gx, gy, gz)."""
+        try:
+            from . import api
+            g = api.local_xyz_to_global_xyz(
+                (float(x), float(y), float(z)),
+                origin=(float(ox), float(oy), float(oz)),
+                axis=str(axis), angle_deg=float(angle_deg))
+            return self._ok((float(g[0]), float(g[1]), float(g[2])))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GlobalXYZ2LocalXYZ(self, x, y, z, ox=0.0, oy=0.0, oz=0.0,
+                           axis="z", angle_deg=0.0):
+        """Inverse of LocalXYZ2GlobalXYZ; returns (lx, ly, lz)."""
+        try:
+            from . import api
+            l = api.global_xyz_to_local_xyz(
+                (float(x), float(y), float(z)),
+                origin=(float(ox), float(oy), float(oz)),
+                axis=str(axis), angle_deg=float(angle_deg))
+            return self._ok((float(l[0]), float(l[1]), float(l[2])))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetOverlappingRegionCount(self):
+        """Cells belonging to more than one volume region
+        (GetOverlappingRegionCount)."""
+        try:
+            from . import api
+            return self._ok(api.get_overlapping_region_count(self._need_ff()))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetMATNumFLD(self):
+        """Number of materials = maximum MAT-ID (GetMATNumFLD)."""
+        try:
+            from . import api
+            return self._ok(api.get_mat_num(self._need_ff()))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetMATIDofVOL(self, volume_region):
+        """MAT-ID filling a volume region (GetMATIDofVOL); -1 when the
+        region mixes materials, None when it has no cells."""
+        try:
+            from . import api
+            return self._ok(api.get_mat_id_of_vol(self._need_ff(),
+                                                  str(volume_region)))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetVOLNum(self):
+        """Number of volume regions (GetVOLNum)."""
+        try:
+            from . import api
+            return self._ok(api.get_vol_num(self._need_ff()))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetVOLorgnameAsArray(self):
+        """Internal volume-region names (GetVOLorgnameAsArray)."""
+        try:
+            from . import api
+            return self._ok(api.get_vol_org_names(self._need_ff()))
+        except Exception as exc:
+            return self._fail(exc)
+
+    # ── status / export (P3) ──────────────────────────────────────────────
+
+    def SaveSTA(self, filepath):
+        """Save the current object tree to a .sta status file (SaveSTA)."""
+        try:
+            from . import api
+            from .model.objects import MainObject
+            main = self._main
+            if main is None:
+                main = MainObject.from_field_file(self._need_ff(),
+                                                  magic=True)
+            return self._ok(api.save_sta(main, str(filepath)))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def ApplySTA(self, filepath):
+        """Load a .sta status file onto the current field (ApplySTA)."""
+        try:
+            from . import api
+            main = api.apply_sta(self._need_ff(), str(filepath))
+            if main is None:
+                raise ValueError("not a status file: %r" % filepath)
+            self._main = main
+            return self._ok(True)
+        except Exception as exc:
+            return self._fail(exc)
+
+    def SaveSTL(self, filepath):
+        """Export the boundary surface as STL (SaveSTL)."""
+        try:
+            from . import api
+            return self._ok(api.export_stl(self._need_ff(), str(filepath)))
+        except Exception as exc:
+            return self._fail(exc)
+
+    # ── application state setters (P3) ────────────────────────────────────
+
+    def _set_flag(self, key, value):
+        self._flags[key] = bool(value)
+        return True
+
+    def SetDisplayAxis(self, on):
+        """Show/hide the axis (SetDisplayAxis)."""
+        return self._set_flag("display_axis", on)
+
+    def SetDisplayFLD(self, on):
+        """Show/hide the loaded FLD (SetDisplayFLD)."""
+        return self._set_flag("display_fld", on)
+
+    def SetDisplayTitleCycle(self, on):
+        """Show/hide the cycle number title (SetDisplayTitleCycle)."""
+        return self._set_flag("display_title_cycle", on)
+
+    def SetDisplayTitlePath(self, on):
+        """Show/hide the file-name title (SetDisplayTitlePath)."""
+        return self._set_flag("display_title_path", on)
+
+    def SetDisplayTitleTime(self, on):
+        """Show/hide the time title (SetDisplayTitleTime)."""
+        return self._set_flag("display_title_time", on)
+
+    def SetDisplayObjName(self, on):
+        """Show/hide object names (SetDisplayObjName)."""
+        return self._set_flag("display_obj_name", on)
+
+    def SetUseUndoBuffer(self, on):
+        """Use/unuse the undo buffer (SetUseUndoBuffer)."""
+        return self._set_flag("use_undo_buffer", on)
+
+    def SetUseAutoSave(self, on):
+        """Set/unset auto backup (SetUseAutoSave)."""
+        return self._set_flag("use_autosave", on)
+
+    def AnimationStart(self):
+        """Begin animation (AnimationStart; state flag headless)."""
+        return self._set_flag("animating", True)
+
+    def AnimationStop(self):
+        """Stop animation (AnimationStop; state flag headless)."""
+        return self._set_flag("animating", False)
+
+    def PrepareMinMaxPos(self):
+        """Enable the max/min position display (PrepareMinMaxPos)."""
+        return self._set_flag("minmax_pos", True)
+
+    def SplitView(self, mode=1):
+        """Side-by-side display mode (SplitView); the renderer exposes
+        it as api.split_view, headless COM stores the mode."""
+        self._flags["split_view"] = int(mode)
+        return True
+
+    def ObjectNameArrange(self):
+        """Rearrange the object-name balloons (ObjectNameArrange)."""
+        return True
 
     # internals
 

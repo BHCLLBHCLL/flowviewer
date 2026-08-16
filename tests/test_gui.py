@@ -2210,6 +2210,142 @@ def test_pod_allcyc_cache_and_no_swallow(tmp_path):
     (base / "flow_2.fph").write_bytes(b"garbage: not a field file")
     with pytest.raises(Exception):
         collect_snapshots(fs, "PRES")
+def test_xdmf_temporal_collection(tmp_path):
+    """XDMF temporal collection: shared topology, per-step fields (P3)."""
+    import numpy as np
+    from fv.model.dataset import xdmf_load
+    coords = "0 0 0  1 0 0  1 1 0  0 1 0  0 0 1  1 0 1  1 1 1  0 1 1"
+    conn = "0 1 2 3 4 5 6 7"
+
+    def full_grid(t, vals):
+        return f"""<Grid Name="t{t}"><Time Value="{t}"/>
+    <Topology TopologyType="Hexahedron" NumberOfElements="1">
+    <DataItem Dimensions="1 8" Format="XML">{conn}</DataItem></Topology>
+    <Geometry GeometryType="XYZ"><DataItem Dimensions="8 3" Format="XML">
+    {coords}</DataItem></Geometry>
+    <Attribute Name="PRES" Center="Node">
+    <DataItem Dimensions="8" Format="XML">{vals}</DataItem></Attribute>
+    </Grid>"""
+
+    def attr_only(t, vals):
+        return f"""<Grid Name="t{t}"><Time Value="{t}"/>
+    <Attribute Name="PRES" Center="Node">
+    <DataItem Dimensions="8" Format="XML">{vals}</DataItem></Attribute>
+    </Grid>"""
+
+    xml = f"""<?xml version="1.0"?>
+    <Xdmf><Domain>
+    <Grid GridType="Collection" CollectionType="Temporal">
+    {full_grid(0.0, "1 2 3 4 5 6 7 8")}
+    {attr_only(1.0, "2 3 4 5 6 7 8 9")}
+    {attr_only(2.0, "3 4 5 6 7 8 9 10")}
+    </Grid></Domain></Xdmf>"""
+    xmf = tmp_path / "seq.xmf"
+    xmf.write_text(xml, encoding="utf-8")
+    ff = xdmf_load(str(xmf))
+    assert ff.kind == "xdmf"
+    assert ff.n_vertices == 8 and ff.n_cells == 1
+    # the loaded file is the first frame
+    assert ff.variables["PRES"].array.tolist() == [1, 2, 3, 4, 5, 6, 7, 8]
+    temporal = ff.meta["xdmf_temporal"]
+    assert temporal["cycles"] == [1, 2, 3]
+    np.testing.assert_allclose(temporal["times"], [0.0, 1.0, 2.0])
+    frames = ff.meta["xdmf_frames"]
+    assert len(frames) == 3
+    # attribute-only frames inherit the shared topology
+    for f, pres in zip(frames, ([1, 2, 3, 4, 5, 6, 7, 8],
+                                [2, 3, 4, 5, 6, 7, 8, 9],
+                                [3, 4, 5, 6, 7, 8, 9, 10])):
+        assert f["mesh"]["n_vertices"] == 8
+        assert f["mesh"]["n_cells"] == 1
+        assert f["mesh"]["fields"]["PRES"][0].tolist() == pres
+
+def test_api_geometry_and_region_queries():
+    """api GetBoundingBox / coordinate transforms / VOL+MAT (P3)."""
+    import numpy as np
+    from fv import api
+    ff = api.open_file(FPH)
+    box = api.get_bounding_box(ff)
+    assert len(box) == 6
+    assert box[0] <= box[1] and box[2] <= box[3] and box[4] <= box[5]
+    np.testing.assert_allclose(box[:2], (ff.vertices[:, 0].min(),
+                                         ff.vertices[:, 0].max()))
+    # part-filtered box stays inside the global one; unknown names raise
+    if getattr(ff, "parts_with_cvol", None):
+        part = ff.parts_with_cvol[0][0]
+        rbox = api.get_bounding_box(ff, part)
+        assert len(rbox) == 6
+        assert rbox[0] >= box[0] - 1e-9 and rbox[1] <= box[1] + 1e-9
+    # unknown region names classify as the whole mesh (lenient semantics)
+    np.testing.assert_allclose(api.get_bounding_box(ff, "NO_SUCH_REGION"), box)
+    # local <-> global: rotate + translate, then round-trip back
+    g = api.local_xyz_to_global_xyz((1.0, 0.0, 0.0), axis="z", angle_deg=90.0)
+    np.testing.assert_allclose(g, (0.0, 1.0, 0.0), atol=1e-12)
+    g2 = api.local_xyz_to_global_xyz((1.0, 1.0, 1.0), origin=(10, 20, 30))
+    np.testing.assert_allclose(g2, (11.0, 21.0, 31.0), atol=1e-12)
+    l = api.global_xyz_to_local_xyz((0.0, 1.0, 0.0), axis="z", angle_deg=90.0)
+    np.testing.assert_allclose(l, (1.0, 0.0, 0.0), atol=1e-12)
+    # array form maps N points at once
+    arr = api.local_xyz_to_global_xyz(np.eye(3), axis="z", angle_deg=90.0)
+    assert arr.shape == (3, 3)
+    np.testing.assert_allclose(arr[0], (0.0, 1.0, 0.0), atol=1e-12)
+    # region / material bookkeeping
+    assert api.get_vol_num(ff) == len(ff.volume_regions)
+    assert api.get_vol_org_names(ff) == list(ff.volume_regions)
+    assert api.get_overlapping_region_count(ff) >= 0
+    assert api.get_mat_num(ff) >= 0  # 0 when the file carries no MAT-ID
+    mid = api.get_mat_id_of_vol(ff, getattr(ff, "parts", [""])[0])
+    assert mid is None or mid == -1 or mid >= 1
+
+def test_com_scpost_surface(tmp_path):
+    """COM scPOST methods: cycle runtime + queries + flags + errors (P3)."""
+    import shutil
+    from pathlib import Path
+    from fv.com import FlowviewerApplication
+    base = Path(tmp_path)
+    for stale in base.glob("*.fph"):
+        stale.unlink()
+    for cyc in (1, 2):
+        shutil.copyfile(FPH, str(base / f"flow_{cyc}.fph"))
+    app = FlowviewerApplication()
+    # sequence runtime
+    assert app.open_sequence(str(base / "flow_1.fph")) == 2
+    assert app.GetCycleNum() == 2
+    assert app.SetCurCycleID(2) == 2
+    assert app.SetCurCycleID(9) == -1
+    assert app.SetCurCycleID_F(1, 0.5) == 1
+    assert app.GetCurCycleID() == 1
+    assert app.GetCycleByCycleID(1) is not None
+    # geometry on the loaded member
+    box = app.GetBoundingBox()
+    assert box is not None and len(box) == 6
+    g = app.LocalXYZ2GlobalXYZ(1.0, 0.0, 0.0, axis="z", angle_deg=90.0)
+    assert g is not None and abs(g[1] - 1.0) < 1e-12
+    l = app.GlobalXYZ2LocalXYZ(g[0], g[1], g[2], axis="z", angle_deg=90.0)
+    assert abs(l[0] - 1.0) < 1e-12
+    # region / material queries through the error channel
+    assert app.GetVOLNum() == len(app._ff.volume_regions)
+    assert app.GetMATNumFLD() >= 0  # 0 when the file carries no MAT-ID
+    assert app.GetOverlappingRegionCount() >= 0
+    # application state flags
+    assert app.SetDisplayAxis(False) is True
+    assert app.SetUseUndoBuffer(False) is True
+    assert app.AnimationStart() is True and app.AnimationStop() is True
+    assert app.SplitView(2) is True and app.PrepareMinMaxPos() is True
+    assert app.ObjectNameArrange() is True
+    # error channel: unknown cycle-op mode -> ErrorCode -1, message set
+    app.SetCycOpeMode("Bogus")
+    assert app.ErrorCode == -1 and "Bogus" in app.ErrorString
+    # recovery: a good call clears the error again
+    app.GetBoundingBox()
+    assert app.ErrorCode == 0 and app.ErrorString == "OK"
+    # AddCycList / DelCycList keep the list consistent
+    shutil.copyfile(FPH, str(base / "flow_3.fph"))
+    assert app.AddCycList(str(base / "flow_3.fph")) > 0
+    assert app.GetCycleNum() == 3
+    assert app.DelCycList(3) in (True, 1)
+    assert app.GetCycleNum() == 2
+
 def test_api_object_management():
     """GetObjNum/GetObjectByType/Remove* (P2)."""
     from fv import api

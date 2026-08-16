@@ -497,7 +497,7 @@ def cells_of_part(ff, part_name: str) -> list:
     for name, spec in (getattr(ff, "parts_with_cvol", None) or []):
         if name != part_name:
             continue
-        from ..crdl.mesh_gph import part_cvol_cell_mask
+        from .crdl.mesh_gph import part_cvol_cell_mask
         mask = part_cvol_cell_mask(getattr(ff, "cvol_id", None), spec)
         import numpy as np
         return [int(i) for i in np.flatnonzero(mask)]
@@ -660,3 +660,234 @@ def interpolate_at(fs, cycle_id: float, cache=None):
     """FieldFile at a fractional 1-based cycle id (time interpolation)."""
     from .model.fileset import interpolate_at as _f
     return _f(fs, cycle_id, cache=cache)
+
+
+# ── geometry / region queries + STA + split view (scPOST P3) ────────────
+
+def get_bounding_box(ff, volume_region=None):
+    """Axis-aligned bounding box (xmin, xmax, ymin, ymax, zmin, zmax)
+    of the whole mesh or one volume region (GetBoundingBox)."""
+    import numpy as np
+    verts = getattr(ff, "vertices", None)
+    if verts is None or not len(verts):
+        raise ValueError("file has no mesh vertices")
+    verts = np.asarray(verts, dtype=np.float64)
+    if volume_region is not None:
+        cells = cells_of_part(ff, volume_region)
+        if not cells:
+            raise ValueError("region %r has no cells" % volume_region)
+        conn = getattr(ff, "cell_conn", None)
+        if conn is not None and len(conn):
+            rows = np.asarray(conn, dtype=np.int64)[cells]
+            ids = rows[rows >= 0]
+            base = 1 if (ids.size and ids.min() > 0
+                         and ids.max() >= ff.n_vertices) else 0
+            ids = ids - base
+        else:
+            ids = _linkdata_region_nodes(ff, cells)
+        verts = verts[ids[(ids >= 0) & (ids < ff.n_vertices)]]
+    return (float(verts[:, 0].min()), float(verts[:, 0].max()),
+            float(verts[:, 1].min()), float(verts[:, 1].max()),
+            float(verts[:, 2].min()), float(verts[:, 2].max()))
+
+
+def _linkdata_region_nodes(ff, cells):
+    """Node ids touched by *cells* via FPH/GPH owner/neighbour faces."""
+    import numpy as np
+    ld = getattr(ff, "link_data", None) or {}
+    owner, fn, fo = ld.get("owner"), ld.get("face_nodes"), ld.get("face_offsets")
+    if owner is None or fn is None or fo is None:
+        raise ValueError("region has no cell connectivity "
+                         "(cell_conn/link_data missing)")
+    cells = np.asarray(cells, dtype=np.int64)
+    fmask = np.isin(np.asarray(owner, dtype=np.int64), cells)
+    neigh = ld.get("neighbour")
+    if neigh is not None and len(neigh) == len(owner):
+        fmask |= np.isin(np.asarray(neigh, dtype=np.int64), cells)
+    fo = np.asarray(fo, dtype=np.int64)
+    lo, hi = fo[:-1][fmask], fo[1:][fmask]
+    counts = hi - lo
+    if counts.sum() == 0:
+        return np.empty(0, dtype=np.int64)
+    starts = np.cumsum(counts) - counts
+    inner = np.arange(int(counts.sum())) - np.repeat(starts, counts)
+    return np.asarray(fn, dtype=np.int64)[np.repeat(lo, counts) + inner]
+
+
+def _rotation_matrix(axis: str, angle_deg: float):
+    import numpy as np
+    a = float(np.deg2rad(angle_deg))
+    c, s = float(np.cos(a)), float(np.sin(a))
+    axis = (axis or "z").lower()
+    if axis == "x":
+        return np.array([[1, 0, 0], [0, c, -s], [0, s, c]])
+    if axis == "y":
+        return np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]])
+    return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
+
+
+def local_xyz_to_global_xyz(points, origin=(0.0, 0.0, 0.0),
+                            axis: str = "z", angle_deg: float = 0.0):
+    """Map local-frame points to global: rotate about *axis* by
+    *angle_deg* then translate by *origin* (LocalXYZ2GlobalXYZ).
+
+    Accepts one (3,) point or an (N, 3) array; returns the same shape.
+    """
+    import numpy as np
+    p = np.asarray(points, dtype=np.float64)
+    single = p.ndim == 1
+    p = np.atleast_2d(p)
+    out = p @ _rotation_matrix(axis, angle_deg).T \
+        + np.asarray(origin, dtype=np.float64)
+    return out[0] if single else out
+
+
+def global_xyz_to_local_xyz(points, origin=(0.0, 0.0, 0.0),
+                            axis: str = "z", angle_deg: float = 0.0):
+    """Inverse of :func:`local_xyz_to_global_xyz`."""
+    import numpy as np
+    p = np.asarray(points, dtype=np.float64)
+    single = p.ndim == 1
+    p = np.atleast_2d(p)
+    out = (p - np.asarray(origin, dtype=np.float64)) \
+        @ _rotation_matrix(axis, -angle_deg).T
+    return out[0] if single else out
+
+
+def get_overlapping_region_count(ff) -> int:
+    """Cells belonging to more than one part / volume region
+    (GetOverlappingRegionCount; 0 when the parts are disjoint)."""
+    import numpy as np
+    from .crdl.mesh_gph import part_cvol_cell_mask
+    count = np.zeros(int(getattr(ff, "n_cells", 0) or 0), dtype=np.int64)
+    cvol = getattr(ff, "cvol_id", None)
+    if cvol is None:
+        return 0
+    for _, spec in (getattr(ff, "parts_with_cvol", None) or []):
+        count += part_cvol_cell_mask(cvol, spec).astype(np.int64)
+    return int((count > 1).sum())
+
+
+def get_mat_num(ff) -> int:
+    """Number of materials in the file = maximum MAT-ID (GetMATNumFLD)."""
+    import numpy as np
+    mat = getattr(ff, "material", None)
+    if mat is None or not len(mat):
+        return 0
+    return int(np.max(mat))
+
+
+def get_mat_id_of_vol(ff, volume_region: str):
+    """MAT-ID of the material filling a volume region (GetMATIDofVOL).
+
+    Returns the (unique) material id of the region's cells, -1 when the
+    region mixes materials, None when the region has no cells.
+    """
+    import numpy as np
+    mat = getattr(ff, "material", None)
+    if mat is None:
+        return None
+    cells = cells_of_part(ff, volume_region)
+    if not cells:
+        return None
+    ids = np.unique(np.asarray(mat, dtype=np.int64)[cells])
+    return int(ids[0]) if ids.size == 1 else -1
+
+
+def get_vol_num(ff) -> int:
+    """Number of volume regions (GetVOLNum)."""
+    return len(getattr(ff, "volume_regions", None) or [])
+
+
+def get_vol_org_names(ff):
+    """Internal volume-region names as an array (GetVOLorgnameAsArray)."""
+    return list(getattr(ff, "volume_regions", None) or [])
+
+
+def get_cur_cycle_id_f(rt) -> float:
+    """Fractional part of the current cycle id (GetCurCycleID_F)."""
+    return float(rt.cur_id) - int(rt.cur_id)
+
+
+def get_cycle_by_cycle_id(fs, cycle_id: int):
+    """Cycle number of the member at 1-based position *cycle_id*
+    (GetCycleByCycleID); None when out of range."""
+    i = int(cycle_id) - 1
+    if not (0 <= i < len(fs.members)):
+        return None
+    return int(fs.members[i].cycle)
+
+
+def get_time_by_cycle_id(fs, cycle_id: int):
+    """Time stored in the member at 1-based position *cycle_id*
+    (GetTimeByCycleID); None when absent."""
+    i = int(cycle_id) - 1
+    if not (0 <= i < len(fs.members)):
+        return None
+    m = fs.members[i]
+    if m.time is None:
+        m.refresh_meta()
+    return m.time
+
+
+def set_cyc_ope_mode(fs, mode: str):
+    """Cycle-to-cycle operation mode None|Add|Sub|Mul|Div (SetCycOpeMode)."""
+    from .model.fileset import set_cycle_operation
+    return set_cycle_operation(fs, mode)
+
+
+def add_cyc_list(fs, path, cycle=None):
+    """Append a file to the cycle list (AddCycList)."""
+    from .model.fileset import add_cycle
+    return add_cycle(fs, path, cycle)
+
+
+def del_cyc_list(fs, cycle) -> bool:
+    """Drop the member with the given cycle (DelCycList)."""
+    from .model.fileset import remove_cycle
+    return remove_cycle(fs, cycle)
+
+
+def save_sta(main_object, filepath: str) -> bool:
+    """Persist the object tree as a .sta status file (SaveSTA)."""
+    from .render.export import save_status
+    return save_status(main_object, filepath)
+
+
+def apply_sta(ff, filepath: str):
+    """Rebuild the saved object tree on a fresh Main for *ff* (ApplySTA).
+
+    Returns the MainObject, or None when the file is not a status file.
+    """
+    from .model.objects import MainObject
+    from .render.export import load_status
+    children = load_status(filepath)
+    if children is None:
+        return None
+    main = MainObject.from_field_file(ff, magic=False)
+    main.children = children
+    return main
+
+
+def split_view(items, filename: str) -> bool:
+    """Render several scenes side by side into one PNG (SplitView).
+
+    *items* is a list of ``(ff, objects)`` pairs (objects may be None
+    for the magic default scene); one viewport per item, left to right.
+    """
+    import vtk
+    from .render.export import snapshot_png
+    scenes = []
+    for ff, objects in items:
+        sc, _ = build_scene(ff, objects=objects)
+        scenes.append(sc)
+    win = vtk.vtkRenderWindow()
+    win.SetOffScreenRendering(1)
+    n = len(scenes)
+    for i, sc in enumerate(scenes):
+        if sc.renderer is None:
+            continue
+        sc.renderer.SetViewport(i / n, 0.0, (i + 1) / n, 1.0)
+        win.AddRenderer(sc.renderer)
+    win.Render()
+    return snapshot_png(win, filename)

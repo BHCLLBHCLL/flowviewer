@@ -144,7 +144,12 @@ def cgns_load(filepath: str) -> FieldFile:
 
 
 def xdmf_load(filepath: str) -> FieldFile:
-    """XDMF loader (D1): XML mesh + fields -> FieldFile(kind='xdmf')."""
+    """XDMF loader (D1): XML mesh + fields -> FieldFile(kind='xdmf').
+
+    Temporal collections (P3) load their first frame; the per-step
+    cycles/times are exposed via ``ff.meta["xdmf_temporal"]`` and the
+    parsed frame meshes via ``ff.meta["xdmf_frames"]``.
+    """
     from ..crdl.xdmf import parse_xdmf
     path = Path(filepath)
     mesh = parse_xdmf(str(path))
@@ -159,6 +164,13 @@ def xdmf_load(filepath: str) -> FieldFile:
     ff.surface_regions = mesh["surface_regions"]
     ff.volume_regions = mesh["volume_regions"]
     ff.file_size = mesh["vertices"].nbytes
+    temporal = mesh.get("temporal")
+    if temporal:
+        ff.meta["xdmf_temporal"] = {
+            "cycles": temporal["cycles"],
+            "times": temporal["times"],
+        }
+        ff.meta["xdmf_frames"] = temporal["frames"]
     for name, (arr, loc) in mesh["fields"].items():
         ff.variables[name] = VarInfo(
             name=name, kind=FIELD_KIND_SCALAR, location=loc,

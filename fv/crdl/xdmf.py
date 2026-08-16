@@ -46,18 +46,9 @@ def _read_dataitem(item, base_dir: str):
         a = a.reshape(shape)
     return a
 
-def parse_xdmf(path: str):
-    """Parse an XDMF XML into the mesh-dict shape (D1)."""
-    import os
-    base_dir = os.path.dirname(path)
-    try:
-        tree = ET.parse(path)
-    except Exception:
-        return None
-    root = tree.getroot()
-    grid = root.find(".//Grid")
-    if grid is None:
-        return None
+def _parse_grid(grid, base_dir: str):
+    """Parse one <Grid> (Topology + Geometry + Attributes) into the
+    mesh-dict shape, or None when the grid is not self-contained."""
     topo = grid.find("Topology")
     geom = grid.find("Geometry")
     if topo is None or geom is None:
@@ -100,3 +91,87 @@ def parse_xdmf(path: str):
         "surface_regions": [],
         "volume_regions": ["XDMF"],
     }
+
+
+def _parse_attributes(grid, base_dir: str, mesh: dict) -> dict:
+    """Overlay the grid's Attributes on an inherited mesh dict
+    (shared-topology temporal collections repeat only fields)."""
+    verts_n = mesh["n_vertices"]
+    cells_n = mesh["n_cells"]
+    fields = dict(mesh["fields"])
+    for attr in grid.findall("Attribute"):
+        name = attr.get("Name") or "var"
+        center = attr.get("Center") or "Node"
+        di = attr.find("DataItem")
+        if di is None:
+            continue
+        a = _read_dataitem(di, base_dir)
+        if a is None:
+            continue
+        a = np.asarray(a, dtype=np.float64)
+        if a.size == verts_n:
+            fields[name] = (a, "node")
+        elif a.size == cells_n:
+            fields[name] = (a, "cell")
+        else:
+            fields[name] = (a, center.lower())
+    out = dict(mesh)
+    out["fields"] = fields
+    return out
+
+
+def parse_xdmf(path: str):
+    """Parse an XDMF XML into the mesh-dict shape (D1).
+
+    Temporal collections (``<Grid GridType="Collection"
+    CollectionType="Temporal">``, P3) are flattened: the first frame is
+    returned as the base mesh dict and every frame is additionally
+    listed under ``result["temporal"]["frames"]`` as
+    ``{"cycle", "time", "mesh"}``.  Frames that repeat only Attributes
+    (the usual shared-topology layout) inherit the previous frame's
+    mesh.
+    """
+    import os
+    base_dir = os.path.dirname(path)
+    try:
+        tree = ET.parse(path)
+    except Exception:
+        return None
+    root = tree.getroot()
+
+    collection = None
+    for g in root.iter("Grid"):
+        if (g.get("GridType") or "").lower() == "collection":
+            collection = g
+            break
+
+    if collection is not None:
+        frames = []
+        base = None
+        for i, g in enumerate(collection.findall("Grid")):
+            t = g.find("Time")
+            try:
+                time = float(t.get("Value")) if t is not None else float(i)
+            except (TypeError, ValueError):
+                time = float(i)
+            mesh = _parse_grid(g, base_dir)
+            if mesh is not None:
+                base = mesh
+            elif base is not None:
+                mesh = _parse_attributes(g, base_dir, base)
+            if mesh is not None:
+                frames.append({"cycle": i + 1, "time": time, "mesh": mesh})
+        if not frames:
+            return None
+        result = dict(frames[0]["mesh"])
+        result["temporal"] = {
+            "times": [f["time"] for f in frames],
+            "cycles": [f["cycle"] for f in frames],
+            "frames": frames,
+        }
+        return result
+
+    grid = root.find(".//Grid")
+    if grid is None:
+        return None
+    return _parse_grid(grid, base_dir)
