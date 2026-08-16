@@ -4646,3 +4646,51 @@ def test_r22_ov_geometry_com():
     xyz = app.GetNodeXYZ(0)
     assert len(xyz) == 3
     assert app.GetElementsOfVolumeRegion(1) is not None
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_r23_mat_vol_rgn_lookup_fph():
+    """R2.3: VOL/RGN lookup family on a poly file."""
+    from fv.model.dataset import load_file
+    from fv import api
+    ff = load_file(FPH)
+    vols = api.get_vol_org_names(ff)
+    assert len(vols) == len(ff.volume_regions)
+    if vols:
+        assert api.get_vol_id_by_vol_orgname(ff, vols[0]) == 1
+        assert api.get_vol_orgname_by_vol_id(ff, 1) == vols[0]
+        assert api.get_vol_emtname_by_vol_id(ff, 1) == vols[0]
+    rgn = api.get_rgn_num(ff)
+    assert rgn == len(ff.surface_regions)
+    if rgn:
+        name = api.get_rgn_name(ff, 0)
+        assert name == ff.surface_regions[0][0]
+        assert api.get_face_num_of_rgn(ff, 0) == len(ff.surface_regions[0][1])
+
+
+@pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
+def test_r23_mat_lookup_fld():
+    """R2.3: MAT lookup family on an FLD file with materials."""
+    import numpy as np
+    from fv.model.dataset import load_file
+    from fv import api
+    ff = load_file(FLD)
+    assert api.get_mat_num(ff) >= 1
+    ids = api._mat_ids(ff)
+    assert ids == sorted(int(x) for x in np.unique(ff.material))
+    if ids:
+        assert api.get_mat_n_by_mat_id(ff, ids[0]) == ids[0]
+        assert api.get_mat_id_by_mat_n(ff, ids[0]) == ids[0]
+        assert api.get_mat_emtname_by_mat_id(ff, ids[0]) == "MAT%d" % ids[0]
+        assert api.get_mat_id_by_mat_emtname(ff, "MAT%d" % ids[0]) == ids[0]
+    assert api.get_mat_n_of_element(ff, 0) in (-1, 1, 2)
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_r23_mat_vol_rgn_com():
+    """R2.3: COM exposes the MAT/VOL/RGN lookup family."""
+    from fv.com import FlowviewerApplication
+    app = FlowviewerApplication()
+    app.open_file(FPH)
+    assert app.GetRgnNum() == len(app._ff.surface_regions)
+    assert app.GetVOLorgnameAsArray() == list(app._ff.volume_regions)

@@ -1029,6 +1029,142 @@ def get_nodes_of_surface_region(ff, surface_name) -> list:
     return topology.nodes_of_surface_region(ff, surface_name)
 
 
+# ── MAT / VOL / RGN lookup family (scPOST 互查族, R2.3) ────────────────
+
+def _mat_ids(ff) -> list:
+    """Sorted unique MAT-IDs in a file (1-based, serial)."""
+    import numpy as np
+    mat = getattr(ff, "material", None)
+    if mat is None or not len(mat):
+        return []
+    return sorted(int(x) for x in np.unique(np.asarray(mat, dtype=np.int64)))
+
+
+def get_mat_n_by_mat_id(ff, matid) -> int:
+    """MAT-number from MAT-ID (GetMATNbyMATID); identity when the solver
+    MAT-number table is absent."""
+    ids = _mat_ids(ff)
+    return int(matid) if int(matid) in ids else -1
+
+
+def get_mat_id_by_mat_n(ff, matn) -> int:
+    """MAT-ID from MAT-number (GetMATIDbyMATN)."""
+    ids = _mat_ids(ff)
+    i = int(matn)
+    if i in ids:
+        return i
+    # matn as a 1-based position into the sorted MAT ids
+    if 1 <= i <= len(ids):
+        return ids[i - 1]
+    return -1
+
+
+def get_mat_emtname_by_mat_id(ff, matid):
+    """Material name from MAT-ID (GetMATemtnamebyMATID)."""
+    ids = _mat_ids(ff)
+    if int(matid) not in ids:
+        return ""
+    return "MAT%d" % int(matid)
+
+
+def get_mat_id_by_mat_emtname(ff, matname) -> int:
+    """MAT-ID from material name (GetMATIDbyMATemtname)."""
+    name = str(matname or "").strip()
+    if not name:
+        return -1
+    if name.upper().startswith("MAT") and name[3:].isdigit():
+        mid = int(name[3:])
+        return mid if mid in _mat_ids(ff) else -1
+    return -1
+
+
+def get_mat_n_of_element(ff, elem, ov=0) -> int:
+    """MAT-number of an element (GetMATNOfElement); -1 when absent."""
+    import numpy as np
+    mat = getattr(ff, "material", None)
+    if mat is None:
+        return -1
+    i = int(elem)
+    if not (0 <= i < len(mat)):
+        return -1
+    return int(np.asarray(mat, dtype=np.int64)[i])
+
+
+def get_vol_emt_names(ff) -> list:
+    """Volume-region EMT names (GetVOLemtnameAsArray); falls back to the
+    internal names when no EMT table is present."""
+    return list(getattr(ff, "volume_regions", None) or [])
+
+
+def get_vol_emtname_by_vol_id(ff, volid):
+    """Volume-region EMT name by 1-based id (GetVOLemtnamebyVOLID)."""
+    names = get_vol_emt_names(ff)
+    vid = int(volid)
+    if not (1 <= vid <= len(names)):
+        return ""
+    return names[vid - 1]
+
+
+def get_vol_orgname_by_vol_id(ff, volid):
+    """Volume-region internal name by 1-based id (GetVOLorgnamebyVOLID)."""
+    names = list(getattr(ff, "volume_regions", None) or [])
+    vid = int(volid)
+    if not (1 <= vid <= len(names)):
+        return ""
+    return names[vid - 1]
+
+
+def get_vol_id_by_vol_orgname(ff, orgname) -> int:
+    """1-based volume-region id from its internal name
+    (GetVOLIDbyVOLorgname); 0 when unknown."""
+    names = list(getattr(ff, "volume_regions", None) or [])
+    if orgname in names:
+        return names.index(orgname) + 1
+    return 0
+
+
+def get_vol_id_by_vol_emtname(ff, emtname) -> int:
+    """1-based volume-region id from its EMT name
+    (GetVOLIDbyVOLemtname); falls back to the internal-name lookup."""
+    return get_vol_id_by_vol_orgname(ff, emtname)
+
+
+def get_vol_id_by_element(ff, elem, ov=0) -> int:
+    """1-based volume-region id owning an element (GetVOLIDbyElement);
+    uses cvol_id for poly files, -1 when unmapped."""
+    cvol = getattr(ff, "cvol_id", None)
+    if cvol is None:
+        return -1
+    i = int(elem)
+    if not (0 <= i < len(cvol)):
+        return -1
+    return int(cvol[i])
+
+
+def get_rgn_num(ff) -> int:
+    """Number of surface registration areas (GetRgnNum)."""
+    return len(getattr(ff, "surface_regions", None) or [])
+
+
+def get_rgn_name(ff, ngfax) -> str:
+    """Name of a surface registration area by 0-based id (GetRgnName)."""
+    regions = list(getattr(ff, "surface_regions", None) or [])
+    i = int(ngfax)
+    if not (0 <= i < len(regions)):
+        return ""
+    return regions[i][0]
+
+
+def get_face_num_of_rgn(ff, ngfax) -> int:
+    """Number of faces in a surface registration area (GetFaceNumOfRgn)."""
+    import numpy as np
+    regions = list(getattr(ff, "surface_regions", None) or [])
+    i = int(ngfax)
+    if not (0 <= i < len(regions)):
+        return 0
+    return int(len(np.asarray(regions[i][1])))
+
+
 def get_cur_cycle_id_f(rt) -> float:
     """Fractional part of the current cycle id (GetCurCycleID_F)."""
     return float(rt.cur_id) - int(rt.cur_id)

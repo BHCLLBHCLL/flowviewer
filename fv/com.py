@@ -229,6 +229,12 @@ class FlowviewerApplication:
         "GetAdjacentElementOfFace", "GetAreaOfFace", "GetVolumeOfElement",
         "GetElementsOfVolumeRegion", "GetNodesOfVolumeRegion",
         "GetNodesOfSurfaceRegion",
+        "GetMATNbyMATID", "GetMATIDbyMATN", "GetMATemtnamebyMATID",
+        "GetMATIDbyMATemtname", "GetMATNumOfVOL", "GetMATNOfElement",
+        "GetVOLemtnameAsArray", "GetVOLemtnamebyVOLID", "GetVOLIDbyElement",
+        "GetVOLIDbyVOLemtname", "GetVOLIDbyVOLorgname",
+        "GetVOLorgnamebyVOLID", "GetRgnName", "GetRgnNum",
+        "GetFaceNumOfRgn",
         # status / export
         "SaveSTA", "ApplySTA", "SaveSTL",
         # application state (Set* family + animation)
@@ -773,6 +779,136 @@ class FlowviewerApplication:
             from . import api
             return self._ok(api.get_nodes_of_surface_region(
                 self._need_ff(), surface_name))
+        except Exception as exc:
+            return self._fail(exc)
+
+    # ── MAT / VOL / RGN lookup family (scPOST 互查族, R2.3) ───────────────
+
+    def GetMATNbyMATID(self, matid):
+        """MAT-number from MAT-ID (GetMATNbyMATID)."""
+        try:
+            from . import api
+            return self._ok(api.get_mat_n_by_mat_id(self._need_ff(), matid))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetMATIDbyMATN(self, matn):
+        """MAT-ID from MAT-number (GetMATIDbyMATN)."""
+        try:
+            from . import api
+            return self._ok(api.get_mat_id_by_mat_n(self._need_ff(), matn))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetMATemtnamebyMATID(self, matid):
+        """Material name from MAT-ID (GetMATemtnamebyMATID)."""
+        try:
+            from . import api
+            return self._ok(api.get_mat_emtname_by_mat_id(
+                self._need_ff(), matid))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetMATIDbyMATemtname(self, matname):
+        """MAT-ID from material name (GetMATIDbyMATemtname)."""
+        try:
+            from . import api
+            return self._ok(api.get_mat_id_by_mat_emtname(
+                self._need_ff(), matname))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetMATNumOfVOL(self, volid):
+        """Number of MAT kinds in a volume region (GetMATNumOfVOL)."""
+        try:
+            from . import api
+            return self._ok(api.get_mat_num_of_vol(self._need_ff(), volid))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetMATNOfElement(self, ov, elem):
+        """MAT-number of an element (GetMATNOfElement)."""
+        try:
+            from . import api
+            return self._ok(api.get_mat_n_of_element(
+                self._need_ff(), elem, ov))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetVOLemtnameAsArray(self):
+        """Volume-region EMT names (GetVOLemtnameAsArray)."""
+        try:
+            from . import api
+            return self._ok(api.get_vol_emt_names(self._need_ff()))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetVOLemtnamebyVOLID(self, volid):
+        """Volume-region EMT name by id (GetVOLemtnamebyVOLID)."""
+        try:
+            from . import api
+            return self._ok(api.get_vol_emtname_by_vol_id(
+                self._need_ff(), volid))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetVOLIDbyElement(self, ov, elem):
+        """Volume-region id owning an element (GetVOLIDbyElement)."""
+        try:
+            from . import api
+            return self._ok(api.get_vol_id_by_element(
+                self._need_ff(), elem, ov))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetVOLIDbyVOLemtname(self, emtname):
+        """Volume-region id from EMT name (GetVOLIDbyVOLemtname)."""
+        try:
+            from . import api
+            return self._ok(api.get_vol_id_by_vol_emtname(
+                self._need_ff(), emtname))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetVOLIDbyVOLorgname(self, orgname):
+        """Volume-region id from internal name (GetVOLIDbyVOLorgname)."""
+        try:
+            from . import api
+            return self._ok(api.get_vol_id_by_vol_orgname(
+                self._need_ff(), orgname))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetVOLorgnamebyVOLID(self, volid):
+        """Volume-region internal name by id (GetVOLorgnamebyVOLID)."""
+        try:
+            from . import api
+            return self._ok(api.get_vol_orgname_by_vol_id(
+                self._need_ff(), volid))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetRgnName(self, ngfax):
+        """Surface registration area name by id (GetRgnName)."""
+        try:
+            from . import api
+            return self._ok(api.get_rgn_name(self._need_ff(), ngfax))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetRgnNum(self):
+        """Number of surface registration areas (GetRgnNum)."""
+        try:
+            from . import api
+            return self._ok(api.get_rgn_num(self._need_ff()))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetFaceNumOfRgn(self, ngfax):
+        """Number of faces in a surface registration area (GetFaceNumOfRgn)."""
+        try:
+            from . import api
+            return self._ok(api.get_face_num_of_rgn(self._need_ff(), ngfax))
         except Exception as exc:
             return self._fail(exc)
 
