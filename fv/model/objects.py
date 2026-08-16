@@ -507,6 +507,8 @@ class TurboObject(PostObject):
     variable: str = ""
     n_r: int = 64                         # heatmap grid resolution (P1.3)
     n_z: int = 64
+    blade_surface: bool = True             # R3.1: blade views sample the wall
+    blade_regions: str = ""                # R3.1: comma-separated region names
 
 @dataclass
 class RegionBCObject(PostObject):

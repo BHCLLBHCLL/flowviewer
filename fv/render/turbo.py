@@ -60,10 +60,19 @@ def build_turbo_actors(ff, obj):
     n_z = max(2, int(getattr(obj, "n_z", 64) or 64))
     if var and ff.variable_array(var) is not None:
         if view.lower().startswith("blade"):
-            data = _b2b_heatmap_data(ff, var,
-                                     getattr(obj, "radius", 0.05), axis,
-                                     getattr(obj, "tolerance", 0.005),
-                                     n_r, n_z)
+            regions = [s.strip() for s in str(
+                getattr(obj, "blade_regions", "") or "").split(",")
+                if s.strip()]
+            data = None
+            if regions or getattr(obj, "blade_surface", True):
+                # R3.1: real blade wall sampling (region names or auto)
+                data = _b2b_surface_heatmap_data(ff, var, axis,
+                                                regions or None, n_r, n_z)
+            if data is None:
+                data = _b2b_heatmap_data(ff, var,
+                                         getattr(obj, "radius", 0.05), axis,
+                                         getattr(obj, "tolerance", 0.005),
+                                         n_r, n_z)
         elif view.lower() == "polar":
             data = _polar_heatmap_data(ff, var, axis, n_r, n_z)
         else:
@@ -75,8 +84,12 @@ def build_turbo_actors(ff, obj):
     if view.lower() == "polar":
         pts = polar_view_points(ff, axis)
     elif view.lower().startswith("blade"):
-        pts = blade_to_blade_points(ff, getattr(obj, "radius", 0.05),
-                                    axis, getattr(obj, "tolerance", 0.005))
+        regions2 = [s.strip() for s in str(
+            getattr(obj, "blade_regions", "") or "").split(",") if s.strip()]
+        pts = blade_to_blade_surface(ff, axis, regions2 or None, 1)
+        if pts.shape[0] == 0 or not getattr(obj, "blade_surface", True):
+            pts = blade_to_blade_points(ff, getattr(obj, "radius", 0.05),
+                                        axis, getattr(obj, "tolerance", 0.005))
     else:
         pts = meridional_points(ff, axis)
     if pts.shape[0] == 0:
@@ -264,21 +277,8 @@ def circumferential_average(ff, var, axis="Z", n_r=64, n_z=64):
     return r_c, z_c, values
 
 
-def blade_loading_surfaces(ff, var, axis="Z", n_span=32):
-    """Pressure-side / suction-side split blade loading (P1.3).
-
-    Within each spanwise bin the points are split by theta relative to
-    the bin median theta into the two blade sides; each side's field
-    value is averaged.  Returns (span, ps, ss) with NaN where a side has
-    no samples in the bin.
-    """
-    a = ff.variable_array(var)
-    if a is None or np.asarray(a).ndim != 1:
-        return None, None, None
-    a = np.asarray(a, dtype=np.float64)
-    v = _field_coords(ff, a)
-    if v is None:
-        return None, None, None
+def _blade_loading_volume(a, v, axis, n_span):
+    """Legacy volume-based PS/SS split (θ median) — fallback only."""
     ax = axis.upper()
     if ax == "X":
         span = v[:, 0]
@@ -307,6 +307,52 @@ def blade_loading_surfaces(ff, var, axis="Z", n_span=32):
     sc = 0.5 * (edges[:-1] + edges[1:])
     return sc, ps, ss
 
+
+def blade_loading_surfaces(ff, var, axis="Z", n_span=32, region_names=None):
+    """Pressure-side / suction-side split on the REAL blade wall (R3.1).
+
+    Blade wall faces come from :func:`_blade_wall_faces` (explicit region
+    names → keyword scan → rotating-part boundary faces).  Each face's
+    field value is its owner-cell value and the PS/SS split uses the
+    circumferential component of the outward face normal (n_θ) instead
+    of the previous θ-median heuristic on the whole volume.  Falls back
+    to the legacy volume split when no wall can be identified.
+
+    Returns (span, ps, ss) with NaN where a side has no samples.
+    """
+    a = ff.variable_array(var)
+    if a is None or np.asarray(a).ndim != 1:
+        return None, None, None
+    a = np.asarray(a, dtype=np.float64)
+    bw = _blade_wall_faces(ff, region_names)
+    if bw is None:
+        v = _field_coords(ff, a)
+        if v is None:
+            return None, None, None
+        return _blade_loading_volume(a, v, axis, n_span)
+    _fids, centers, normals, owner = bw
+    ok = (owner >= 0) & (owner < a.size)
+    vals = np.full(owner.size, np.nan)
+    vals[ok] = a[owner[ok]]
+    ax = axis.upper()
+    span = centers[:, {"X": 0, "Y": 1, "Z": 2}[ax]]
+    n_th = _normal_circumferential(normals, centers, axis)
+    edges = np.linspace(float(span.min()), float(span.max()), n_span + 1)
+    idx = np.clip(np.digitize(span, edges) - 1, 0, n_span - 1)
+    ps = np.full(n_span, np.nan)
+    ss = np.full(n_span, np.nan)
+    for b in range(n_span):
+        m = (idx == b) & np.isfinite(vals) & (n_th != 0)
+        if not m.any():
+            continue
+        hi = n_th[m] > 0
+        lo = ~hi
+        if hi.any():
+            ps[b] = float(vals[m][hi].mean())
+        if lo.any():
+            ss[b] = float(vals[m][lo].mean())
+    sc = 0.5 * (edges[:-1] + edges[1:])
+    return sc, ps, ss
 
 def blade_loading_curve(ff, var, axis="Z", n_span=32):
     """Blade loading dp = PS - SS along the span (P1.3 split sides).
@@ -488,3 +534,227 @@ def circumferential_mass_average(ff, var, axis="Z", n_r=64, n_z=64):
     with np.errstate(invalid="ignore", divide="ignore"):
         vals = np.where(wsum > 0, acc / np.maximum(wsum, 1e-12), np.nan)
     return 0.5 * (r_edges[:-1] + r_edges[1:]), 0.5 * (z_edges[:-1] + z_edges[1:]), vals
+
+
+# ── R3.1 real blade surface ────────────────────────────────────────────
+
+_BLADE_NAME_KEYWORDS = ("blade", "impeller", "rotor", "vane", "foil",
+                        "wing", "翼", "叶", "blade ")
+_BLADE_EXCLUDE_KEYWORDS = ("plane", "cylinder", "hub", "shroud",
+                          "casing", "frozen", "static")
+_ROTATING_PART_KEYWORDS = ("rotat", "impeller", "fan", "rotor", "turbin",
+                           "wheel", "prop")
+
+
+def _face_centers_normals(ff, face_ids):
+    """Face centres + (unoriented) Newell normals for explicit face ids."""
+    ld = ff.link_data
+    if ld is None:
+        return None, None
+    face_nodes = np.asarray(ld["face_nodes"], dtype=np.int64)
+    face_offsets = np.asarray(ld["face_offsets"], dtype=np.int64)
+    verts = np.asarray(ff.vertices, dtype=np.float64)
+    centers = np.empty((face_ids.size, 3), dtype=np.float64)
+    normals = np.empty_like(centers)
+    for k, f in enumerate(face_ids):
+        lo, hi = int(face_offsets[f]), int(face_offsets[f + 1])
+        ids = face_nodes[lo:hi]
+        pts = verts[ids]
+        centers[k] = pts.mean(axis=0)
+        n = np.zeros(3)
+        if pts.shape[0] >= 3:
+            for a in range(pts.shape[0]):
+                p = pts[a]
+                q = pts[(a + 1) % pts.shape[0]]
+                n[0] += (p[1] - q[1]) * (p[2] + q[2])
+                n[1] += (p[2] - q[2]) * (p[0] + q[0])
+                n[2] += (p[0] - q[0]) * (p[1] + q[1])
+        normals[k] = n
+    return centers, normals
+
+
+def _orient_outward_from_owner(ff, face_ids, centers, normals):
+    """Flip normals that point toward the owner cell centre."""
+    ld = ff.link_data
+    owner = np.asarray(ld["owner"], dtype=np.int64)
+    cells = owner[face_ids]
+    from ..model.varreg import _cell_centers_fph
+    cc = _cell_centers_fph(ff)
+    if cc is None:
+        return normals
+    cc = np.asarray(cc, dtype=np.float64)
+    ok = (cells >= 0) & (cells < cc.shape[0])
+    if not ok.any():
+        return normals
+    d = cc[cells[ok]] - centers[ok]
+    dots = (normals[ok] * d).sum(axis=1)
+    flip = dots > 0  # normal points into the owner cell → flip outward
+    out = normals.copy()
+    out[ok] *= np.where(flip[:, None], -1.0, 1.0)
+    # normalise (Newell magnitude ~ 2×area, varying per face)
+    nn = np.linalg.norm(out, axis=1, keepdims=True)
+    nn[nn < 1e-300] = 1.0
+    return out / nn
+
+
+def _mask_of(ids, mask):
+    """Bounds-checked gather of a boolean cell mask by ids."""
+    out = np.zeros(ids.size, dtype=bool)
+    ok = (ids >= 0) & (ids < mask.size)
+    out[ok] = mask[ids[ok]]
+    return out
+
+
+def _blade_wall_faces(ff, region_names=None):
+    """Blade wall face set → ``(face_ids, centers, normals, owner_cells)``.
+
+    Identification strategy (first hit wins):
+
+    L0  explicit surface-region names (``region_names``);
+    L1  region names containing blade keywords (blade/impeller/rotor/…),
+        excluding plane/cylinder/hub/shroud/casing;
+    L2  rotating-part boundary faces: owner cell inside a rotating part
+        (cvol mask), neighbour outside.
+
+    Returns None when no blade wall can be identified.
+    """
+    ld = ff.link_data
+    if ld is None:
+        return None
+    face_ids = None
+    if region_names:
+        sel = [np.asarray(ids, dtype=np.int64)
+               for n, ids in ff.surface_regions if n in region_names]
+        if sel:
+            face_ids = np.unique(np.concatenate(sel))
+    if face_ids is None:
+        sel = []
+        for n, ids in ff.surface_regions:
+            low = n.lower()
+            if (any(k in low for k in _BLADE_NAME_KEYWORDS)
+                    and not any(k in low for k in _BLADE_EXCLUDE_KEYWORDS)):
+                sel.append(np.asarray(ids, dtype=np.int64))
+        if sel:
+            face_ids = np.unique(np.concatenate(sel))
+    if face_ids is None:
+        from ..crdl.mesh_gph import classify_volume_region_cells
+        owner = np.asarray(ld["owner"], dtype=np.int64)
+        neigh = np.asarray(ld["neighbour"], dtype=np.int64)
+        rot_mask = np.zeros(max(1, ff.n_cells), dtype=bool)
+        for pname, _ in (ff.parts_with_cvol or []):
+            if any(k in pname.lower() for k in _ROTATING_PART_KEYWORDS):
+                m = classify_volume_region_cells(
+                    pname, ff.parts_with_cvol, ff.cvol_id, ff.n_cells)
+                rot_mask |= np.asarray(m, dtype=bool)
+        if rot_mask.any():
+            own_in = _mask_of(owner, rot_mask)
+            nb_in = _mask_of(neigh, rot_mask)
+            face_ids = np.flatnonzero(own_in & ~nb_in)
+    if face_ids is None or face_ids.size == 0:
+        return None
+    centers, normals = _face_centers_normals(ff, face_ids)
+    if centers is None:
+        return None
+    normals = _orient_outward_from_owner(ff, face_ids, centers, normals)
+    owner = np.asarray(ld["owner"], dtype=np.int64)
+    return face_ids, centers, normals, owner[face_ids]
+
+
+def _normal_circumferential(normals, centers, axis="Z"):
+    """Circumferential (e_θ) component of normals about *axis*."""
+    e = np.empty_like(centers)
+    ax = axis.upper()
+    if ax == "X":
+        r2 = centers[:, 1] ** 2 + centers[:, 2] ** 2
+        e[:, 0] = 0.0
+        e[:, 1] = -centers[:, 2]
+        e[:, 2] = centers[:, 1]
+    elif ax == "Y":
+        r2 = centers[:, 0] ** 2 + centers[:, 2] ** 2
+        e[:, 0] = centers[:, 2]
+        e[:, 1] = 0.0
+        e[:, 2] = -centers[:, 0]
+    else:
+        r2 = centers[:, 0] ** 2 + centers[:, 1] ** 2
+        e[:, 0] = -centers[:, 1]
+        e[:, 1] = centers[:, 0]
+        e[:, 2] = 0.0
+    r = np.sqrt(np.maximum(r2, 1e-300))
+    e /= r[:, None]
+    return (normals * e).sum(axis=1)
+
+
+def _estimate_pitch(theta, n_bins=720):
+    """Blade pitch angle from the θ histogram autocorrelation (R3.1 T3).
+
+    Returns the dominant period (lag of the first autocorrelation peak
+    beyond ``min_lag``); 2π when no periodicity is found.
+    """
+    th = np.asarray(theta, dtype=np.float64)
+    if th.size < 4:
+        return 2 * np.pi
+    hist, _ = np.histogram(th, bins=n_bins, range=(0.0, 2 * np.pi))
+    h = hist - hist.mean()
+    hn = np.linalg.norm(h)
+    if hn < 1e-12:
+        return 2 * np.pi
+    h = h / hn  # unit-norm → autocorr peak = correlation coefficient
+    ac = np.correlate(h, h, mode="full")[n_bins - 1:]
+    ac[0] = 0.0
+    min_lag = max(4, n_bins // 32)
+    if ac.size <= min_lag:
+        return 2 * np.pi
+    ac[:min_lag] = 0.0
+    lag = int(np.argmax(ac))
+    # significance gate: a periodic blade train correlates strongly,
+    # a uniform distribution does not
+    if lag <= 0 or ac[lag] <= 0.35:
+        return 2 * np.pi
+    return 2 * np.pi * lag / n_bins
+
+
+def blade_wall_faces(ff, region_names=None):
+    """Public accessor: blade wall ``(face_ids, centers, normals, owner)``."""
+    return _blade_wall_faces(ff, region_names)
+
+
+def blade_to_blade_surface(ff, axis="Z", region_names=None,
+                          pitch_copies=1):
+    """(rθ, z) of the real blade wall faces (R3.1 T4).
+
+    θ is folded into one pitch (from :func:`_estimate_pitch`) and
+    shifted by k·pitch for k in range(pitch_copies) — the B2B passage
+    view.  Replaces the previous |r−radius|<tol volume picking for
+    blade surfaces; the legacy function stays for compatibility.
+    """
+    bw = _blade_wall_faces(ff, region_names)
+    if bw is None:
+        return np.zeros((0, 2))
+    _, centers, _, _ = bw
+    rt = polar_view_points_from(centers, axis)
+    r, th = rt[:, 0], rt[:, 1]
+    z = centers[:, {"X": 0, "Y": 1, "Z": 2}[axis.upper()]]
+    pitch = _estimate_pitch(th)
+    thf = np.mod(th - float(th.min()), pitch)
+    parts = []
+    for k in range(max(1, int(pitch_copies))):
+        parts.append(np.column_stack([r * (thf + k * pitch), z]))
+    return np.vstack(parts)
+
+
+def _b2b_surface_heatmap_data(ff, var, axis, region_names, nx, ny):
+    """Binned (rθ, z) field average on the blade wall (R3.1 T4)."""
+    bw = _blade_wall_faces(ff, region_names)
+    if bw is None:
+        return None
+    _, _, _, owner = bw
+    a = ff.variable_array(var)
+    if a is None:
+        return None
+    a = np.asarray(a, dtype=np.float64)
+    ok = (owner >= 0) & (owner < a.size)
+    pts = blade_to_blade_surface(ff, axis, region_names, 1)
+    if pts.shape[0] != ok.size or not ok.any():
+        return None
+    return _bin_average(pts[ok, 0], pts[ok, 1], a[owner[ok]], nx, ny)
+

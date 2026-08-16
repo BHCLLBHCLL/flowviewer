@@ -1760,6 +1760,12 @@ class TurboDialog(ObjectSettingsPanel):
         form.addRow("Radius:", self.radius)
         self.var = _var_combo(_scalar_vars(field_file), getattr(obj, "variable", ""))
         form.addRow("Variable:", self.var)
+        self.blade_regions = QLineEdit(getattr(obj, "blade_regions", "") or "", page)
+        self.blade_regions.setPlaceholderText("e.g. @PartSurface_Impeller (comma-separated)")
+        form.addRow("Blade regions:", self.blade_regions)
+        self.blade_surface = QCheckBox("Sample blade views on wall surface", page)
+        self.blade_surface.setChecked(bool(getattr(obj, "blade_surface", True)))
+        form.addRow("", self.blade_surface)
         lay = QVBoxLayout(page); lay.addLayout(form); lay.addStretch(1)
         self.tabs.addTab(page, "Turbo")
         self.tabs.addTab(self._build_aero(), "Blade Aero")
@@ -1816,6 +1822,8 @@ class TurboDialog(ObjectSettingsPanel):
         obj.axis = self.axis.currentData() or "Z"
         obj.radius = float(self.radius.value())
         obj.variable = self.var.currentData() or ""
+        obj.blade_regions = self.blade_regions.text().strip()
+        obj.blade_surface = self.blade_surface.isChecked()
 
 class UFODialog(ObjectSettingsPanel):
     """UFO — universal field object (point cloud / surface) settings (7b)."""
