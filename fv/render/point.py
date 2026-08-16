@@ -53,14 +53,36 @@ def _probe(ff: FieldFile, obj, pos, ugrid, cell_centered):
     """
     scalar_var = getattr(obj, "probe_scalar_var", "") or ""
     vector_var = getattr(obj, "probe_vector_var", "") or ""
+    return probe_at(
+        ff, pos, scalar_var, vector_var,
+        scalar_on=getattr(obj, "probe_scalar", True),
+        vector_on=getattr(obj, "probe_vector", False),
+        ugrid=ugrid, cell_centered=cell_centered,
+    )
+
+
+def probe_at(ff: FieldFile, point, scalar_var: str = "", vector_var: str = "",
+             *, scalar_on: bool = True, vector_on: bool = False,
+             ugrid=None, cell_centered=None) -> dict:
+    """Generic point probe for explicit variable names (R1.1).
+
+    Shared by Point objects and left-click picking across every object
+    kind. Returns ``{"scalar": (name, value), "vector": (name, (x,y,z))}`` —
+    keys omitted when disabled or unknown.
+    """
+    scalar_var = scalar_var or ""
+    vector_var = vector_var or ""
     if not scalar_var and not vector_var:
         return {}
     if ff.kind == "fld":
-        return _probe_fld(ff, obj, pos)
-    return _probe_vtk(ff, obj, pos, ugrid, cell_centered)
+        return _probe_fld(ff, point, scalar_var, vector_var,
+                          scalar_on, vector_on)
+    return _probe_vtk(ff, point, scalar_var, vector_var,
+                      scalar_on, vector_on, ugrid, cell_centered)
 
 
-def _probe_fld(ff: FieldFile, obj, pos):
+def _probe_fld(ff: FieldFile, pos, scalar_var: str, vector_var: str,
+               scalar_on: bool, vector_on: bool):
     """Nearest-node lookup on an FLD node-centred field file."""
     import numpy as np
     out: dict = {}
@@ -69,13 +91,11 @@ def _probe_fld(ff: FieldFile, obj, pos):
         return out
     d = verts - np.asarray(pos, dtype=np.float64)
     node = int(np.argmin(np.einsum("ij,ij->i", d, d)))
-    scalar_var = getattr(obj, "probe_scalar_var", "") or ""
-    vector_var = getattr(obj, "probe_vector_var", "") or ""
-    if scalar_var and getattr(obj, "probe_scalar", True):
+    if scalar_var and scalar_on:
         arr = ff.variable_array(scalar_var)
         if arr is not None and node < len(arr):
             out["scalar"] = (scalar_var, float(arr[node]))
-    if vector_var and getattr(obj, "probe_vector", False):
+    if vector_var and vector_on:
         comps = []
         for suff in ("X", "Y", "Z"):
             arr = ff.variable_array(f"{vector_var}{suff}")
@@ -85,22 +105,20 @@ def _probe_fld(ff: FieldFile, obj, pos):
     return out
 
 
-def _probe_vtk(ff: FieldFile, obj, pos, ugrid, cell_centered):
+def _probe_vtk(ff: FieldFile, pos, scalar_var: str, vector_var: str,
+               scalar_on: bool, vector_on: bool, ugrid, cell_centered):
     """vtkProbeFilter probe (FPH cell-centred / node-centred)."""
     out: dict = {}
-    scalar_var = getattr(obj, "probe_scalar_var", "") or ""
-    vector_var = getattr(obj, "probe_vector_var", "") or ""
-    from .plane import build_ugrid, cell_filter_mask
+    from .plane import build_ugrid
     if ugrid is None or cell_centered is None:
-        mask = cell_filter_mask(ff, obj)
-        ugrid, cell_centered = build_ugrid(ff, cell_mask=mask)
+        ugrid, cell_centered = build_ugrid(ff)
     if ugrid is None:
         return out
 
     from .plane import attach_scalar, attach_vector
-    if scalar_var and getattr(obj, "probe_scalar", True):
+    if scalar_var and scalar_on:
         attach_scalar(ugrid, ff, scalar_var, cell_centered)
-    if vector_var and getattr(obj, "probe_vector", False):
+    if vector_var and vector_on:
         attach_vector(ugrid, ff, vector_var, cell_centered)
 
     work = ugrid

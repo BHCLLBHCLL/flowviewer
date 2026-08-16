@@ -4291,3 +4291,55 @@ def test_p06_message_save_and_last_dir(qapp, tmp_path):
     assert hasattr(w.message_win, "btn_save")  # UI entry point exists
     # last_dir recorded from the loaded dataset's folder
     assert w.options.last_dir == str(Path(FPH).parent)
+
+
+@pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
+def test_r11_probe_at_fld_nearest_node():
+    """R1.1: generic probe_at probes explicit vars (FLD nearest-node)."""
+    import numpy as np
+    from fv.model.dataset import load_file
+    from fv.render.point import probe_at
+    ff = load_file(FLD)
+    pt = tuple(np.asarray(ff.vertices)[0])
+    res = probe_at(ff, pt, scalar_var="TEMP", vector_var="VECT", vector_on=True)
+    assert "scalar" in res and res["scalar"][0] == "TEMP"
+    assert "vector" in res and res["vector"][0] == "VECT"
+    assert probe_at(ff, pt) == {}
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_r11_probe_at_generic_fph():
+    """R1.1: generic probe_at probes scalar/vector on a polyhedral file."""
+    import numpy as np
+    from fv.model.dataset import load_file
+    from fv.render.point import probe_at
+    ff = load_file(FPH)
+    pt = tuple(np.asarray(ff.vertices)[0])
+    res = probe_at(ff, pt, scalar_var="PRES")
+    assert "scalar" in res and res["scalar"][0] == "PRES"
+    res = probe_at(ff, pt, vector_var="VEL", vector_on=True)
+    assert "vector" in res and res["vector"][0] == "VEL"
+    assert probe_at(ff, pt) == {}
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_r11_pick_vars_mapping(qapp):
+    """R1.1: _pick_vars maps each object kind to its displayed fields."""
+    from fv.model.objects import (IsosurfaceObject, PlaneObject,
+                                  StreamlineObject, SurfaceObject,
+                                  VolumeObject)
+    w = _make(qapp, FPH)
+    sur = SurfaceObject(index=1, show_contour=True, contour_var="PRES",
+                        show_vector=True, vector_var="VEL")
+    assert w._pick_vars(sur) == ("PRES", "VEL", True, True)
+    iso = IsosurfaceObject(index=1, contour_var="PRES")
+    assert w._pick_vars(iso) == ("PRES", "", True, False)
+    vol = VolumeObject(index=1, scalar_var="PRES", show_vector=True,
+                       vector_var="VEL")
+    assert w._pick_vars(vol) == ("PRES", "VEL", True, True)
+    sl = StreamlineObject(index=1, color_var="PRES", vector_var="VEL")
+    assert w._pick_vars(sl) == ("PRES", "VEL", True, True)
+    pl = PlaneObject(index=1, pick_scalar=True, pick_scalar_var="PRES",
+                     pick_vector=True, pick_vector_var="VEL")
+    assert w._pick_vars(pl) == ("PRES", "VEL", True, True)

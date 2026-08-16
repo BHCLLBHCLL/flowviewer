@@ -1664,7 +1664,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 f"( {p[0]:.4g}, {p[1]:.4g}, {p[2]:.4g} )")
 
     def _on_vtk_pick(self, obj, event) -> None:
-        """Left-click pick: probe scalar/vector on the picked plane (P3.11)."""
+        """Left-click pick: probe scalar/vector on the clicked object (R1.1)."""
         if not self._enable_3d or self.renderer is None:
             return
         if self.dataset is None or self.main_object is None:
@@ -1673,14 +1673,13 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         point, owner = self.scene.pick_actor(x, y)
         if point is None or owner is None:
             return
-        kind, plane = owner
-        if kind != "plane":
+        _kind, picked = owner
+        scalar_var, vector_var, scalar_on, vector_on = self._pick_vars(picked)
+        if not scalar_var and not vector_var:
             return
-        if not (getattr(plane, "pick_scalar", True)
-                or getattr(plane, "pick_vector", False)):
-            return
-        from ..render.plane import pick_point
-        res = pick_point(self.dataset, plane, point)
+        from ..render.point import probe_at
+        res = probe_at(self.dataset, point, scalar_var, vector_var,
+                       scalar_on=scalar_on, vector_on=vector_on)
         lines = [f"Pick at ({point[0]:.4g}, {point[1]:.4g}, {point[2]:.4g})"]
         summary = []
         if "scalar" in res:
@@ -1694,6 +1693,43 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.message_win.log("\n".join(lines))
         if summary:  # R0.8: picked values in the status bar
             self._pick_label.setText("Pick " + " | ".join(summary))
+
+    def _pick_vars(self, obj):
+        """R1.1: map a picked object's displayed fields to probe variables."""
+        kind = getattr(obj, "kind", "")
+        scalar_var = vector_var = ""
+        scalar_on = vector_on = False
+        if kind == "plane":
+            scalar_var = getattr(obj, "pick_scalar_var", "") or ""
+            vector_var = getattr(obj, "pick_vector_var", "") or ""
+            scalar_on = getattr(obj, "pick_scalar", True)
+            vector_on = getattr(obj, "pick_vector", False)
+        elif kind == "surface":
+            if getattr(obj, "show_contour", False):
+                scalar_var = getattr(obj, "contour_var", "") or ""
+                scalar_on = bool(scalar_var)
+            if getattr(obj, "show_vector", False):
+                vector_var = getattr(obj, "vector_var", "") or ""
+                vector_on = bool(vector_var)
+        elif kind == "isosurface":
+            scalar_var = getattr(obj, "contour_var", "") or ""
+            scalar_on = bool(scalar_var)
+            if getattr(obj, "show_vector", False):
+                vector_var = getattr(obj, "vector_var", "") or ""
+                vector_on = bool(vector_var)
+        elif kind == "volume":
+            if getattr(obj, "show_scalar", True):
+                scalar_var = getattr(obj, "scalar_var", "") or ""
+                scalar_on = bool(scalar_var)
+            if getattr(obj, "show_vector", False):
+                vector_var = getattr(obj, "vector_var", "") or ""
+                vector_on = bool(vector_var)
+        elif kind == "streamline":
+            scalar_var = getattr(obj, "color_var", "") or ""
+            scalar_on = bool(scalar_var)
+            vector_var = getattr(obj, "vector_var", "") or ""
+            vector_on = bool(vector_var)
+        return scalar_var, vector_var, scalar_on, vector_on
 
 
 def run_gui(filepath: Optional[str] = None) -> int:
