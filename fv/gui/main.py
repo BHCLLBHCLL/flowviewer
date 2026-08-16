@@ -918,10 +918,22 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
                             f"{b.n_vertices:,} verts, {len(b.variables)} vars")
         common = sorted(set(a.variables) & set(b.variables))
         self.message_win.log(f"  common variables: {', '.join(common[:8]) or '-'}")
+        summary = {}
+        try:
+            from ..model.compare import compare_summary
+            summary = compare_summary(a, b)
+            self.message_win.log("  |A−B| difference statistics:")
+            for var, st in summary.items():
+                self.message_win.log(
+                    f"    {var}: min={st['min']:.4g} max={st['max']:.4g} "
+                    f"mean={st['mean']:.4g} rms={st['rms']:.4g}")
+        except Exception as exc:  # pragma: no cover - best effort
+            self.message_win.log(f"  diff statistics unavailable: {exc}", "WARN")
         self.status.showMessage(f"Compare: {names}", 5000)
         if self._enable_3d:
             from .dialogs import CompareDialog
-            dlg = CompareDialog(a, b, parent=self, enable_3d=True)
+            dlg = CompareDialog(a, b, parent=self, enable_3d=True,
+                                summary=summary)
             dlg.exec_()
         else:
             self.message_win.log("Compare: split view needs 3D mode", "WARN")

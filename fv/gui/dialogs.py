@@ -821,58 +821,143 @@ class VariableRegistrationDialog(QDialog):
             self.parent().status.showMessage(f"Registered {name}", 3000)
 
 class CompareDialog(QDialog):
-    """Side-by-side comparison of two datasets (G2).
+    """Side-by-side comparison of two datasets (G2) + |A−B| diff (R1.6).
 
-    Two render windows share one vtkCamera so navigation stays in sync;
-    headless mode falls back to labelled placeholders.
+    Two render windows share one vtkCamera so navigation stays in sync; a third
+    pane shows the |A−B| difference field for the first shared scalar variable,
+    with min/max/mean statistics listed below.
     """
 
     def __init__(self, dataset_a, dataset_b, parent=None,
-                 enable_3d: bool = True):
+                 enable_3d: bool = True, summary=None):
         super().__init__(parent)
         if not _HAS_QT:
-            self.dataset_a = dataset_a;
+            self.dataset_a = dataset_a
             self.dataset_b = dataset_b
             return
         from pathlib import Path
         self.setWindowTitle("Compare — "
                          + Path(dataset_a.path).name
                          + "  vs  " + Path(dataset_b.path).name)
-        self.resize(1200, 620)
+        self.resize(1500, 700)
         lay = QVBoxLayout(self)
         split = QSplitter(Qt.Horizontal, self)
         lay.addWidget(split)
         cam = None
         for ff in (dataset_a, dataset_b):
-            pane = QWidget(split)
-            vbox = QVBoxLayout(pane)
-            title = QLabel(Path(ff.path).name, pane)
-            title.setStyleSheet("font-weight:bold;");
-            vbox.addWidget(title)
+            pane, cam = self._render_pane(split, ff, enable_3d, cam)
+            split.addWidget(pane)
+        split.addWidget(self._build_diff_pane(split, dataset_a, dataset_b,
+                                              enable_3d, cam))
+        split.setSizes([460, 460, 580])
+        lbl = QLabel(self._format_summary(summary), self)
+        lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        lay.addWidget(lbl)
+        close = QPushButton("Close", self)
+        close.clicked.connect(self.accept)
+        lay.addWidget(close, 0, Qt.AlignRight)
+
+    def _render_pane(self, parent, ff, enable_3d, cam):
+        from pathlib import Path
+        pane = QWidget(parent)
+        vbox = QVBoxLayout(pane)
+        title = QLabel(Path(ff.path).name, pane)
+        title.setStyleSheet("font-weight:bold;")
+        vbox.addWidget(title)
+        if enable_3d:
+            try:
+                from vtk.qt.QVTKRenderWindowInteractor import (
+                    QVTKRenderWindowInteractor)
+                from ..render.scene import Scene
+                from ..model.objects import MainObject
+                widget = QVTKRenderWindowInteractor(pane)
+                sc = Scene(enable_3d=True)
+                sc.build(ff, main=MainObject.from_field_file(ff))
+                rw = widget.GetRenderWindow()
+                rw.AddRenderer(sc.renderer)
+                if cam is not None:
+                    sc.renderer.SetActiveCamera(cam)
+                else:
+                    cam = sc.renderer.GetActiveCamera()
+                widget.Initialize()
+                widget.Start()
+                vbox.addWidget(widget)
+            except Exception:  # pragma: no cover - GL unavailable
+                vbox.addWidget(QLabel("3D unavailable", pane))
+        else:
+            vbox.addWidget(QLabel("3D disabled (headless)", pane))
+        return pane, cam
+
+    def _first_common_scalar(self, a, b):
+        from ..model.compare import common_variables
+        common = common_variables(a, b)
+        for var in common:
+            vi = a.variables.get(var)
+            if vi is not None and getattr(vi, "kind", "") == "scalar":
+                return var
+        return common[0] if common else None
+
+    def _build_diff_pane(self, parent, a, b, enable_3d, cam):
+        pane = QWidget(parent)
+        vbox = QVBoxLayout(pane)
+        title = QLabel("|A−B| difference", pane)
+        title.setStyleSheet("font-weight:bold;")
+        vbox.addWidget(title)
+        var = self._first_common_scalar(a, b)
+        if var is None:
+            vbox.addWidget(QLabel("no common scalar variable", pane))
+            return pane
+        try:
+            from ..model.compare import difference_field, diff_field_file
+            from ..model.objects import MainObject
+            res = difference_field(a, b, var)
+            if res is None:
+                vbox.addWidget(QLabel("difference unavailable", pane))
+                return pane
+            diff_ff = diff_field_file(a, var, res["diff"], res["location"])
+            base = MainObject.from_field_file(diff_ff)
+            plane = next((o for o in base.children if o.kind == "plane"), None)
+            if plane is None and base.children:
+                plane = base.children[0]
+            if plane is not None:
+                plane.contour_var = var
+                plane.show_contour = True
+                plane.title = f"|A−B| {var}"
+            main = MainObject(path=str(diff_ff.path),
+                              display_name=f"|A−B| {var}")
+            main.children = [plane] if plane is not None else []
             if enable_3d:
                 try:
                     from vtk.qt.QVTKRenderWindowInteractor import (
                         QVTKRenderWindowInteractor)
                     from ..render.scene import Scene
-                    from ..model.objects import MainObject
                     widget = QVTKRenderWindowInteractor(pane)
                     sc = Scene(enable_3d=True)
-                    sc.build(ff, main=MainObject.from_field_file(ff))
+                    sc.build(diff_ff, main=main)
                     rw = widget.GetRenderWindow()
                     rw.AddRenderer(sc.renderer)
                     if cam is not None:
                         sc.renderer.SetActiveCamera(cam)
-                    else:
-                        cam = sc.renderer.GetActiveCamera()
-                    widget.Initialize();
+                    widget.Initialize()
                     widget.Start()
                     vbox.addWidget(widget)
+                    return pane
                 except Exception:  # pragma: no cover - GL unavailable
                     vbox.addWidget(QLabel("3D unavailable", pane))
-            else:
-                vbox.addWidget(QLabel("3D disabled (headless)", pane))
-            split.addWidget(pane)
-        split.setSizes([600, 600])
-        close = QPushButton("Close", self)
-        close.clicked.connect(self.accept);
-        lay.addWidget(close, 0, Qt.AlignRight)
+                    return pane
+            vbox.addWidget(QLabel("3D disabled (headless)", pane))
+        except Exception:  # pragma: no cover
+            vbox.addWidget(QLabel("difference unavailable", pane))
+        return pane
+
+    def _format_summary(self, summary) -> str:
+        summary = summary or {}
+        lines = ["|A−B| statistics:"]
+        if not summary:
+            lines.append("  (no shared variables)")
+        else:
+            for var, st in summary.items():
+                lines.append(
+                    f"  {var}: min={st['min']:.4g}  max={st['max']:.4g}  "
+                    f"mean={st['mean']:.4g}  rms={st['rms']:.4g}")
+        return "\n".join(lines)

@@ -4481,3 +4481,44 @@ def test_r15_graph_save(tmp_path):
     out = tmp_path / "graph.png"
     assert save_graph(g, str(out), ff0=ff) is True
     assert out.exists() and out.stat().st_size > 0
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_r16_compare_same_file_zero_diff():
+    """R1.6: comparing a file with itself yields a zero difference field."""
+    from fv.model.dataset import load_file
+    from fv.model.compare import (common_variables, difference_field,
+                                  compare_stats, compare_summary)
+    ff = load_file(FPH)
+    common = common_variables(ff, ff)
+    assert "PRES" in common
+    res = difference_field(ff, ff, "PRES")
+    assert res is not None
+    assert res["min"] == 0.0 and res["max"] == 0.0
+    assert res["mean"] == 0.0 and res["rms"] == 0.0
+    assert res["diff"].shape == ff.variable_array("PRES").shape
+    st = compare_stats(ff, ff, "PRES")
+    assert st["var"] == "PRES" and st["min"] == 0.0
+    summary = compare_summary(ff, ff)
+    assert "PRES" in summary and "TURK" in summary
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_r16_compare_constant_offset():
+    """R1.6: a constant offset gives uniform |A−B| equal to the offset."""
+    import numpy as np
+    from dataclasses import replace
+    from fv.model.dataset import load_file, VarInfo
+    from fv.model.compare import difference_field, diff_field_file
+    a = load_file(FPH)
+    b = replace(a)
+    b.variables = dict(a.variables)
+    b.variables["PRES"] = VarInfo(name="PRES", kind="scalar", location="cell",
+                                  array=np.asarray(a.variable_array("PRES")) + 2.5)
+    res = difference_field(a, b, "PRES")
+    assert res["min"] == pytest.approx(2.5)
+    assert res["max"] == pytest.approx(2.5)
+    assert res["mean"] == pytest.approx(2.5)
+    diff_ff = diff_field_file(a, "PRES", res["diff"], res["location"])
+    arr = diff_ff.variable_array("PRES")
+    assert arr is not None and len(arr) == len(res["diff"])
