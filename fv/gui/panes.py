@@ -611,6 +611,8 @@ class TimelineWindow(QWidget if _HAS_QT else object):
 
     mode_changed = pyqtSignal(str) if _HAS_QT else None
     step_changed = pyqtSignal(int) if _HAS_QT else None
+    interp_requested = pyqtSignal(float) if _HAS_QT else None
+    time_set_requested = pyqtSignal(float) if _HAS_QT else None
     play_requested = pyqtSignal() if _HAS_QT else None
     pause_requested = pyqtSignal() if _HAS_QT else None
 
@@ -695,6 +697,9 @@ class TimelineWindow(QWidget if _HAS_QT else object):
         row3.addStretch(1)
         root.addLayout(row3)
 
+        # Time mode: physical time in the Time field (Return) or a
+        # fractional cycle in Step both request interpolated states.
+        self.edit_time.returnPressed.connect(self._on_time_return)
         self.btn_start.clicked.connect(lambda: self._jump(self._min))
         self.btn_end.clicked.connect(lambda: self._jump(self._max))
         self.btn_prev.clicked.connect(lambda: self._nudge(-1))
@@ -759,13 +764,35 @@ class TimelineWindow(QWidget if _HAS_QT else object):
             self.step_changed.emit(int(value))
 
     def _on_set(self) -> None:
+        text = self.edit_step.text().strip()
         try:
-            step = int(self.edit_step.text().strip())
+            value = float(text)
+        except ValueError:
+            return
+        # Time mode with a fractional cycle (e.g. "3.5") requests an
+        # interpolated state instead of an integer step.
+        if (self.mode() == "Time" and "." in text
+                and self.interp_requested is not None):
+            self.interp_requested.emit(value)
+            return
+        try:
+            step = int(value)
         except ValueError:
             return
         self.set_step(step)
         if self.step_changed is not None:
             self.step_changed.emit(self.current_step())
+
+    def _on_time_return(self) -> None:
+        """Time field Return → physical-time interpolation request."""
+        try:
+            t = float(self.edit_time.text().strip())
+        except ValueError:
+            return
+        # Undo the display scale so the main window gets the raw time.
+        scale = self.time_scale() or 1.0
+        if self.time_set_requested is not None:
+            self.time_set_requested.emit(t / scale)
 
     def _jump(self, value: int) -> None:
         self.set_step(value)

@@ -137,6 +137,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.dataset = None
         self.main_object = None
         self.fileset = None
+        self._member_cache: dict = {}  # {path: FieldFile} shared by playback/interp
         self._play_timer = None
         self._playing = False
         self._iren_ready = False
@@ -250,6 +251,10 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.timeline.mode_changed.connect(
             lambda m: self.message_win.log(f"Timeline mode: {m}"))
         self.timeline.step_changed.connect(self._on_timeline_step)
+        if getattr(self.timeline, "interp_requested", None) is not None:
+            self.timeline.interp_requested.connect(self._on_timeline_interp)
+            self.timeline.time_set_requested.connect(
+                self._on_timeline_time_request)
         self.timeline.play_requested.connect(self._on_timeline_play)
         self.timeline.pause_requested.connect(self._on_timeline_pause)
         self.timeline_pane = PaneFrame("Timeline Window", self.timeline)
@@ -625,6 +630,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 self.object_tree.blockSignals(False)
         cyc = ff.cycle if ff.cycle is not None else 0
         self.fileset = None
+        self._member_cache = {}
         if options is None or not getattr(options, "single_file", False):
             from ..model.fileset import scan_sequence
             try:
@@ -672,6 +678,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.dataset = None
         self.main_object = None
         self.fileset = None
+        self._member_cache = {}
         self._on_timeline_pause()
         self.scene.reset()
         self.object_tree.build_startup_tree()
@@ -1292,9 +1299,11 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             member = self.fileset.find(int(step))
             loaded = None
             if member is not None:
-                from ..model.dataset import load_file
+                from ..model.fileset import load_member
                 try:
-                    loaded = load_file(member.path)
+                    loaded = load_member(
+                        self.fileset, member.cycle,
+                        cache=self._member_cache)
                 except Exception as exc:  # noqa: BLE001
                     self.message_win.log(
                         f"Cycle load failed: {member.path}: {exc}", "ERROR")
@@ -1324,6 +1333,97 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self.scene.animate(step)
             if self._enable_3d:
                 self._refresh_gl()
+
+    def _on_timeline_interp(self, frac_cycle: float) -> None:
+        """Time mode: fractional cycle id -> interpolated FieldFile (R0.1)."""
+        if not self.fileset or not self.main_object:
+            return
+        from ..model.fileset import interpolate_at
+        # Convert a fractional cycle *number* (Step units) to a 1-based
+        # member position id: the fraction is normalized by the cycle gap.
+        cyc_lo = int(frac_cycle)
+        frac = float(frac_cycle) - cyc_lo
+        members = self.fileset.members
+        pos = next((i for i, m in enumerate(members) if m.cycle == cyc_lo),
+                   None)
+        if pos is None:
+            self.message_win.log(
+                f"Interpolate: no member at cycle {cyc_lo}", "WARN")
+            return
+        if frac > 0.0 and pos + 1 < len(members):
+            gap = members[pos + 1].cycle - cyc_lo
+            if gap > 0:
+                frac = min(1.0, frac / gap)
+            pos_id = (pos + 1) + frac
+        else:
+            pos_id = float(pos + 1)
+        try:
+            loaded = interpolate_at(self.fileset, pos_id,
+                                    cache=self._member_cache)
+        except Exception as exc:  # noqa: BLE001
+            self.message_win.log(f"Interpolate failed: {exc}", "ERROR")
+            return
+        if loaded is None:
+            return
+        self.dataset = loaded
+        self.scene.build(loaded, main=self.main_object)
+        if self._enable_3d:
+            self._refresh_gl()
+        if loaded.time is not None:
+            self.timeline.edit_time.setText(
+                self.timeline.format_time(loaded.time))
+        self._cycle_label.setText(f"Cycle {frac_cycle:g}")
+        msg = (f"Interpolated cycle {frac_cycle:g} "
+               f"(id {pos_id:.3f}) Time={loaded.time}")
+        self.status.showMessage(msg)
+        self.message_win.log(msg)
+
+    def _on_timeline_time_request(self, t: float) -> None:
+        """Time mode: physical time -> bracketing members -> interpolate."""
+        if not self.fileset or not self.main_object:
+            return
+        members = self.fileset.members
+        for m in members:
+            if m.time is None:
+                m.refresh_meta()
+        times = [m.time for m in members]
+        if not times or any(v is None for v in times):
+            self.message_win.log(
+                "Time interpolation: members carry no Time meta", "WARN")
+            return
+        if t <= times[0]:
+            self._on_timeline_interp(float(members[0].cycle))
+            return
+        if t >= times[-1]:
+            self._on_timeline_interp(float(members[-1].cycle))
+            return
+        from ..model.fileset import interpolate_at
+        for i in range(len(times) - 1):
+            if times[i] <= t <= times[i + 1]:
+                span = times[i + 1] - times[i]
+                frac = 0.0 if span <= 0 else (t - times[i]) / span
+                pos_id = (i + 1) + frac
+                try:
+                    loaded = interpolate_at(
+                        self.fileset, pos_id, cache=self._member_cache)
+                except Exception as exc:  # noqa: BLE001
+                    self.message_win.log(
+                        f"Time interpolation failed: {exc}", "ERROR")
+                    return
+                if loaded is None:
+                    return
+                self.dataset = loaded
+                self.scene.build(loaded, main=self.main_object)
+                if self._enable_3d:
+                    self._refresh_gl()
+                self.timeline.edit_time.setText(
+                    self.timeline.format_time(t))
+                self._cycle_label.setText(
+                    f"Cycle {members[i].cycle}+{frac:.2f}")
+                self.message_win.log(
+                    f"Interpolated time {t:g} "
+                    f"(members {members[i].cycle}/{members[i + 1].cycle})")
+                return
 
     def _on_timeline_play(self) -> None:
         """Play steps forward through the FileSet cycle range."""

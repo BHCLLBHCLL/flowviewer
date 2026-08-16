@@ -1,4 +1,4 @@
-"""Headless GUI / scene tests (offscreen platform, enable_3d=False)."""
+﻿"""Headless GUI / scene tests (offscreen platform, enable_3d=False)."""
 
 import os
 import sys
@@ -2770,6 +2770,40 @@ def test_timeline_cycle_switch(qapp, tmp_path):
     w._on_timeline_step(2)
     # Member for step 2 is flow_2.fph; its data now backs the scene
     assert w.dataset.path.lower().endswith("flow_2.fph")
+    w._on_timeline_pause()
+
+
+def test_timeline_time_interpolation_gui(qapp, tmp_path):
+    """R0.1: Time mode fractional cycle / physical time drive interpolate_at."""
+    import shutil
+    from pathlib import Path as P
+    base = P(tmp_path)
+    for cyc in (1, 2):
+        shutil.copyfile(FPH, base / f"flow_{cyc}.fph")
+    w = _make(qapp, str(base / "flow_1.fph"))
+    assert w.fileset is not None and len(w.fileset) == 2
+    w.timeline._mode_group.button(2).setChecked(True)  # Time mode
+    assert w.timeline.mode() == "Time"
+
+    before = w.dataset
+    w._on_timeline_interp(1.5)
+    # A blended FieldFile (new object, mesh shared with member 1)
+    assert w.dataset is not before
+    assert w.dataset.path.lower().endswith("flow_1.fph")
+
+    # Cached members: interpolation reuses parsed files
+    w._on_timeline_interp(1.0)
+    assert any(k.lower().endswith("flow_1.fph")
+               for k in w._member_cache)
+
+    # Physical-time request maps onto bracketing members
+    for m in w.fileset.members:
+        m.refresh_meta()
+    if all(m.time is not None for m in w.fileset.members):
+        t0 = w.fileset.members[0].time
+        t1 = w.fileset.members[1].time
+        w._on_timeline_time_request((t0 + t1) / 2.0)
+        assert w.dataset is not None
     w._on_timeline_pause()
 
 
