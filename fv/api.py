@@ -678,6 +678,32 @@ def register_pod_modes(file_set, ff0, var: str, n_modes: int = 5):
     return _f(file_set, ff0, var, n_modes)
 
 
+def export_pod_csv(res, path: str):
+    """Write POD time coefficients (U matrix) to a CSV file."""
+    from .model.pod import export_pod_csv as _f
+    return _f(res, path)
+
+
+def cluster_analysis(file_set, var: str, n_clusters: int = 3, cache=None,
+                     seed: int = 0):
+    """k-means clustering of the cycle snapshots of *var* (Clustering)."""
+    from .model.pod import cluster_analysis as _f
+    return _f(file_set, var, n_clusters, cache, seed)
+
+
+def register_cluster_fields(file_set, ff0, var: str, n_clusters: int = 3,
+                            cache=None, seed: int = 0):
+    """Register CLUSTER_i centroid fields on *ff0* (Clustering)."""
+    from .model.pod import register_cluster_fields as _f
+    return _f(file_set, ff0, var, n_clusters, cache, seed)
+
+
+def export_cluster_csv(res, path: str):
+    """Write per-cycle cluster assignment to a CSV file."""
+    from .model.pod import export_cluster_csv as _f
+    return _f(res, path)
+
+
 # ── cycle runtime + time interpolation (scPOST AddCycList family, P2.4) ──
 
 def cycle_runtime(fs, cache=None):
