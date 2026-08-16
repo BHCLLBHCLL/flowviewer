@@ -2111,6 +2111,13 @@ def test_api_topology_queries():
     assert fns and max(fns) < fld.n_vertices
     assert api.face_count_of_element(fld, 0) == 6
     assert api.volume_of_element(fld, 0) > 0
+    # P1-1: FLD NGON faces answer face_nodes/cells_of_face/area_of_face
+    assert len(fld.faces) > 0 and len(fld.face_cells) > 0
+    fns0 = api.face_nodes(fld, 0)
+    assert len(fns0) >= 3 and max(fns0) < fld.n_vertices
+    owner, _ = api.cells_of_face(fld, 0)
+    assert owner >= 0
+    assert api.area_of_face(fld, 0) > 0.0
 
 def test_api_variable_queries():
     """fv.api exposes GetScalar/GetVector/MinMax accessors (P0.3)."""

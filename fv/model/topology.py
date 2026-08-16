@@ -56,11 +56,23 @@ def _fld_offset(ff):
     return 0
 
 
+def _fld_face_nodes(ff, face_id):
+    """Vertex ids of a FLD NGON face (GetNodesOfFace)."""
+    faces = getattr(ff, "faces", None)
+    if not faces:
+        return []
+    f = int(face_id)
+    if f < 0 or f >= len(faces):
+        raise IndexError("face_id out of range")
+    off = _fld_offset(ff)
+    return [int(x) - off for x in faces[f]]
+
+
 def face_nodes(ff, face_id) -> list:
     """Vertex ids of a face (GetNodesOfFace)."""
     if getattr(ff, "poly", False):
         return _fph_face_nodes(ff, int(face_id))
-    return []  # FLD stores no face table
+    return _fld_face_nodes(ff, int(face_id))
 
 
 def _fld_cell_faces(cell, cell_type):
@@ -131,8 +143,18 @@ def node_count_of_element(ff, cell_id) -> int:
 
 
 def cells_of_face(ff, face_id):
-    """(owner, neighbour) cells sharing a face (GetAdjacentElementOfFace)."""
+    """(owner, neighbour) cells sharing a face (GetAdjacentElementOfFace).
+
+    FPH reads LS_Links owner/neighbour directly.  FLD NGON faces carry
+    only an owning cell (``face_cells``); the neighbour side is unknown,
+    so ``(-1, -1)``/``(owner, -1)`` is returned when unavailable.
+    """
     if not getattr(ff, "poly", False):
+        fc = getattr(ff, "face_cells", None)
+        f = int(face_id)
+        if fc is not None and 0 <= f < len(fc):
+            owner = int(fc[f])
+            return (owner, -1) if owner >= 0 else (-1, -1)
         return (-1, -1)  # FLD stores no face table
     ld = ff.link_data
     owner = np.asarray(ld["owner"], dtype=np.int64)
