@@ -4694,3 +4694,43 @@ def test_r23_mat_vol_rgn_com():
     app.open_file(FPH)
     assert app.GetRgnNum() == len(app._ff.surface_regions)
     assert app.GetVOLorgnameAsArray() == list(app._ff.volume_regions)
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_r24_variable_at_point():
+    """R2.4: variable_at_point probes a cell-centred field."""
+    from fv.model.dataset import load_file
+    from fv import api
+    ff = load_file(FPH)
+    p = api.cell_centers(ff)[0]
+    res = api.variable_at_point(ff, "PRES", p[0], p[1], p[2])
+    assert res is not None and res["isinarea"] is True
+    assert res["name"] == "PRES" and res["elem"] == 0
+    assert isinstance(res["values"], float)
+    resv = api.variable_at_point(ff, "VEL", p[0], p[1], p[2])
+    assert resv is not None and len(resv["values"]) == 3
+
+
+@pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
+def test_r24_variable_at_point_fld():
+    """R2.4: node-centred FLD uses nearest-node lookup."""
+    from fv.model.dataset import load_file
+    from fv import api
+    ff = load_file(FLD)
+    v = ff.vertices[0]
+    res = api.variable_at_point(ff, "PRES", v[0], v[1], v[2])
+    assert res is not None and isinstance(res["values"], float)
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_r24_get_variable_info_com():
+    """R2.4: COM GetVariableInfo/Min/Max."""
+    from fv.com import FlowviewerApplication
+    from fv import api
+    app = FlowviewerApplication()
+    app.open_file(FPH)
+    assert app.GetVariableMin("PRES") is not None
+    assert app.GetVariableMax("PRES") is not None
+    p = api.cell_centers(app._ff)[0]
+    info = app.GetVariableInfo("PRES", p[0], p[1], p[2])
+    assert info is not None and info["name"] == "PRES"

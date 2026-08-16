@@ -235,6 +235,7 @@ class FlowviewerApplication:
         "GetVOLIDbyVOLemtname", "GetVOLIDbyVOLorgname",
         "GetVOLorgnamebyVOLID", "GetRgnName", "GetRgnNum",
         "GetFaceNumOfRgn",
+        "GetVariableInfo", "GetVariableMin", "GetVariableMax",
         # status / export
         "SaveSTA", "ApplySTA", "SaveSTL",
         # application state (Set* family + animation)
@@ -909,6 +910,35 @@ class FlowviewerApplication:
         try:
             from . import api
             return self._ok(api.get_face_num_of_rgn(self._need_ff(), ngfax))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetVariableInfo(self, LNAM, x, y, z):
+        """Field information at (x, y, z) (GetVariableInfo).
+
+        Returns a dict with name/kind/values/elem/ov/mat/isinarea for the
+        variable *LNAM*.
+        """
+        try:
+            from . import api
+            return self._ok(api.variable_at_point(
+                self._need_ff(), LNAM, x, y, z))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetVariableMin(self, LNAM):
+        """Minimum value of a variable (GetVariableMin)."""
+        try:
+            from . import api
+            return self._ok(api.variable_range(self._need_ff(), LNAM)[0])
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetVariableMax(self, LNAM):
+        """Maximum value of a variable (GetVariableMax)."""
+        try:
+            from . import api
+            return self._ok(api.variable_range(self._need_ff(), LNAM)[1])
         except Exception as exc:
             return self._fail(exc)
 

@@ -388,6 +388,71 @@ def variable_info(ff, var: str) -> dict:
             "length": int(len(vi.array)), "min": lo, "max": hi}
 
 
+def _variable_value_at(ff, lnam, idx):
+    """Scalar float or (x,y,z) tuple of *lnam* at a cell/node index."""
+    import numpy as np
+    arr = ff.variable_array(lnam)
+    if arr is not None:
+        a = np.asarray(arr, dtype=np.float64)
+        if a.ndim == 2:
+            return tuple(float(v) for v in a[idx])
+        return float(a[idx])
+    if ff.variable_array(lnam + "X") is not None:
+        out = []
+        for suff in ("X", "Y", "Z"):
+            a = ff.variable_array(lnam + suff)
+            out.append(float(np.asarray(a)[idx]) if a is not None else 0.0)
+        return tuple(out)
+    return None
+
+
+def variable_at_point(ff, lnam, x, y, z):
+    """Point probe (GetVariableInfo): variable value + cell/MAT at (x,y,z).
+
+    Locates the nearest cell (cell-centred fields, scipy cKDTree on cell
+    centres) or nearest node (node-centred FLD fields), then reads *lnam*.
+    Returns ``{name, kind, values, elem, ov, mat, isinarea}`` or ``None``
+    when the point cannot be located.
+    """
+    import numpy as np
+    vi = ff.variables.get(lnam)
+    if vi is None and ff.variable_array(lnam + "X") is None:
+        raise ValueError("unknown variable " + repr(lnam))
+    point = np.asarray([float(x), float(y), float(z)], dtype=np.float64)
+    elem, mat, ov = -1, -1, 0
+    if vi is not None and vi.location == "node":
+        verts = np.asarray(getattr(ff, "vertices", None), dtype=np.float64)
+        if verts is None or not len(verts):
+            return None
+        d = verts - point
+        node = int(np.argmin(np.einsum("ij,ij->i", d, d)))
+        values = _variable_value_at(ff, lnam, node)
+    else:
+        centers = cell_centers(ff)
+        if centers is None or not len(centers):
+            return None
+        centers = np.asarray(centers, dtype=np.float64)
+        try:
+            from scipy.spatial import cKDTree
+            _d, idx = cKDTree(centers).query(point, k=1)
+            elem = int(idx)
+        except Exception:  # pragma: no cover - scipy missing
+            d = centers - point
+            elem = int(np.argmin(np.einsum("ij,ij->i", d, d)))
+        values = _variable_value_at(ff, lnam, elem)
+        mat = get_mat_n_of_element(ff, elem)
+        ov = get_vol_id_by_element(ff, elem)
+    return {
+        "name": lnam,
+        "kind": vi.kind if vi is not None else "vector",
+        "values": values,
+        "elem": elem,
+        "ov": ov,
+        "mat": mat,
+        "isinarea": values is not None,
+    }
+
+
 def scalar_array(ff, var: str):
     """Full array of a scalar variable (GetScalarArray)."""
     a = ff.variable_array(var)
