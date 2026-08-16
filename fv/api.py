@@ -726,46 +726,91 @@ def _rotation_matrix(axis: str, angle_deg: float):
     return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
 
 
-def local_xyz_to_global_xyz(points, origin=(0.0, 0.0, 0.0),
-                            axis: str = "z", angle_deg: float = 0.0):
-    """Map local-frame points to global: rotate about *axis* by
-    *angle_deg* then translate by *origin* (LocalXYZ2GlobalXYZ).
+def _local_coord_transform(ff):
+    """4x4 local→global matrix from ``ff.meta["local_coord"]`` (R2.1)."""
+    import numpy as np
+    lc = (getattr(ff, "meta", None) or {}).get("local_coord")
+    if not lc:
+        return None
+    if lc.get("matrix") is not None:
+        return np.asarray(lc["matrix"], dtype=np.float64)
+    origin = tuple(lc.get("origin", (0.0, 0.0, 0.0)))
+    axis = str(lc.get("axis", "z"))
+    angle_deg = float(lc.get("angle_deg", 0.0))
+    m = np.eye(4)
+    m[:3, :3] = _rotation_matrix(axis, angle_deg)
+    m[:3, 3] = np.asarray(origin, dtype=np.float64)
+    return m
 
+
+def local_xyz_to_global_xyz(points, origin=(0.0, 0.0, 0.0),
+                            axis: str = "z", angle_deg: float = 0.0,
+                            ff=None):
+    """Map local-frame points to global (LocalXYZ2GlobalXYZ).
+
+    With *ff*, the local coordinate system stored in the file
+    (``ff.meta["local_coord"]``) is used and *origin*/*axis*/*angle_deg*
+    are ignored; an absent local coordinate system means identity.
     Accepts one (3,) point or an (N, 3) array; returns the same shape.
     """
     import numpy as np
     p = np.asarray(points, dtype=np.float64)
     single = p.ndim == 1
     p = np.atleast_2d(p)
+    if ff is not None:
+        m = _local_coord_transform(ff)
+        if m is not None:
+            ones = np.ones((p.shape[0], 1))
+            out = (np.hstack([p, ones]) @ m.T)[:, :3]
+            return out[0] if single else out
     out = p @ _rotation_matrix(axis, angle_deg).T \
         + np.asarray(origin, dtype=np.float64)
     return out[0] if single else out
 
 
 def global_xyz_to_local_xyz(points, origin=(0.0, 0.0, 0.0),
-                            axis: str = "z", angle_deg: float = 0.0):
+                            axis: str = "z", angle_deg: float = 0.0,
+                            ff=None):
     """Inverse of :func:`local_xyz_to_global_xyz`."""
     import numpy as np
     p = np.asarray(points, dtype=np.float64)
     single = p.ndim == 1
     p = np.atleast_2d(p)
+    if ff is not None:
+        m = _local_coord_transform(ff)
+        if m is not None:
+            inv = np.linalg.inv(m)
+            ones = np.ones((p.shape[0], 1))
+            out = (np.hstack([p, ones]) @ inv.T)[:, :3]
+            return out[0] if single else out
     out = (p - np.asarray(origin, dtype=np.float64)) \
         @ _rotation_matrix(axis, -angle_deg).T
     return out[0] if single else out
 
 
 def get_overlapping_region_count(ff) -> int:
-    """Cells belonging to more than one part / volume region
-    (GetOverlappingRegionCount; 0 when the parts are disjoint)."""
+    """Number of volume regions that overlap at least one other region
+    (GetOverlappingRegionCount; 0 when the parts are pairwise disjoint).
+
+    Two regions overlap when they share at least one cell.
+    """
     import numpy as np
     from .crdl.mesh_gph import part_cvol_cell_mask
-    count = np.zeros(int(getattr(ff, "n_cells", 0) or 0), dtype=np.int64)
     cvol = getattr(ff, "cvol_id", None)
     if cvol is None:
         return 0
-    for _, spec in (getattr(ff, "parts_with_cvol", None) or []):
-        count += part_cvol_cell_mask(cvol, spec).astype(np.int64)
-    return int((count > 1).sum())
+    parts = list(getattr(ff, "parts_with_cvol", None) or [])
+    if len(parts) < 2:
+        return 0
+    masks = [part_cvol_cell_mask(cvol, spec).astype(bool)
+             for _, spec in parts]
+    overlapping = set()
+    for i in range(len(parts)):
+        for j in range(i + 1, len(parts)):
+            if np.any(masks[i] & masks[j]):
+                overlapping.add(i)
+                overlapping.add(j)
+    return len(overlapping)
 
 
 def get_mat_num(ff) -> int:
@@ -777,21 +822,50 @@ def get_mat_num(ff) -> int:
     return int(np.max(mat))
 
 
-def get_mat_id_of_vol(ff, volume_region: str):
+def _resolve_vol_cells(ff, volume_region):
+    """Cell ids for a volume region given by name or 1-based region id."""
+    if isinstance(volume_region, bool):
+        volume_region = int(volume_region)
+    if isinstance(volume_region, (int, float)):
+        vid = int(volume_region)
+        regions = list(getattr(ff, "volume_regions", None) or [])
+        if not (1 <= vid <= len(regions)):
+            return None
+        name = regions[vid - 1]
+    else:
+        name = str(volume_region)
+    return cells_of_part(ff, name)
+
+
+def get_mat_id_of_vol(ff, volume_region):
     """MAT-ID of the material filling a volume region (GetMATIDofVOL).
 
-    Returns the (unique) material id of the region's cells, -1 when the
-    region mixes materials, None when the region has no cells.
+    *volume_region* is a region name or a 1-based volume-region id (scPOST
+    ``volid``).  Returns the (unique) material id, -1 when the region mixes
+    materials, None when it has no cells.
     """
     import numpy as np
     mat = getattr(ff, "material", None)
     if mat is None:
         return None
-    cells = cells_of_part(ff, volume_region)
+    cells = _resolve_vol_cells(ff, volume_region)
     if not cells:
         return None
     ids = np.unique(np.asarray(mat, dtype=np.int64)[cells])
     return int(ids[0]) if ids.size == 1 else -1
+
+
+def get_mat_num_of_vol(ff, volume_region) -> int:
+    """Number of distinct MAT-IDs inside a volume region (GetMATIDofVOL's
+    ByRef ``n`` output)."""
+    import numpy as np
+    mat = getattr(ff, "material", None)
+    if mat is None:
+        return 0
+    cells = _resolve_vol_cells(ff, volume_region)
+    if not cells:
+        return 0
+    return int(np.unique(np.asarray(mat, dtype=np.int64)[cells]).size)
 
 
 def get_vol_num(ff) -> int:

@@ -20,6 +20,7 @@ from .core import (
     read_i32_be,
     open_buffer,
     parse_header_meta,
+    f64_be_array,
 )
 
 
@@ -523,6 +524,32 @@ def _parse_ls_sfile(data) -> Optional[dict]:
         p += 4
     return None
 
+def _parse_local_coord(data) -> Optional[dict]:
+    """Best-effort local coordinate system from ``LS_CoordinateSystem``.
+
+    The scPOST section stores either a 4x4 homogeneous transform (16 doubles)
+    or an origin/axis/angle tuple (7 doubles).  When the section is absent or
+    carries no float64 payload the coordinate system is identity (None).
+    """
+    sec = find_section(data, "LS_CoordinateSystem")
+    if sec < 0:
+        return None
+    end = section_end(data, sec)
+    doubles: list[float] = []
+    for pos, bc in iter_data_blocks(data, sec, end):
+        if bc >= 8 and bc % 8 == 0:
+            doubles.extend(f64_be_array(data, pos, bc // 8).tolist())
+    if len(doubles) >= 16:
+        return {"matrix": np.array(doubles[:16], dtype=np.float64).reshape(4, 4)}
+    if len(doubles) >= 7:
+        return {
+            "origin": tuple(doubles[0:3]),
+            "axis": (doubles[3], doubles[4], doubles[5]),
+            "angle_deg": doubles[6],
+        }
+    return None
+
+
 def parse_fld(filepath: str) -> dict[str, Any]:
     """Parse an FLD file into a structured mesh + solution dict."""
     with open_buffer(filepath) as data:
@@ -608,6 +635,7 @@ def parse_fld(filepath: str) -> dict[str, Any]:
         result["bc_sections"] = _parse_bc_sections(data)
         result["ls_sfile"] = _parse_ls_sfile(data)
         result["meta"] = parse_header_meta(data)
+        result["meta"]["local_coord"] = _parse_local_coord(data)
 
         return result
 

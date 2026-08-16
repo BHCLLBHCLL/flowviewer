@@ -552,39 +552,40 @@ class FlowviewerApplication:
 
     # ── geometry / region queries (P3) ────────────────────────────────────
 
-    def GetBoundingBox(self, volume_region=None):
+    def GetBoundingBox(self, name=None):
         """Bounding box (xmin, xmax, ymin, ymax, zmin, zmax) of the file
-        or one volume region (GetBoundingBox)."""
+        or one volume region (GetBoundingBox).
+
+        scPOST takes a required ``name`` and writes the six values ByRef,
+        returning LONG; the Python COM layer returns the six values as a
+        tuple and keeps ``name`` optional (None = whole mesh).
+        """
         try:
             from . import api
-            return self._ok(api.get_bounding_box(self._need_ff(),
-                                                 volume_region))
+            return self._ok(api.get_bounding_box(self._need_ff(), name))
         except Exception as exc:
             return self._fail(exc)
 
-    def LocalXYZ2GlobalXYZ(self, x, y, z, ox=0.0, oy=0.0, oz=0.0,
-                           axis="z", angle_deg=0.0):
-        """Convert a local-frame coordinate to global
-        (LocalXYZ2GlobalXYZ); returns (gx, gy, gz)."""
+    def LocalXYZ2GlobalXYZ(self, x, y, z):
+        """Convert a local-frame coordinate to global (LocalXYZ2GlobalXYZ).
+
+        The local coordinate system is read from the loaded file; returns
+        (gx, gy, gz).
+        """
         try:
             from . import api
             g = api.local_xyz_to_global_xyz(
-                (float(x), float(y), float(z)),
-                origin=(float(ox), float(oy), float(oz)),
-                axis=str(axis), angle_deg=float(angle_deg))
+                (float(x), float(y), float(z)), ff=self._need_ff())
             return self._ok((float(g[0]), float(g[1]), float(g[2])))
         except Exception as exc:
             return self._fail(exc)
 
-    def GlobalXYZ2LocalXYZ(self, x, y, z, ox=0.0, oy=0.0, oz=0.0,
-                           axis="z", angle_deg=0.0):
+    def GlobalXYZ2LocalXYZ(self, x, y, z):
         """Inverse of LocalXYZ2GlobalXYZ; returns (lx, ly, lz)."""
         try:
             from . import api
             l = api.global_xyz_to_local_xyz(
-                (float(x), float(y), float(z)),
-                origin=(float(ox), float(oy), float(oz)),
-                axis=str(axis), angle_deg=float(angle_deg))
+                (float(x), float(y), float(z)), ff=self._need_ff())
             return self._ok((float(l[0]), float(l[1]), float(l[2])))
         except Exception as exc:
             return self._fail(exc)
@@ -606,13 +607,17 @@ class FlowviewerApplication:
         except Exception as exc:
             return self._fail(exc)
 
-    def GetMATIDofVOL(self, volume_region):
-        """MAT-ID filling a volume region (GetMATIDofVOL); -1 when the
-        region mixes materials, None when it has no cells."""
+    def GetMATIDofVOL(self, volid):
+        """MAT-ID filling a volume region (GetMATIDofVOL).
+
+        *volid* is the 1-based volume-region id (scPOST) or a region name;
+        returns -1 when the region mixes materials, None when it has no
+        cells.  The MAT count (scPOST ByRef ``n``) is exposed by
+        :func:`api.get_mat_num_of_vol`.
+        """
         try:
             from . import api
-            return self._ok(api.get_mat_id_of_vol(self._need_ff(),
-                                                  str(volume_region)))
+            return self._ok(api.get_mat_id_of_vol(self._need_ff(), volid))
         except Exception as exc:
             return self._fail(exc)
 
@@ -713,9 +718,18 @@ class FlowviewerApplication:
         """Stop animation (AnimationStop; state flag headless)."""
         return self._set_flag("animating", False)
 
-    def PrepareMinMaxPos(self):
-        """Enable the max/min position display (PrepareMinMaxPos)."""
-        return self._set_flag("minmax_pos", True)
+    def PrepareMinMaxPos(self, mode=0, loop=6, show=0):
+        """Use the max/min position display (PrepareMinMaxPos).
+
+        scPOST arguments: mode 0=current cycle, 1=active object, 2=draw
+        window; loop = iteration count (mode 2 only); show = 1 show / 0
+        hide the setting dialog.  Returns 0 (scPOST contract).
+        """
+        self._flags["minmax_pos_mode"] = int(mode)
+        self._flags["minmax_pos_loop"] = int(loop)
+        self._flags["minmax_pos_show"] = int(show)
+        self._flags["minmax_pos"] = True
+        return 0
 
     def SplitView(self, mode=1):
         """Side-by-side display mode (SplitView); the renderer exposes

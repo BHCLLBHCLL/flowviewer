@@ -2460,9 +2460,11 @@ def test_com_scpost_surface(tmp_path):
     # geometry on the loaded member
     box = app.GetBoundingBox()
     assert box is not None and len(box) == 6
-    g = app.LocalXYZ2GlobalXYZ(1.0, 0.0, 0.0, axis="z", angle_deg=90.0)
-    assert g is not None and abs(g[1] - 1.0) < 1e-12
-    l = app.GlobalXYZ2LocalXYZ(g[0], g[1], g[2], axis="z", angle_deg=90.0)
+    # LocalXYZ2GlobalXYZ reads the local coordinate system from the file;
+    # the FPH sample has none, so the transform is identity.
+    g = app.LocalXYZ2GlobalXYZ(1.0, 0.0, 0.0)
+    assert g is not None and abs(g[0] - 1.0) < 1e-12
+    l = app.GlobalXYZ2LocalXYZ(g[0], g[1], g[2])
     assert abs(l[0] - 1.0) < 1e-12
     # region / material queries through the error channel
     assert app.GetVOLNum() == len(app._ff.volume_regions)
@@ -2472,7 +2474,7 @@ def test_com_scpost_surface(tmp_path):
     assert app.SetDisplayAxis(False) is True
     assert app.SetUseUndoBuffer(False) is True
     assert app.AnimationStart() is True and app.AnimationStop() is True
-    assert app.SplitView(2) is True and app.PrepareMinMaxPos() is True
+    assert app.SplitView(2) is True and app.PrepareMinMaxPos() == 0
     assert app.ObjectNameArrange() is True
     # error channel: unknown cycle-op mode -> ErrorCode -1, message set
     app.SetCycOpeMode("Bogus")
@@ -4522,3 +4524,84 @@ def test_r16_compare_constant_offset():
     diff_ff = diff_field_file(a, "PRES", res["diff"], res["location"])
     arr = diff_ff.variable_array("PRES")
     assert arr is not None and len(arr) == len(res["diff"])
+
+
+def test_r21_set_cyc_ope_mode_numeric():
+    """R2.1: SetCycOpeMode accepts numeric 0-7 and legacy strings."""
+    from fv.model.fileset import FileSet, set_cycle_operation
+    fs = FileSet(directory=".")
+    expect = {0: "Sum0", 1: "Average", 2: "Add", 3: "Sub",
+              4: "Mul", 5: "Div", 6: "SqSum", 7: "SqAvg"}
+    for n, name in expect.items():
+        assert set_cycle_operation(fs, n) == name
+        assert fs.operation_mode == name
+    # legacy string aliases still work
+    assert set_cycle_operation(fs, "add") == "Add"
+    assert set_cycle_operation(fs, "SUB") == "Sub"
+    with pytest.raises(ValueError):
+        set_cycle_operation(fs, 8)
+
+
+def test_r21_get_overlapping_region_count():
+    """R2.1: GetOverlappingRegionCount counts regions, not cells."""
+    import numpy as np
+    from fv.model.dataset import FieldFile
+    from fv import api
+    ff = FieldFile(path="x", kind="fph")
+    ff.cvol_id = np.array([1, 1, 2, 2], dtype=np.int64)
+    ff.parts_with_cvol = [("A", 1), ("B", 2)]
+    assert api.get_overlapping_region_count(ff) == 0
+    # cells 0-1 belong to both A and B -> both regions overlap
+    ff2 = FieldFile(path="y", kind="fph")
+    ff2.cvol_id = np.array([1, 1, 2, 2], dtype=np.int64)
+    ff2.parts_with_cvol = [("A", frozenset({1})), ("B", frozenset({1, 2}))]
+    assert api.get_overlapping_region_count(ff2) == 2
+
+
+def test_r21_get_mat_id_of_vol():
+    """R2.1: GetMATIDofVOL takes a 1-based volid and reports MAT count."""
+    import numpy as np
+    from fv.model.dataset import FieldFile
+    from fv import api
+    ff = FieldFile(path="x", kind="fph")
+    ff.cvol_id = np.array([1, 1, 2, 2], dtype=np.int64)
+    ff.material = np.array([5, 5, 7, 7], dtype=np.int64)
+    ff.parts_with_cvol = [("R1", 1), ("R2", 2)]
+    ff.volume_regions = ["R1", "R2"]
+    assert api.get_mat_id_of_vol(ff, "R1") == 5
+    assert api.get_mat_id_of_vol(ff, 2) == 7
+    assert api.get_mat_num_of_vol(ff, "R1") == 1
+    # a region mixing two MAT ids -> -1, count 2
+    ff.parts_with_cvol = [("R1", frozenset({1, 2})), ("R2", 2)]
+    assert api.get_mat_id_of_vol(ff, "R1") == -1
+    assert api.get_mat_num_of_vol(ff, "R1") == 2
+
+
+def test_r21_local_xyz_global_from_file():
+    """R2.1: LocalXYZ2GlobalXYZ reads ff.meta['local_coord']."""
+    import numpy as np
+    from fv.model.dataset import FieldFile
+    from fv import api
+    ff = FieldFile(path="x", kind="fph")
+    ff.meta = {}
+    out = api.local_xyz_to_global_xyz((1.0, 2.0, 3.0), ff=ff)
+    assert np.allclose(out, (1.0, 2.0, 3.0))  # identity when absent
+    # explicit origin/axis/angle path still works
+    g = api.local_xyz_to_global_xyz((1.0, 0.0, 0.0), axis="z", angle_deg=90.0)
+    assert np.allclose(g, (0.0, 1.0, 0.0), atol=1e-12)
+    # stored 4x4 matrix is applied
+    m = np.eye(4)
+    m[:3, 3] = [10.0, 0.0, 0.0]
+    ff2 = FieldFile(path="y", kind="fph")
+    ff2.meta = {"local_coord": {"matrix": m}}
+    g2 = api.local_xyz_to_global_xyz((1.0, 0.0, 0.0), ff=ff2)
+    assert np.allclose(g2, (11.0, 0.0, 0.0))
+
+
+@pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
+def test_r21_fld_local_coord_meta():
+    """R2.1: FLD parser stores local_coord (identity for this sample)."""
+    from fv.model.dataset import load_file
+    ff = load_file(FLD)
+    assert "local_coord" in ff.meta
+    assert ff.meta["local_coord"] is None

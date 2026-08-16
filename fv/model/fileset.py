@@ -133,13 +133,45 @@ def remove_cycle(fs, cycle):
     return len(fs.members) < before
 
 
+# scPOST SetCycOpeMode numeric modes 0–7 (8 modes, see vb_fldfile.txt).
+_CYC_OPE_BY_NUM = {
+    0: "Sum0",      # Sum (initial value = 0)
+    1: "Average",   # Average (initial value = 0)
+    2: "Add",       # Sum (initial value = current value)
+    3: "Sub",       # Subtract (initial value = current value)
+    4: "Mul",       # Multiply (initial value = current value)
+    5: "Div",       # Divide (initial value = current value)
+    6: "SqSum",     # Square and sum (initial value = 0)
+    7: "SqAvg",     # Square and average (initial value = 0)
+}
+# String aliases (case-insensitive); legacy names map onto the same modes.
+_CYC_OPE_ALIASES = {
+    "none": "None", "sum0": "Sum0", "average": "Average", "sum": "Add",
+    "add": "Add", "sub": "Sub", "subtract": "Sub", "mul": "Mul",
+    "multiply": "Mul", "div": "Div", "divide": "Div", "sqsum": "SqSum",
+    "sqavg": "SqAvg",
+}
+
+
 def set_cycle_operation(fs, mode):
-    """Set the cycle-to-cycle operation mode (scPOST SetCycOpeMode)."""
-    mode = (mode or "None").capitalize()
-    if mode not in ("None", "Add", "Sub", "Mul", "Div"):
+    """Set the cycle-to-cycle operation mode (scPOST SetCycOpeMode).
+
+    Accepts either the numeric scPOST mode (0–7) or a (legacy/descriptive)
+    string name; ``"None"`` resets the operation.
+    """
+    if isinstance(mode, bool):
+        mode = int(mode)
+    if isinstance(mode, (int, float)):
+        n = int(mode)
+        if n not in _CYC_OPE_BY_NUM:
+            raise ValueError("unknown cycle operation mode " + repr(mode))
+        fs.operation_mode = _CYC_OPE_BY_NUM[n]
+        return fs.operation_mode
+    key = str(mode or "None").strip().lower()
+    if key not in _CYC_OPE_ALIASES:
         raise ValueError("unknown cycle operation " + repr(mode))
-    fs.operation_mode = mode
-    return mode
+    fs.operation_mode = _CYC_OPE_ALIASES[key]
+    return fs.operation_mode
 
 
 # ── time interpolation + cycle runtime (P2.4) ────────────────────────────
