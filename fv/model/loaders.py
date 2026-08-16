@@ -38,6 +38,12 @@ def probe_format(path: str) -> str:
     suf = _suffix(p)
     if suf == "pph":
         return "pph"
+    if suf == "op2":
+        try:
+            from ..crdl.op2 import _HAS_PYNASTRAN
+            return "op2" if _HAS_PYNASTRAN else "op2-unavailable"
+        except Exception:  # pragma: no cover
+            return "op2"
     if suf == "cgns":
         try:
             from ..crdl.cgns_adf import is_cgns_adf

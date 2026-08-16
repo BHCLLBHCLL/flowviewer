@@ -310,6 +310,25 @@ def ifld_load(filepath: str, bounds=None) -> FieldFile:
     if summary:
         ff.meta["ifld_scan"] = summary
     return ff
+def op2_load(filepath: str) -> FieldFile:
+    """Nastran .op2 binary results loader (pyNastran optional dep)."""
+    from ..crdl.op2 import parse_op2
+    path = Path(filepath)
+    mesh = parse_op2(str(path))
+    if mesh is None:
+        raise ValueError(
+            f"not a readable .op2 (pyNastran required): {filepath}")
+    ff = FieldFile(path=str(path), kind="op2")
+    ff.vertices = mesh["vertices"]
+    ff.n_vertices = mesh["n_vertices"]
+    ff.cell_conn = mesh["cell_conn"]
+    ff.cell_types = mesh["cell_types"]
+    ff.n_cells = mesh["n_cells"]
+    ff.file_size = path.stat().st_size
+    for name, (arr, loc) in mesh["fields"].items():
+        ff.variables[name] = VarInfo(name=name, kind=FIELD_KIND_SCALAR,
+                                    location=loc, array=np.asarray(arr, dtype=np.float64))
+    return ff
 def _register_loaders() -> None:
     """Advertise the real parsers in :mod:`fv.model.loaders` registry."""
     try:
@@ -330,6 +349,7 @@ def _register_loaders() -> None:
         loaders.register("neu", neutral_load)
         loaders.register("ply", neutral_load)
         loaders.register("dat", marc_load)
+        loaders.register("op2", op2_load)
     except Exception:  # pragma: no cover - registry is best-effort
         pass
 
