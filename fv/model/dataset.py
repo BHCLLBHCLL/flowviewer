@@ -295,16 +295,18 @@ def ifld_load(filepath: str, bounds=None) -> FieldFile:
     fields sliced to match (``ff.meta["ifld_trim"]`` records the kept
     counts).  The full-file scan summary stays attached as
     ``ff.meta["ifld_scan"]`` for fast previews.  The mesh parse, cycle
-    metadata and scan summary share one file read (P1-2).
+    metadata and scan summary share one file read (P1-2); with *bounds*
+    the trimming happens during the parse so full-file field arrays are
+    never materialised (P1-3 true partial load).
     """
     from ..crdl.ifld import _scan, trim_fld_mesh
     path = Path(filepath)
     with open_buffer(str(path)) as data:
-        mesh = mesh_fld.parse_fld(str(path), data=data)
+        mesh = mesh_fld.parse_fld(str(path), data=data, bounds=bounds)
         if not mesh["n_vertices"] and not mesh["n_cells"]:
             mesh = _inherit_mesh_from_sibling(mesh, path)
-        if bounds is not None:
-            mesh = trim_fld_mesh(mesh, bounds)
+            if bounds is not None:
+                mesh = trim_fld_mesh(mesh, bounds)
         ff = _ff_from_fld_mesh(mesh, path)
         _fld_cycle_meta(str(path), ff, data=data)
         try:

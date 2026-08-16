@@ -257,8 +257,15 @@ def _parse_hex_cells(data) -> tuple[Optional[np.ndarray], Optional[np.ndarray],
     return None, None, mat
 
 
-def _f64_field_blocks(data, section_name: str) -> list[np.ndarray]:
-    """Return all float64 payload arrays in a named field section."""
+def _f64_field_blocks(data, section_name: str, keep=None,
+                      n_verts: int = 0) -> list[np.ndarray]:
+    """Return all float64 payload arrays in a named field section.
+
+    When ``keep`` is given (P1-3 spatial trimming), a block whose length
+    equals the full mesh vertex count is sliced to the kept vertices
+    before the float64 copy, so full-file field arrays are never
+    materialised for a trimmed load.
+    """
     sec_start = find_section(data, section_name)
     if sec_start < 0:
         return []
@@ -266,10 +273,11 @@ def _f64_field_blocks(data, section_name: str) -> list[np.ndarray]:
     out: list[np.ndarray] = []
     for p, bc in iter_data_blocks(data, sec_start, sec_end):
         if bc >= 8 and bc % 8 == 0:
-            out.append(
-                np.frombuffer(data, dtype=">f8", count=bc // 8, offset=p)
-                .astype(np.float64).copy()
-            )
+            view = np.frombuffer(data, dtype=">f8", count=bc // 8, offset=p)
+            if keep is not None and n_verts and view.size == n_verts:
+                out.append(view[keep].astype(np.float64).copy())
+            else:
+                out.append(view.astype(np.float64).copy())
     return out
 
 
@@ -550,15 +558,102 @@ def _parse_local_coord(data) -> Optional[dict]:
     return None
 
 
-def parse_fld(filepath: str, data=None) -> dict[str, Any]:
+def _trim_indices(verts, conn, bounds, n_declared):
+    """Vertex/cell keep-index computation for spatial trimming (P1-3).
+
+    Returns ``(keep_v, remap, base, keep_c, cell_remap, inside)``.
+    ``keep_v`` are the full-file vertex ids inside *bounds*, ``remap``
+    maps them to their compact 0-based ids (``-1`` elsewhere), ``base``
+    is the connectivity 0/1-based convention, ``keep_c``/``cell_remap``
+    are the cell keep mask / new cell ids (``None`` when there is no
+    connectivity), and ``inside`` is the per-vertex box mask (for face
+    filtering).  Raises ValueError for an inverted box or an empty result.
+    """
+    xmin, xmax, ymin, ymax, zmin, zmax = (float(b) for b in bounds)
+    if xmin > xmax or ymin > ymax or zmin > zmax:
+        raise ValueError("inverted trim box: %r" % (bounds,))
+    inside = ((verts[:, 0] >= xmin) & (verts[:, 0] <= xmax)
+              & (verts[:, 1] >= ymin) & (verts[:, 1] <= ymax)
+              & (verts[:, 2] >= zmin) & (verts[:, 2] <= zmax))
+    keep_v = np.flatnonzero(inside)
+    if not keep_v.size:
+        raise ValueError("trim box contains no vertices")
+    n_all = int(verts.shape[0])
+    remap = np.full(n_all, -1, dtype=np.int64)
+    remap[keep_v] = np.arange(keep_v.size, dtype=np.int64)
+    keep_c = None
+    cell_remap = None
+    base = 0
+    if conn is not None and getattr(conn, "size", 0):
+        valid = conn[conn >= 0]
+        base = 1 if (valid.size and valid.min() > 0
+                     and valid.max() >= n_declared) else 0
+        c0 = np.where(conn >= 0, conn - base, -1)
+        in_rng = c0 >= 0
+        node_ok = np.where(in_rng, inside[np.clip(c0, 0, n_all - 1)], True)
+        keep_c = node_ok.all(axis=1) & in_rng.any(axis=1)
+        cell_remap = np.full(conn.shape[0], -1, dtype=np.int64)
+        cell_remap[np.flatnonzero(keep_c)] = np.arange(
+            int(keep_c.sum()), dtype=np.int64)
+    return keep_v, remap, base, keep_c, cell_remap, inside
+
+
+def _trim_faces(faces, face_cells, bc_plan, base, inside, remap, n_all,
+                has_conn, cell_remap):
+    """Filter an FLD NGON face list + BC plan to a vertex-subset box.
+
+    Faces whose nodes all survive are kept and re-indexed (preserving the
+    original 0/1-based convention); ``face_cells``/``bc_plan`` are compacted
+    to match.  Returns ``(faces', face_cells', bc_plan', total_faces)``.
+    """
+    faces = list(faces or [])
+    total_faces = len(faces)
+    kept_idx: list[tuple[int, tuple]] = []
+    if faces:
+        for i, f in enumerate(faces):
+            ids = [int(v) - base for v in f] if has_conn else None
+            if ids is None or not ids:
+                continue
+            if all(0 <= j < n_all and inside[j] for j in ids):
+                kept_idx.append((i, tuple(remap[j] + base for j in ids)))
+    new_faces = [t for _, t in kept_idx]
+    if cell_remap is None:
+        new_face_cells = np.full(len(kept_idx), -1, dtype=np.int64)
+    else:
+        fc = face_cells
+        if fc is not None and len(fc):
+            new_face_cells = np.asarray(
+                [cell_remap[int(fc[i])] if 0 <= int(fc[i]) < len(cell_remap)
+                 else -1 for i, _ in kept_idx], dtype=np.int64)
+        else:
+            new_face_cells = np.asarray([], dtype=np.int64)
+    kept_set = {i for i, _ in kept_idx}
+    new_bp = []
+    pos = 0
+    for name, start, cnt in (bc_plan or []):
+        k = sum(1 for i in range(int(start), int(start) + int(cnt))
+                if i in kept_set)
+        new_bp.append((name, pos, k))
+        pos += k
+    return new_faces, new_face_cells, new_bp, total_faces
+
+
+def parse_fld(filepath: str, data=None, bounds=None) -> dict[str, Any]:
     """Parse an FLD file into a structured mesh + solution dict.
 
     ``data`` may pass an already-open buffer (bytes / mmap) to reuse a
     single read for mesh + fields + cycle metadata (P1-2).
+
+    ``bounds`` = ``(xmin, xmax, ymin, ymax, zmin, zmax)`` spatially trims
+    the parse (P1-3): vertices inside the box are kept with the cells and
+    faces whose nodes all survive, connectivity and BC data are re-indexed,
+    and field blocks are sliced to the kept vertices *before* the float64
+    materialisation.  ``meta["ifld_trim"]`` records the kept counts.
+    Raises ValueError for an inverted box or an empty result.
     """
     if data is None:
         with open_buffer(filepath) as _d:
-            return parse_fld(filepath, data=_d)
+            return parse_fld(filepath, data=_d, bounds=bounds)
     result: dict[str, Any] = {
         "file_size": len(data),
         "vertices": None,
@@ -590,19 +685,58 @@ def parse_fld(filepath: str, data=None) -> dict[str, Any]:
         result["material"] = mat
         result["n_cells"] = int(cell_conn.shape[0])
 
+    # P1-3: spatial trimming applied during the parse, so field blocks are
+    # sliced to the kept vertices before the float64 copy (never materialise
+    # the full-file arrays for a trimmed load).
+    keep_v = None
+    trim_meta = None
+    if bounds is not None and xyz is not None and n_verts:
+        total_cells = int(result.get("n_cells") or 0)
+        keep_v, remap, base, keep_c, cell_remap, inside = _trim_indices(
+            xyz, cell_conn, bounds, n_verts)
+        result["vertices"] = xyz[keep_v]
+        result["n_vertices"] = int(keep_v.size)
+        if keep_c is not None and keep_c.any():
+            c0 = np.where(cell_conn >= 0, cell_conn - base, -1)
+            new_ids = np.where(c0 >= 0,
+                               remap[np.clip(c0, 0, n_verts - 1)] + base, -1)
+            result["cell_conn"] = new_ids[keep_c]
+            if cell_types is not None:
+                result["cell_types"] = cell_types[keep_c]
+            if mat is not None:
+                result["material"] = mat[keep_c]
+            result["n_cells"] = int(keep_c.sum())
+        trim_meta = {
+            "bounds": tuple(bounds),
+            "total_vertices": n_verts,
+            "kept_vertices": int(keep_v.size),
+            "total_cells": total_cells,
+        }
+
     result["volume_names"] = _parse_volume_names(data)
     if mat is not None:
         faces, bc_plan, face_cells = _build_face_list_and_bcs(data, mat)
+        if keep_v is not None:
+            faces, face_cells, bc_plan, total_faces = _trim_faces(
+                faces, face_cells, bc_plan, base, inside, remap, n_verts,
+                cell_conn is not None and cell_conn.size > 0, cell_remap)
+            trim_meta["total_faces"] = total_faces
+            trim_meta["kept_faces"] = len(faces)
         result["faces"] = faces
         result["bc_plan"] = bc_plan
         result["face_cells"] = face_cells
 
-    n = n_verts or 0
-    temp_blocks = _f64_field_blocks(data, "Temperature")
-    cn01_blocks = _f64_field_blocks(data, "CN01")
-    pres_blocks = _f64_field_blocks(data, "Pressure")
-    vect_blocks = _f64_field_blocks(data, "VECT")
-    hvec_blocks = _f64_field_blocks(data, "HVEC")
+    n = int(keep_v.size) if keep_v is not None else (n_verts or 0)
+    temp_blocks = _f64_field_blocks(data, "Temperature", keep=keep_v,
+                                    n_verts=n_verts)
+    cn01_blocks = _f64_field_blocks(data, "CN01", keep=keep_v,
+                                    n_verts=n_verts)
+    pres_blocks = _f64_field_blocks(data, "Pressure", keep=keep_v,
+                                    n_verts=n_verts)
+    vect_blocks = _f64_field_blocks(data, "VECT", keep=keep_v,
+                                    n_verts=n_verts)
+    hvec_blocks = _f64_field_blocks(data, "HVEC", keep=keep_v,
+                                    n_verts=n_verts)
 
     fields: dict[str, np.ndarray] = {}
     def _size_ok(arr):
@@ -642,6 +776,9 @@ def parse_fld(filepath: str, data=None) -> dict[str, Any]:
     result["ls_sfile"] = _parse_ls_sfile(data)
     result["meta"] = parse_header_meta(data)
     result["meta"]["local_coord"] = _parse_local_coord(data)
+    if trim_meta is not None:
+        trim_meta["kept_cells"] = int(result.get("n_cells") or 0)
+        result["meta"]["ifld_trim"] = trim_meta
 
     return result
 

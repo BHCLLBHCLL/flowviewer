@@ -101,3 +101,38 @@ def test_ifld_trimming_partial_load(tmp_path):
         trim_fld_mesh(full, (1e18, 2e18, 1e18, 2e18, 1e18, 2e18))
     with pytest.raises(ValueError):
         trim_fld_mesh(full, (1.0, -1.0, 1.0, -1.0, 1.0, -1.0))
+
+
+def test_parse_fld_trim_during_parse(tmp_path):
+    """P1-3: bounds in parse_fld trim in-parse == post-process trim."""
+    if not FLD_EX1.exists():
+        pytest.skip("ex1 fld sample not present")
+    import numpy as np
+    from fv.crdl.ifld import trim_fld_mesh
+    from fv.crdl.mesh_fld import parse_fld
+
+    full = parse_fld(str(FLD_EX1))
+    v = full["vertices"]
+    bounds = (float(np.median(v[:, 0])), float(v[:, 0].max()),
+              float(np.median(v[:, 1])), float(v[:, 1].max()),
+              float(np.median(v[:, 2])), float(v[:, 2].max()))
+    post = trim_fld_mesh(full, bounds)
+    # in-parse trimming shares the index math, so mesh + fields agree
+    direct = parse_fld(str(FLD_EX1), bounds=bounds)
+    assert direct["n_vertices"] == post["n_vertices"]
+    assert direct["n_cells"] == post["n_cells"]
+    assert np.array_equal(direct["vertices"], post["vertices"])
+    assert np.array_equal(direct["cell_conn"], post["cell_conn"])
+    assert set(direct["fields"]) == set(post["fields"])
+    for name in post["fields"]:
+        assert np.allclose(direct["fields"][name], post["fields"][name])
+    t = direct["meta"]["ifld_trim"]
+    assert t["bounds"] == bounds
+    assert t["kept_vertices"] == post["n_vertices"]
+    assert t["kept_cells"] == post["n_cells"]
+    assert t["total_cells"] == full["n_cells"]
+    # in-parse trim raises on an empty box too
+    with pytest.raises(ValueError):
+        parse_fld(str(FLD_EX1), bounds=(1e18, 2e18, 1e18, 2e18, 1e18, 2e18))
+    with pytest.raises(ValueError):
+        parse_fld(str(FLD_EX1), bounds=(1.0, -1.0, 1.0, -1.0, 1.0, -1.0))
