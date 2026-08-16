@@ -4723,6 +4723,42 @@ def test_r24_variable_at_point_fld():
 
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_p02_createvar_family():
+    """P0-2: COM CreateVar*/DeleteVar/SetVarTitle registration family."""
+    from fv.com import FlowviewerApplication
+    app = FlowviewerApplication()
+    app.open_file(FPH)
+    var = "PRES" if "PRES" in app.variable_names else app.variable_names[0]
+    r = app.CreateVar("PDIFF", "%s * 2.0" % var)
+    assert r is not None and r.name == "PDIFF"
+    assert app.ErrorString == "OK"
+    app.SetVarTitle("PDIFF", "twice")
+    assert app._ff.variables["PDIFF"].title == "twice"
+    app.DeleteVar("PDIFF")
+    assert "PDIFF" not in app._ff.variables
+    c = app.CreateVarCombinationVelocity()
+    assert c is not None and c.name == "CMBVEL"
+    d = app.CreateVarDST()
+    assert d is not None
+    n = app.CreateVarNORMAL()
+    assert n is not None
+    d2 = app.CreateVarDST2(surfaces=None, maxlen=0)
+    assert d2 is not None
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_p02_createvar_all_cycles():
+    """P0-2: CreateVarALLCYC registers on every cycle of a FileSet."""
+    from fv.com import FlowviewerApplication
+    from fv.model.fileset import FileSet, SequenceMember
+    app = FlowviewerApplication()
+    fs = FileSet(directory=str(Path(FPH).parent),
+                members=[SequenceMember(cycle=1, path=FPH)])
+    app._fs = fs
+    assert app.CreateVarALLCYC("SEQ2", "PRES + 1") is not None
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_r24_get_variable_info_com():
     """R2.4: COM GetVariableInfo/Min/Max."""
     from fv.com import FlowviewerApplication

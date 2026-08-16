@@ -1037,6 +1037,94 @@ class FlowviewerApplication:
         except Exception as exc:
             return self._fail(exc)
 
+    # ── variable registration (scPOST CreateVar* family, P0-2) ────────────
+
+    def CreateVar(self, lnam, expr):
+        """Register an expression variable (scPOST CreateVar)."""
+        try:
+            from . import api
+            return self._ok(api.register_variable(self._need_ff(), lnam, expr))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def CreateVarALLCYC(self, lnam, expr):
+        """Register *expr* on every cycle of the sequence (CreateVarALLCYC).
+
+        Uses the open_sequence FileSet when present; otherwise registers on
+        the current file only.
+        """
+        try:
+            from . import api
+            if self._fs is not None:
+                return self._ok(api.register_var_all_cycles(
+                    self._fs, lnam, expr, cache=self._rt.cache
+                    if self._rt is not None else None))
+            return self._ok(api.register_variable(self._need_ff(), lnam, expr))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def CreateVarCombinationVelocity(self, static_lnam="CMBVEL", volid_array=None,
+                                     lnam_array=None):
+        """Create the CMBVEL combination velocity (CreateVarCombinationVelocity)."""
+        try:
+            from . import api
+            return self._ok(api.register_combination_velocity(
+                self._need_ff(), static_lnam))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def CreateVarDST(self, maxlen=None):
+        """Create the DST distance-to-wall field (CreateVarDST)."""
+        try:
+            from . import api
+            return self._ok(api.register_dst(self._need_ff()))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def CreateVarDST2(self, surfaces=None, maxlen=None):
+        """Create DST against the specified surfaces (CreateVarDST2)."""
+        try:
+            from . import api
+            regions = None
+            if surfaces:
+                if isinstance(surfaces, (list, tuple)):
+                    regions = list(surfaces)
+                else:
+                    regions = [str(surfaces)]
+            return self._ok(api.register_dst(self._need_ff(),
+                                             surface_regions=regions))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def CreateVarNORMAL(self, region_names=None):
+        """Create the NORMAL wall-normal field (CreateVarNORMAL)."""
+        try:
+            from . import api
+            regions = None
+            if region_names:
+                regions = (list(region_names) if isinstance(
+                    region_names, (list, tuple)) else [str(region_names)])
+            return self._ok(api.register_normal(self._need_ff(),
+                                                surface_regions=regions))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def DeleteVar(self, lnam):
+        """Remove a registered variable (DeleteVar)."""
+        try:
+            from . import api
+            return self._ok(api.delete_variable(self._need_ff(), lnam))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def SetVarTitle(self, lnam, title):
+        """Store a display title for a variable (SetVarTitle)."""
+        try:
+            from . import api
+            return self._ok(api.set_variable_title(self._need_ff(), lnam, title))
+        except Exception as exc:
+            return self._fail(exc)
+
     # ── object creation (scPOST CreateObject* family, P0-1) ───────────────
 
     def _object_tree(self):
