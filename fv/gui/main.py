@@ -137,6 +137,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.dataset = None
         self.main_object = None
         self.fileset = None
+        self.filesets: list = []       # R3.6: multiple FileSets in lockstep
         self._member_cache: dict = {}  # {path: FieldFile} shared by playback/interp
         self._play_timer = None
         self._playing = False
@@ -639,7 +640,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         """Wire a parsed FieldFile into the window (shared tail)."""
         from ..model.objects import MainObject
         self.dataset = ff
-        if ff not in self.datasets:
+        if not any(ff is d for d in self.datasets):
             self.datasets.append(ff)
         # Remember the folder for the next Open dialog (P0.6)
         try:
@@ -672,17 +673,27 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 self.fileset = scan_sequence(str(Path(ff.path)))
             except Exception:  # noqa: BLE001
                 self.fileset = None
+        if self.fileset is not None:
+            self._register_fileset(self.fileset)
         if self.fileset and len(self.fileset) > 1:
+            self.message_win.log(
+                f"FileSet: {len(self.fileset)} steps "
+                f"({Path(ff.path).name} in sequence)")
+        # R3.6: multiple FileSets share one timeline spanning every sequence.
+        if len(self.filesets) > 1:
+            lo, hi = self._sync_range()
+            self.timeline.set_range(lo, hi)
+            self.message_win.log(
+                f"Sync: {len(self.filesets)} FileSets in lockstep "
+                f"(range {lo}..{hi})")
+        elif self.fileset and len(self.fileset) > 1:
             lo, hi = self.fileset.min_cycle(), self.fileset.max_cycle()
-            if lo is not None and hi is not None:
-                self.timeline.set_range(lo, hi)
-                self.message_win.log(
-                    f"FileSet: {len(self.fileset)} steps "
-                    f"({Path(ff.path).name} in sequence)")
-                if not (lo <= cyc <= hi):
-                    cyc = lo
+            self.timeline.set_range(lo, hi)
         else:
+            lo = hi = cyc
             self.timeline.set_range(cyc, cyc)
+        if not (lo <= cyc <= hi):
+            cyc = lo
         self.timeline.set_step(cyc)
         self._cycle_label.setText(f"Cycle {cyc}")
         try:  # R0.8: cell count in the status bar
@@ -717,6 +728,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.dataset = None
         self.main_object = None
         self.fileset = None
+        self.filesets = []
         self._member_cache = {}
         self._on_timeline_pause()
         self.scene.reset()
@@ -1541,23 +1553,67 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.property_host.setVisible(True)
         self.message_win.log(f"Created {getattr(obj, 'label', kind)}")
 
+    # ── FileSet sync (R3.6) ─────────────────────────────────────────────
+    def _register_fileset(self, fs) -> None:
+        """Add a FileSet to the lockstep group, de-duplicated by member set."""
+        if fs is None or not fs:
+            return
+        key = tuple(m.path for m in fs.members)
+        for i, existing in enumerate(self.filesets):
+            if tuple(m.path for m in existing.members) == key:
+                self.filesets[i] = fs
+                return
+        self.filesets.append(fs)
+
+    def _sync_min_cycle(self) -> int:
+        vals = [fs.min_cycle() for fs in self.filesets
+                if fs and fs.min_cycle() is not None]
+        return min(vals) if vals else 0
+
+    def _sync_max_cycle(self) -> int:
+        vals = [fs.max_cycle() for fs in self.filesets
+                if fs and fs.max_cycle() is not None]
+        return max(vals) if vals else 0
+
+    def _sync_range(self) -> tuple:
+        return self._sync_min_cycle(), self._sync_max_cycle()
+
+    def _sync_filesets(self, step: int) -> list:
+        """Load ``step`` across every registered FileSet (R3.6).
+
+        The primary ``self.fileset`` drives the renderer; secondary members
+        are pre-loaded into the shared cache so every sequence advances in
+        lockstep. Returns ``[(FileSet, FieldFile | None), ...]``.
+        """
+        from ..model.fileset import load_member
+        synced = []
+        for fs in self.filesets:
+            if fs is None or not fs:
+                synced.append((fs, None))
+                continue
+            member = fs.find(int(step))
+            ff = None
+            if member is not None:
+                try:
+                    ff = load_member(fs, member.cycle, cache=self._member_cache)
+                except Exception as exc:  # noqa: BLE001
+                    self.message_win.log(
+                        f"Sync load failed: {member.path}: {exc}", "ERROR")
+            synced.append((fs, ff))
+            if ff is not None and fs is not self.fileset:
+                self.message_win.log(
+                    f"Sync {Path(member.path).name}: "
+                    f"Cycle={ff.cycle} Time={ff.time}")
+        return synced
+
     def _on_timeline_step(self, step: int) -> None:
         self._cycle_label.setText(f"Cycle {step}")
         if self.dataset is None or self.main_object is None:
             return
         # Cycle / Time mode → load the corresponding sequence member's data
-        if self.fileset and self.timeline.mode() in ("Cycle", "Time"):
-            member = self.fileset.find(int(step))
-            loaded = None
-            if member is not None:
-                from ..model.fileset import load_member
-                try:
-                    loaded = load_member(
-                        self.fileset, member.cycle,
-                        cache=self._member_cache)
-                except Exception as exc:  # noqa: BLE001
-                    self.message_win.log(
-                        f"Cycle load failed: {member.path}: {exc}", "ERROR")
+        if self.filesets and self.timeline.mode() in ("Cycle", "Time"):
+            synced = self._sync_filesets(int(step))
+            loaded = next((ff for fs, ff in synced if fs is self.fileset), None)
             if loaded is not None and loaded is not self.dataset:
                 self.dataset = loaded
                 self.scene.build(loaded, main=self.main_object)
@@ -1677,8 +1733,8 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 return
 
     def _on_timeline_play(self) -> None:
-        """Play steps forward through the FileSet cycle range."""
-        if self.fileset is None or not self.fileset or QtCore is None:
+        """Play steps forward through the synced FileSet cycle range."""
+        if not self.filesets or QtCore is None:
             return
         self._playing = True
         if self._play_timer is None:
@@ -1690,14 +1746,14 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
     def _play_tick(self) -> None:
         if not self._playing:
             return
-        if self.fileset is None or not self.fileset:
+        if not self.filesets:
             self._on_timeline_pause()
             return
         step = self.timeline.current_step() + 1
-        hi = self.fileset.max_cycle() or 0
+        hi = self._sync_max_cycle()
         if step > hi:
             if self.timeline.chk_loop.isChecked():
-                step = self.fileset.min_cycle() or 0
+                step = self._sync_min_cycle()
             else:
                 self._on_timeline_pause()
                 return

@@ -4962,3 +4962,73 @@ def test_r32_video_export_headless(tmp_path):
     from fv.render.export import export_animation_video
     assert export_animation_video(None, None, None, None,
                                   str(tmp_path / "anim.ogv")) == 0
+
+
+
+def test_r36_synced_timeline_model():
+    """R3.6: SyncedTimeline unifies ranges and resolves members in lockstep."""
+    from fv.model.fileset import FileSet, SequenceMember, SyncedTimeline
+
+    def fs(cycles):
+        return FileSet(directory=".", members=[
+            SequenceMember(path=f"s_{c}.fph", cycle=c) for c in cycles])
+
+    a = fs([1, 2, 3])
+    b = fs([10, 100, 200])
+    st = SyncedTimeline(align="cycle")
+    st.add(a).add(b).add(a)  # duplicate add is idempotent
+    assert len(st) == 2
+    assert st.range() == (1, 200)
+    assert st.min_cycle() == 1 and st.max_cycle() == 200
+    # cycle alignment: nearest at-or-after per FileSet
+    pairs = st.members_at(5)
+    assert pairs[0][1].cycle == 3      # a: no member >=5 -> last (3)
+    assert pairs[1][1].cycle == 10     # b: first member >=5
+    # index alignment advances both sequences ordinal-by-ordinal
+    st2 = SyncedTimeline(align="index")
+    st2.add(a).add(b)
+    assert st2.range() == (0, 2)
+    assert st2.members_at(1) == [(a, a.members[1]), (b, b.members[1])]
+    assert st2.members_at(5) == [(a, None), (b, None)]
+    # invalid align falls back to cycle
+    assert SyncedTimeline(align="bogus").align == "cycle"
+    # removal / clear
+    st2.remove(a)
+    assert len(st2) == 1
+    st2.clear()
+    assert not st2
+
+
+@pytest.mark.skipif(not _HAS_QT, reason="PyQt5 unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_r36_gui_multi_fileset_sync(qapp, tmp_path):
+    """R3.6: opening two sequences registers both and steps them in lockstep."""
+    import shutil
+    from pathlib import Path as P
+    base = P(tmp_path)
+    # Two distinct stems, each a two-step sequence (copies of the sample).
+    for stem, cycles in (("a", (1, 2)), ("b", (10, 20))):
+        for c in cycles:
+            shutil.copyfile(FPH, base / f"{stem}_{c}.fph")
+    w = _make(qapp, str(base / "a_1.fph"))
+    assert w.fileset is not None and len(w.fileset) == 2
+    assert len(w.filesets) == 1
+    # Open the second stem without closing (default Open appends to sync).
+    w.open_file(str(base / "b_10.fph"))
+    assert len(w.filesets) == 2
+    assert w._sync_range() == (1, 20)
+    assert w._sync_min_cycle() == 1 and w._sync_max_cycle() == 20
+    # Cycle mode: a single timeline value drives both sequences.
+    w.timeline._mode_group.button(1).setChecked(True)
+    assert w.timeline.mode() == "Cycle"
+    w.timeline.set_step(12)
+    w._on_timeline_step(12)
+    # primary (b) resolves step 12 to b_20; a resolves to its last member a_2.
+    assert w.dataset.path.lower().endswith("b_20.fph")
+    assert any(k.lower().endswith("a_2.fph") for k in w._member_cache)
+    assert any(k.lower().endswith("b_20.fph") for k in w._member_cache)
+    # Re-opening the first stem replaces (not duplicates) its FileSet.
+    w.open_file(str(base / "a_1.fph"))
+    assert len(w.filesets) == 2
+    w._close_current_files()
+    assert w.filesets == []

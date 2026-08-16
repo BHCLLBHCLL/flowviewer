@@ -327,3 +327,87 @@ class CycleRuntime:
     def current_file(self):
         """FieldFile at the current (possibly fractional) cycle id."""
         return interpolate_at(self.fs, self.cur_id, cache=self.cache)
+
+
+# ── multi-FileSet lockstep (R3.6 Timeline Sync) ───────────────────────────
+
+class SyncedTimeline:
+    """Several FileSets played back in lockstep (R3.6 Timeline Sync).
+
+    A single timeline value (a cycle number, or a 0-based index) drives
+    every registered :class:`FileSet`. ``align="cycle"`` resolves the
+    value against each FileSet's own cycle list (nearest at-or-after, like
+    :meth:`FileSet.find`); ``align="index"`` maps the value to the same
+    ordinal member of every sequence so differently-numbered series
+    advance together.
+    """
+
+    def __init__(self, align: str = "cycle"):
+        self.filesets: list[FileSet] = []
+        self.align = align if align in ("cycle", "index") else "cycle"
+
+    def __bool__(self) -> bool:
+        return bool(self.filesets)
+
+    def __len__(self) -> int:
+        return len(self.filesets)
+
+    def add(self, fs: Optional[FileSet]) -> "SyncedTimeline":
+        if fs is not None and fs not in self.filesets:
+            self.filesets.append(fs)
+        return self
+
+    def remove(self, fs: FileSet) -> "SyncedTimeline":
+        if fs in self.filesets:
+            self.filesets.remove(fs)
+        return self
+
+    def clear(self) -> "SyncedTimeline":
+        self.filesets = []
+        return self
+
+    # ── unified range ─────────────────────────────────────────────────────
+    def min_cycle(self) -> Optional[int]:
+        vals = [fs.min_cycle() for fs in self.filesets
+                if fs.min_cycle() is not None]
+        return min(vals) if vals else None
+
+    def max_cycle(self) -> Optional[int]:
+        vals = [fs.max_cycle() for fs in self.filesets
+                if fs.max_cycle() is not None]
+        return max(vals) if vals else None
+
+    def max_index(self) -> int:
+        lens = [len(fs) for fs in self.filesets if len(fs) > 0]
+        return (max(lens) - 1) if lens else 0
+
+    def range(self) -> tuple[int, int]:
+        """Unified ``(lo, hi)`` for the active alignment mode."""
+        if self.align == "index":
+            return 0, self.max_index()
+        lo, hi = self.min_cycle(), self.max_cycle()
+        if lo is None or hi is None:
+            return 0, 0
+        return lo, hi
+
+    # ── resolution / loading ──────────────────────────────────────────────
+    def member_for(self, fs: FileSet, value: int) -> Optional[SequenceMember]:
+        if self.align == "index":
+            idx = int(value)
+            if 0 <= idx < len(fs.members):
+                return fs.members[idx]
+            return None
+        return fs.find(int(value))
+
+    def members_at(self, value: int) -> list[tuple[FileSet, Optional[SequenceMember]]]:
+        return [(fs, self.member_for(fs, value)) for fs in self.filesets]
+
+    def load_all(self, value: int, cache: Optional[dict] = None):
+        """``[(FileSet, FieldFile | None), ...]`` at *value* across every FileSet."""
+        out = []
+        for fs, member in self.members_at(value):
+            ff = None
+            if member is not None:
+                ff = load_member(fs, member.cycle, cache)
+            out.append((fs, ff))
+        return out
