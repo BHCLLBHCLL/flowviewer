@@ -615,6 +615,35 @@ def test_plane_automove_animation():
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_plane_automove_recut_reuses_grid():
+    """P2-3: animation frames reuse the cached grid (incremental re-cut)."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import MainObject
+    from fv.render.scene import Scene
+    ff = load_file(FPH)
+    main = MainObject.from_field_file(ff)
+    plane = next(c for c in main.children if c.kind == "plane")
+    plane.show_contour = True
+    plane.contour_var = "PRES"
+    plane.automove_enabled = True
+    plane.automove_method = "Line"
+    plane.automove_start_point = plane.point
+    plane.automove_start_normal = plane.normal
+    plane.automove_ref_point = (10.0, 0.0, plane.coordinate)
+    plane.automove_ref_normal = plane.normal
+    s = Scene(enable_3d=True)
+    s.build(ff, main)
+    s.animate(5, fps=11)
+    key = (id(ff), id(plane))
+    assert key in s._plane_cut_cache      # grid built once and cached
+    ugrid = s._plane_cut_cache[key][0]
+    s.animate(6, fps=11)
+    assert s._plane_cut_cache[key][0] is ugrid   # same grid on next frame
+    assert len(s._plane_cut_cache) == 1
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_plane_render_pipeline_fph():
     import vtk
     from fv.model.dataset import load_file

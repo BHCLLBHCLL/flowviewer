@@ -1438,19 +1438,49 @@ def build_plane_actors(ff: FieldFile, obj, ugrid=None,
             and obj.contour_var in ff.variables):
         attach_scalar(ugrid, ff, obj.contour_var, cell_centered, rows=rows)
 
-    # Cut once
-    cut = cut_grid(ugrid, obj)
+    cut = _cut_pipeline(ugrid, obj, ff, siblings)
     if cut.GetNumberOfPoints() == 0:
         return out
+    return _plane_actors_tail(ff, obj, cut, ugrid, cell_centered, rows,
+                              siblings)
 
-    # Trim
+
+def recut_plane_actors(ff: FieldFile, obj, ugrid, cell_centered: bool,
+                       rows=None, siblings=None) -> dict:
+    """Re-cut only the plane surface for an automove frame (P2-3).
+
+    The caller supplies the cached volume grid (built once per animation);
+    only the cut pipeline (cut → trim → clip) and the cut-derived actors
+    are redone, so animation frames skip grid construction and masking.
+    """
+    out: dict = {}
+    if not _HAS_VTK:
+        return out
+    if (getattr(obj, "show_contour", False) and getattr(obj, "contour_var", "")
+            and obj.contour_var in ff.variables):
+        attach_scalar(ugrid, ff, obj.contour_var, cell_centered, rows=rows)
+    cut = _cut_pipeline(ugrid, obj, ff, siblings)
+    if cut.GetNumberOfPoints() == 0:
+        return out
+    return _plane_actors_tail(ff, obj, cut, ugrid, cell_centered, rows,
+                              siblings)
+
+
+def _cut_pipeline(ugrid, obj, ff, siblings):
+    """Cut plane surface: vtkCutter + trim / limited / object / region clip."""
+    cut = cut_grid(ugrid, obj)
+    if cut.GetNumberOfPoints() == 0:
+        return cut
     cut = trim_cut(cut, obj)
-    # Limited plane (5c): clip to a finite box centred on the plane point
     cut = _limited_clip(cut, obj)
-    # Trim by other objects (P1.6)
     cut = trim_by_objects(cut, ff, obj, siblings)
-    # Clip (X/Y region)
     cut = clip_cut(cut, obj)
+    return cut
+
+
+def _plane_actors_tail(ff, obj, cut, ugrid, cell_centered, rows, siblings):
+    """Actors derived from a (possibly freshly re-cut) plane surface."""
+    out: dict = {}
 
     # Clip region frame
     if getattr(obj, "clip_display_region", False):

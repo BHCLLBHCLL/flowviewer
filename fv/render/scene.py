@@ -45,6 +45,7 @@ class Scene:
         self._colorbar_obj = None                # global ColorbarObject (P0.2)
         self._name_actor = None                  # object-name billboard (C3)
         self._light_obj = None                   # global LightObject (P0.3)
+        self._plane_cut_cache: dict = {}         # (id(ff), id(obj)) → grid (P2-3)
         if self.enable_3d:
             self.renderer = vtk.vtkRenderer()
             # Light scPOST Draw Window (near-white)
@@ -77,6 +78,7 @@ class Scene:
         self._bounds = None
         self._colorbar_obj = None
         self._light_obj = None
+        self._plane_cut_cache = {}
 
     def add_actor(self, layer: str, actor) -> None:
         if self.enable_3d:
@@ -405,13 +407,30 @@ class Scene:
         if not planes and not particles:
             return
         if planes:
-            from .plane import automove_coordinate, build_plane_actors
+            from .plane import (automove_coordinate, build_ugrid,
+                                cell_filter_mask, recut_plane_actors)
+            ff = self._field_file
             for obj in planes:
                 point, normal = automove_coordinate(obj, t, frames=fps)
                 obj.point = tuple(point)
                 obj.normal = tuple(normal)
+                key = (id(ff), id(obj))
+                cache = self._plane_cut_cache.get(key)
+                if cache is None:
+                    # P2-3: build the volume grid once per animation; each
+                    # frame's automove only re-cuts the plane surface.
+                    from .plane import _masked_cell_rows
+                    mask = cell_filter_mask(ff, obj)
+                    rows = _masked_cell_rows(ff, mask)
+                    ugrid, cell_centered = build_ugrid(ff, cell_mask=mask)
+                    if ugrid is None:
+                        continue
+                    cache = (ugrid, cell_centered, rows)
+                    self._plane_cut_cache[key] = cache
+                ugrid, cell_centered, rows = cache
                 self._remove_layer_prefix("plane:")
-                actors = build_plane_actors(self._field_file, obj)
+                actors = recut_plane_actors(ff, obj, ugrid, cell_centered,
+                                            rows)
                 for key, actor in actors.items():
                     self.add_actor(f"plane:{key}", actor)
             self._apply_global_colorbar_all()
