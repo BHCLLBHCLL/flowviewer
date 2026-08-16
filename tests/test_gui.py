@@ -4722,6 +4722,27 @@ def test_r24_variable_at_point_fld():
     assert res is not None and isinstance(res["values"], float)
 
 
+def test_p04_gettickcount_ex():
+    """P0-4: GetTickCountEx returns machine uptime in seconds."""
+    from fv.com import FlowviewerApplication
+    app = FlowviewerApplication()
+    t = app.GetTickCountEx()
+    assert isinstance(t, float)
+    assert t > 3600.0            # machine has been up for over an hour
+
+
+def test_p04_shell_execute_error_path():
+    """P0-4: ShellExecute fails cleanly on empty/bad targets."""
+    from fv.com import FlowviewerApplication
+    app = FlowviewerApplication()
+    # empty target -> False (ok), no exception
+    assert app.ShellExecute("") is False
+    # a clearly-invalid path must not raise (returns None via _fail)
+    res = app.ShellExecute("Z:\\__no_such_file_flowviewer__.xyz")
+    assert res is None
+    assert app.ErrorCode != 0
+
+
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_p03_object_and_var_query():
     """P0-3: COM object query + variable value query families."""

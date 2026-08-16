@@ -1441,10 +1441,20 @@ class FlowviewerApplication:
             return self._fail(exc)
 
     def GetTickCountEx(self):
-        """Elapsed seconds since machine start (GetTickCountEx)."""
-        import time
+        """Elapsed seconds since the machine started (GetTickCountEx)."""
+        import sys
         try:
-            return self._ok(float(time.monotonic()))
+            if sys.platform == "win32":
+                import ctypes
+                millis = ctypes.windll.kernel32.GetTickCount64()
+                return self._ok(float(millis) / 1000.0)
+            # POSIX: uptime from /proc/uptime, else time.monotonic fallback
+            try:
+                with open("/proc/uptime", "r", encoding="ascii") as fh:
+                    return self._ok(float(fh.read().split()[0]))
+            except Exception:
+                import time
+                return self._ok(float(time.monotonic()))
         except Exception as exc:
             return self._fail(exc)
 
@@ -1487,8 +1497,25 @@ class FlowviewerApplication:
             return self._fail(exc)
 
     def ShellExecute(self, path, data=""):
-        """Open *path* via the Windows shell (ShellExecute); headless no-op."""
-        return self._ok(True)
+        """Open *path* via the Windows shell (ShellExecute).
+
+        Uses ``os.startfile`` (win32 ``ShellExecuteW``); falls back to
+        ``webbrowser``/open for non-Windows hosts.  Returns True on success.
+        """
+        import os
+        import sys
+        try:
+            target = str(path)
+            if not target:
+                return self._ok(False)
+            if sys.platform == "win32":
+                os.startfile(target)          # ShellExecuteW(open)
+            else:
+                import subprocess
+                subprocess.Popen(["xdg-open", target])
+            return self._ok(True)
+        except Exception as exc:
+            return self._fail(exc)
 
     def GetEnvFilePath(self):
         """Best-effort path of the environment file (GetEnvFilePath)."""
