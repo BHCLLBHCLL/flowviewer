@@ -179,7 +179,7 @@ def _trace_fld_numeric(ff, seeds, steps: int, reverse: bool,
     length taken from ``obj.step_size`` instead of a hard-coded 0.001;
     ``color_var`` is sampled at each trace point when resolvable.
     """
-    from .streamline import NodeFieldSampler
+    from .streamline import FldCellInterpolator
     verts = np.asarray(ff.vertices, dtype=np.float64)
     if verts is None or len(verts) == 0:
         return None, None, None
@@ -197,7 +197,7 @@ def _trace_fld_numeric(ff, seeds, steps: int, reverse: bool,
             color_vals = np.asarray(a, dtype=np.float64)
             if color_vals.shape[0] != len(verts):
                 color_vals = None
-    sampler = NodeFieldSampler(verts)
+    interp = FldCellInterpolator(ff)
     lo = verts.min(axis=0)
     hi = verts.max(axis=0)
     box = (hi - lo) * 0.5
@@ -205,7 +205,19 @@ def _trace_fld_numeric(ff, seeds, steps: int, reverse: bool,
     sign = -1.0 if reverse else 1.0
 
     def velocity(p):
-        return field[sampler.nearest(p)] * sign
+        # P2-1: true hex-cell trilinear interpolation (nearest-node fallback)
+        ids, w = interp.locate(p)
+        if ids is not None:
+            return np.dot(w, field[ids]) * sign
+        return field[interp._nn.nearest(p)] * sign
+
+    def color_at(p):
+        if color_vals is None:
+            return 0.0
+        ids, w = interp.locate(p)
+        if ids is not None:
+            return float(np.dot(w, color_vals[ids]))
+        return float(color_vals[interp._nn.nearest(p)])
 
     def advance(p):
         k1 = velocity(p)
@@ -220,15 +232,14 @@ def _trace_fld_numeric(ff, seeds, steps: int, reverse: bool,
     for s0 in seeds:
         p = np.asarray(s0, dtype=np.float64)
         path = [p.copy()]
-        vals = [color_vals[sampler.nearest(p)]
-                if color_vals is not None else 0.0]
+        vals = [color_at(p)]
         for _ in range(max(1, steps)):
             p = advance(p)
             if not (lo - box <= p).all() or not (p <= hi + box).all():
                 break
             path.append(p.copy())
             if color_vals is not None:
-                vals.append(color_vals[sampler.nearest(p)])
+                vals.append(color_at(p))
         segs.append(np.asarray(path))
         ends.append(path[-1])
         if vals_out is not None:

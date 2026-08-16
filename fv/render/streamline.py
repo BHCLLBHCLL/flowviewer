@@ -142,6 +142,118 @@ class NodeFieldSampler:
         return int(np.argmin(np.einsum("ij,ij->i", d, d)))
 
 
+# VTK hexahedron vertex signs for the trilinear shape functions.
+_HEX_SIGNS = np.array([
+    [-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],
+    [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1],
+], dtype=np.float64)
+
+
+def _trilinear_weights(corners: np.ndarray, r: np.ndarray) -> np.ndarray:
+    """Hex8 shape-function weights at local coords ``r`` (k×3 → k×8)."""
+    one = 1.0 + r[:, None, :] * _HEX_SIGNS[None, :, :]     # (k, 8, 3)
+    return 0.125 * one.prod(axis=2)
+
+
+class FldCellInterpolator:
+    """True hex-cell interpolation for FLD node-centred fields (P2-1).
+
+    Finds the hexahedron containing a query point (per-cell bbox prefilter
+    + Newton solve of the trilinear map) and returns the cell's 8 node ids
+    with the trilinear weights, so node data is interpolated inside the
+    cell instead of sampled at the nearest node.  Points outside the mesh,
+    in inter-cell gaps or inside non-hex cells fall back to the nearest
+    node (``locate`` returns ``(None, None)``).
+    """
+
+    _EPS = 1e-6
+
+    def __init__(self, ff):
+        self.verts = np.asarray(ff.vertices, dtype=np.float64)
+        conn = getattr(ff, "cell_conn", None)
+        self.conn = None
+        self._bmin = None
+        self._bmax = None
+        self._hex_mask = None
+        self._nn = NodeFieldSampler(self.verts)
+        if conn is not None and getattr(conn, "size", 0):
+            c0 = np.asarray(conn, dtype=np.int64)
+            valid = c0[c0 >= 0]
+            if valid.size:
+                base = (1 if (valid.min() > 0
+                              and valid.max() >= self.verts.shape[0]) else 0)
+                c0 = np.where(c0 >= 0, c0 - base, -1)
+            self.conn = c0
+            n_cells = c0.shape[0]
+            types = getattr(ff, "cell_types", None)
+            if types is not None and len(types) == n_cells:
+                t = np.asarray(types, dtype=np.int64)
+                self._hex_mask = (t == 0) | (t == 12)
+            else:
+                self._hex_mask = np.ones(n_cells, dtype=bool)
+            safe = np.where(c0 >= 0, c0, 0)
+            coords = self.verts[safe]                      # (n_cells, 8, 3)
+            mask = (c0 >= 0)[..., None]                    # (n_cells, 8, 1)
+            finite = np.where(mask, coords, np.inf)
+            neginf = np.where(mask, coords, -np.inf)
+            self._bmin = finite.min(axis=1)
+            self._bmax = neginf.max(axis=1)
+
+    def locate(self, p):
+        """``(node_ids (8,), weights (8,))`` of the containing hex cell,
+        or ``(None, None)`` when no hex cell contains *p*."""
+        p = np.asarray(p, dtype=np.float64)
+        if self.conn is None or self._bmin is None:
+            return None, None
+        inb = ((p >= self._bmin) & (p <= self._bmax)).all(axis=1)
+        cands = np.flatnonzero(inb & self._hex_mask)
+        if cands.size == 0:
+            return None, None
+        ids = self.conn[cands]
+        ok = (ids >= 0).all(axis=1)
+        cands = cands[ok]
+        if cands.size == 0:
+            return None, None
+        ids = self.conn[cands]
+        V = self.verts[ids]                                # (k, 8, 3)
+        r = np.zeros((cands.size, 3), dtype=np.float64)
+        r_prev = np.full_like(r, np.inf)
+        for _ in range(24):
+            one = 1.0 + r[:, None, :] * _HEX_SIGNS[None, :, :]
+            N = 0.125 * one.prod(axis=2)                   # (k, 8)
+            X = np.einsum("ki,kij->kj", N, V)              # (k, 3)
+            res = p[None, :] - X
+            if np.abs(r - r_prev).max() < 1e-12:
+                break
+            r_prev = r.copy()
+            dNr = 0.125 * _HEX_SIGNS[:, 0][None, :] * np.prod(one[:, :, 1:], axis=2)
+            dNs = 0.125 * _HEX_SIGNS[:, 1][None, :] * np.prod(one[:, :, [0, 2]], axis=2)
+            dNt = 0.125 * _HEX_SIGNS[:, 2][None, :] * np.prod(one[:, :, :2], axis=2)
+            J = np.stack([
+                np.einsum("ki,kij->kj", dNr, V),
+                np.einsum("ki,kij->kj", dNs, V),
+                np.einsum("ki,kij->kj", dNt, V),
+            ], axis=1)                                     # (k, 3, 3)
+            try:
+                delta = np.linalg.solve(J, res[:, :, None])[:, :, 0]
+            except np.linalg.LinAlgError:
+                break
+            r = r + delta
+        inside = (np.abs(r) <= 1.0 + self._EPS).all(axis=1)
+        if not inside.any():
+            return None, None
+        i = int(np.flatnonzero(inside)[0])
+        N = _trilinear_weights(V[i:i + 1], r[i:i + 1])[0]
+        return ids[i], N
+
+    def sample(self, p, field: np.ndarray) -> np.ndarray:
+        """Interpolate a node array at *p*; nearest-node fallback."""
+        ids, w = self.locate(p)
+        if ids is not None:
+            return np.dot(w, field[ids])
+        return field[self._nn.nearest(p)]
+
+
 def _numeric_trace_fld(ff: FieldFile, obj) -> Optional["vtk.vtkPolyData"]:
     """Numerical streamline for FLD node-centred data (no VTK locator).
 
@@ -171,7 +283,7 @@ def _numeric_trace_fld(ff: FieldFile, obj) -> Optional["vtk.vtkPolyData"]:
             if color_vals.shape[0] != len(verts):
                 color_vals = None
 
-    sampler = NodeFieldSampler(verts)
+    interp = FldCellInterpolator(ff)
     lo = verts.min(axis=0)
     hi = verts.max(axis=0)
     box = (hi - lo) * 0.5
@@ -188,7 +300,19 @@ def _numeric_trace_fld(ff: FieldFile, obj) -> Optional["vtk.vtkPolyData"]:
                     or "Forward").lower()
 
     def velocity(p: np.ndarray, sign: float) -> np.ndarray:
-        return field[sampler.nearest(p)] * sign
+        # P2-1: true hex-cell trilinear interpolation (nearest-node fallback)
+        ids, w = interp.locate(p)
+        if ids is not None:
+            return np.dot(w, field[ids]) * sign
+        return field[interp._nn.nearest(p)] * sign
+
+    def color_at(p):
+        if color_vals is None:
+            return 0.0
+        ids, w = interp.locate(p)
+        if ids is not None:
+            return float(np.dot(w, color_vals[ids]))
+        return float(color_vals[interp._nn.nearest(p)])
 
     def advance(p: np.ndarray, sign: float) -> np.ndarray:
         if rk4:
@@ -207,8 +331,7 @@ def _numeric_trace_fld(ff: FieldFile, obj) -> Optional["vtk.vtkPolyData"]:
 
     def trace(p, sign):
         chain = [p.copy()]
-        vals = [color_vals[sampler.nearest(p)]
-                if color_vals is not None else 0.0]
+        vals = [color_at(p)]
         travel = 0.0
         for _ in range(max_steps):
             nxt = advance(p, sign)
@@ -218,7 +341,7 @@ def _numeric_trace_fld(ff: FieldFile, obj) -> Optional["vtk.vtkPolyData"]:
                 break
             chain.append(p.copy())
             if color_vals is not None:
-                vals.append(color_vals[sampler.nearest(p)])
+                vals.append(color_at(p))
             if length > 0.0 and travel >= length:
                 break
         return chain, vals

@@ -1392,6 +1392,39 @@ def test_streamline_render_pipeline_fld():
 
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+def test_fld_cell_interpolator():
+    """P2-1: FldCellInterpolator does true hex trilinear interpolation."""
+    import numpy as np
+    from fv.model.dataset import load_file
+    from fv.render.streamline import FldCellInterpolator
+    if not Path(FLD).exists():
+        pytest.skip("sample not present")
+    ff = load_file(FLD)
+    interp = FldCellInterpolator(ff)
+    conn = np.asarray(ff.cell_conn, dtype=np.int64)
+    v = np.asarray(ff.vertices, dtype=np.float64)
+    base = 1 if conn[conn >= 0].min() > 0 else 0
+    cell = conn[0] - base
+    # cell centroid: trilinear weights are uniform 1/8 there
+    ids, w = interp.locate(v[cell].mean(axis=0))
+    assert ids is not None
+    assert np.allclose(w, 0.125, atol=1e-6)
+    assert ids.shape == (8,) and np.allclose(w.sum(), 1.0)
+    # node-centred field interpolated at the centroid == node average
+    x = v[:, 0]
+    assert np.isclose(interp.sample(v[cell].mean(axis=0), x),
+                      float(x[cell].mean()), atol=1e-9)
+    # a point far outside the mesh falls back to the nearest node
+    far = np.array([1e9, 1e9, 1e9], dtype=np.float64)
+    ids, w = interp.locate(far)
+    assert ids is None
+    nn = np.argmin(((v - far) ** 2).sum(axis=1))
+    assert interp.sample(far, x) == float(x[nn])
+
+
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_volume_render_pipeline_fph():
     """P1.1: FPH polyhedra render via ResampleToImage→SmartVolumeMapper."""

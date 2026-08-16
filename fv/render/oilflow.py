@@ -205,7 +205,7 @@ def _numeric_trace_fld(ff: FieldFile, obj) -> Optional["vtk.vtkPolyData"]:
     honouring ``oilflow_length`` / ``oilflow_steps`` / ``oilflow_accuracy``
     and attaching ``oilflow_color_var`` point data for line colouring.
     """
-    from ..render.streamline import NodeFieldSampler
+    from ..render.streamline import FldCellInterpolator
     verts = np.asarray(ff.vertices, dtype=np.float64)
     if verts is None or len(verts) == 0:
         return None
@@ -223,7 +223,7 @@ def _numeric_trace_fld(ff: FieldFile, obj) -> Optional["vtk.vtkPolyData"]:
         if a is not None and len(a) == len(verts):
             color_vals = np.asarray(a, dtype=np.float64)
 
-    sampler = NodeFieldSampler(verts)
+    interp = FldCellInterpolator(ff)
     lo, hi = verts.min(axis=0), verts.max(axis=0)
     box = (hi - lo) * 0.5
     seeds = _seed_points_np(obj, verts)
@@ -237,7 +237,19 @@ def _numeric_trace_fld(ff: FieldFile, obj) -> Optional["vtk.vtkPolyData"]:
               or "Runge-Kutta").lower() not in ("euler", "rk2")
 
     def velocity(p: np.ndarray) -> np.ndarray:
-        return field[sampler.nearest(p)]
+        # P2-1: true hex-cell trilinear interpolation (nearest-node fallback)
+        ids, w = interp.locate(p)
+        if ids is not None:
+            return np.dot(w, field[ids])
+        return field[interp._nn.nearest(p)]
+
+    def color_at(p):
+        if color_vals is None:
+            return 0.0
+        ids, w = interp.locate(p)
+        if ids is not None:
+            return float(np.dot(w, color_vals[ids]))
+        return float(color_vals[interp._nn.nearest(p)])
 
     def advance(p: np.ndarray) -> np.ndarray:
         if rk4:
@@ -257,8 +269,7 @@ def _numeric_trace_fld(ff: FieldFile, obj) -> Optional["vtk.vtkPolyData"]:
     for s0 in seeds:
         p = s0.copy()
         chain = [p.copy()]
-        vals = [color_vals[sampler.nearest(p)]
-                if color_vals is not None else 0.0]
+        vals = [color_at(p)]
         travel = 0.0
         for _ in range(max_steps):
             nxt = advance(p)
@@ -268,7 +279,7 @@ def _numeric_trace_fld(ff: FieldFile, obj) -> Optional["vtk.vtkPolyData"]:
                 break
             chain.append(p.copy())
             if color_vals is not None:
-                vals.append(color_vals[sampler.nearest(p)])
+                vals.append(color_at(p))
             if length > 0.0 and travel >= length:
                 break
         if len(chain) < 2:
