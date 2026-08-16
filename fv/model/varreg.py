@@ -42,6 +42,10 @@ _DELTA_FUNCS = {"delx": "X", "dely": "Y", "delz": "Z"}
 
 _VARNAME_FUNCS = {"delx", "dely", "delz", "grad", "div", "rot"}
 
+# div/rot accept either a vector base name (div(VEL)) or three explicit
+# component names (div(UX,UY,UZ)); grad/delx/dely/delz take a single name.
+_VECTOR_3_FUNCS = {"div", "rot"}
+
 _UNARY = {"-", "+"}
 
 
@@ -177,6 +181,19 @@ class _Eval:
                 vt = self._next()
                 if vt[0] != "name":
                     raise ValueError(name + " takes a variable name")
+                if name in _VECTOR_3_FUNCS and self._peek() == ("op", ","):
+                    # Explicit 3-component form: div(UX,UY,UZ) / rot(UX,UY,UZ)
+                    comps = [vt[1]]
+                    while self._peek() == ("op", ","):
+                        self._next()
+                        t = self._next()
+                        if t[0] != "name":
+                            raise ValueError(name + " takes variable names")
+                        comps.append(t[1])
+                    if len(comps) != 3:
+                        raise ValueError(name + " takes 1 or 3 variable names")
+                    self._expect_op(")")
+                    return self._call_vector(name, comps)
                 self._expect_op(")")
                 return self._call_varname(name, vt[1])
             if name in self._vars:
@@ -216,6 +233,25 @@ class _Eval:
             return np.column_stack([rx, ry, rz])
         raise ValueError("unknown operator " + repr(name))
 
+    def _call_vector(self, name: str, comps: list):
+        """div/rot with explicit component names: div(UX,UY,UZ)."""
+        if self._ff is None:
+            raise ValueError(name + " needs a field file")
+        ff = self._ff
+        if name == "div":
+            return (_axis_difference(ff, comps[0], "X")
+                    + _axis_difference(ff, comps[1], "Y")
+                    + _axis_difference(ff, comps[2], "Z"))
+        if name == "rot":
+            rx = _axis_difference(ff, comps[2], "Y") - \
+                _axis_difference(ff, comps[1], "Z")
+            ry = _axis_difference(ff, comps[0], "Z") - \
+                _axis_difference(ff, comps[2], "X")
+            rz = _axis_difference(ff, comps[1], "X") - \
+                _axis_difference(ff, comps[0], "Y")
+            return np.column_stack([rx, ry, rz])
+        raise ValueError("unknown operator " + repr(name))
+
     def _call(self, name: str, args: list):
         expect = _FUNCS[name]
         if len(args) != expect:
@@ -230,7 +266,11 @@ class _Eval:
         if name == "max":
             return np.maximum(args[0], args[1])
         if name == "mag":
-            return args[0]
+            # P0-6: magnitude of a vector expression (n,3); pass scalars through.
+            a = args[0]
+            if a.ndim == 2:
+                return np.linalg.norm(a, axis=1)
+            return a
         if name == "ifgt":
             return np.where(args[0] > args[1], 1.0, 0.0)
         if name == "ifet":

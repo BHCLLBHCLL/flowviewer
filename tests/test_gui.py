@@ -4723,6 +4723,36 @@ def test_r24_variable_at_point_fld():
 
 
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
+def test_p06_varreg_mag_div_rot():
+    """P0-6: mag() reduces vector expressions; div/rot accept 3 components."""
+    import numpy as np
+    from fv.model.dataset import (load_file, FIELD_KIND_SCALAR,
+                                  FIELD_KIND_VECTOR, VarInfo)
+    from fv.model import varreg
+    ff = load_file(FLD)
+    n = ff.n_vertices
+    x = np.linspace(0.0, 1.0, n)
+    for c, arr in (("X", np.sin(x)), ("Y", np.cos(x)), ("Z", np.zeros(n))):
+        ff.variables["VEL" + c] = VarInfo(
+            name="VEL" + c, kind=FIELD_KIND_VECTOR, location="node", array=arr)
+    # mag(vector) -> unit magnitude
+    m = varreg.register_variable(ff, "SPEED", "mag(VEL)")
+    assert m.kind == FIELD_KIND_SCALAR and m.array.shape == (n,)
+    assert abs(float(m.array[0]) - 1.0) < 1e-6
+    # mag(grad(scalar)) reduces the (n,3) gradient to a scalar
+    g = varreg.register_variable(ff, "GMAG", "mag(grad(PRES))")
+    assert g.kind == FIELD_KIND_SCALAR and g.array.shape == (n,)
+    # div/rot with base name and explicit components
+    d = varreg.register_variable(ff, "DIVV", "div(VEL)")
+    assert d.kind == FIELD_KIND_SCALAR
+    d3 = varreg.register_variable(ff, "DIV3", "div(VELX,VELY,VELZ)")
+    assert d3.kind == FIELD_KIND_SCALAR
+    r3 = varreg.register_variable(ff, "ROT3", "rot(VELX,VELY,VELZ)")
+    assert r3.kind == FIELD_KIND_VECTOR and r3.array.shape == (n, 3)
+    assert np.allclose(d.array, d3.array)
+
+
+@pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
 def test_p05_oilflow_fld_numeric():
     """P0-5: oilflow on FLD takes the numeric fallback (no VTK locator crash)."""
     from fv.model.dataset import load_file
