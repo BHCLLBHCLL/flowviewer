@@ -1317,3 +1317,153 @@ def split_view(items, filename: str) -> bool:
         win.AddRenderer(sc.renderer)
     win.Render()
     return snapshot_png(win, filename)
+
+# ── variable output file (scPOST SaveVariableOutput, R2.5) ───────────────
+
+_VAROUT_COLUMNS = {
+    "title": ["title"],
+    "coords": ["x", "y", "z"],
+    "normal": ["nx", "ny", "nz"],
+    "scalar": ["scalar", "scalar_value"],
+    "vector": ["vector", "vector_x", "vector_y", "vector_z"],
+    "elem": ["elem"],
+    "node": ["node"],
+    "rank": ["rank"],
+}
+_VAROUT_ALL = ["title", "coords", "normal", "scalar", "vector",
+               "elem", "node", "rank"]
+
+
+def _vector_bases(ff):
+    """Unique vector base names (component name minus trailing X/Y/Z)."""
+    out = []
+    for n, v in ff.variables.items():
+        if v.kind == "vector" and n.endswith(("X", "Y", "Z")):
+            base = n[:-1]
+            if base and base not in out:
+                out.append(base)
+    return sorted(out)
+
+
+def _scalar_vars(ff):
+    """Sorted scalar variable names."""
+    return sorted(n for n, v in ff.variables.items() if v.kind == "scalar")
+
+
+def _first_probe_point(ff):
+    """A representative sample point: first vertex or first cell centre."""
+    import numpy as np
+    verts = getattr(ff, "vertices", None)
+    if verts is not None and len(verts):
+        return tuple(float(v) for v in np.asarray(verts)[0])
+    centers = cell_centers(ff)
+    if centers is not None and len(centers):
+        return tuple(float(v) for v in np.asarray(centers)[0])
+    return (0.0, 0.0, 0.0)
+
+
+def _sample_from_object(ff, obj):
+    """Probe-sample dict for a PostObject, or None when it has no position."""
+    position = getattr(obj, "position", None)
+    if position is None:
+        return None
+    try:
+        xyz = (float(position[0]), float(position[1]), float(position[2]))
+    except (TypeError, IndexError, ValueError):
+        return None
+    scalar = getattr(obj, "probe_scalar_var", "") or None
+    if scalar is not None and not getattr(obj, "probe_scalar", True):
+        scalar = None
+    vector = getattr(obj, "probe_vector_var", "") or None
+    if vector is not None and not getattr(obj, "probe_vector", False):
+        vector = None
+    title = getattr(obj, "title", "") or getattr(obj, "kind", "")
+    return {"title": str(title), "xyz": xyz, "normal": None,
+            "scalar": scalar, "vector": vector}
+
+
+def _sample_rows(ff, objects):
+    """Yield probe-sample dicts (title/xyz/normal/scalar/vector)."""
+    if objects is None:
+        scalars = _scalar_vars(ff)
+        vectors = _vector_bases(ff)
+        yield {"title": "Probe 1", "xyz": _first_probe_point(ff),
+               "normal": None,
+               "scalar": scalars[0] if scalars else None,
+               "vector": vectors[0] if vectors else None}
+        return
+    for obj in objects:
+        s = _sample_from_object(ff, obj)
+        if s is not None:
+            yield s
+
+
+def save_variable_output(ff, path, items="all", objects=None):
+    """Write probe/sample values to a CSV (scPOST SaveVariableOutput).
+
+    ``items`` selects the output column groups: ``"all"`` (default) or a
+    list of keys among title/coords/normal/scalar/vector/elem/node/rank.
+    ``objects`` is a list of probe objects (PointObject / InformationObject
+    — anything with a ``position``); when omitted, a single probe at the
+    first vertex/cell centre is written using the first scalar and vector
+    variable found.
+
+    Returns True when the file is written.
+    """
+    import csv
+    import numpy as np
+
+    if isinstance(items, str):
+        keys = _VAROUT_ALL if items == "all" else [items]
+    else:
+        keys = list(items) if items else _VAROUT_ALL
+    keys = [k for k in keys if k in _VAROUT_COLUMNS] or _VAROUT_ALL
+
+    header = []
+    for k in keys:
+        header.extend(_VAROUT_COLUMNS[k])
+
+    rows = []
+    for s in _sample_rows(ff, objects):
+        x, y, z = s["xyz"]
+        row = {c: "" for c in header}
+        row["title"] = s["title"]
+        row["x"], row["y"], row["z"] = x, y, z
+        if s["normal"] is not None:
+            row["nx"], row["ny"], row["nz"] = s["normal"]
+
+        # locate the point once: elem = nearest cell centre, node = nearest
+        # vertex (both independent of the field location convention).
+        centers = cell_centers(ff)
+        if centers is not None and len(centers):
+            c = np.asarray(centers, dtype=np.float64)
+            try:
+                from scipy.spatial import cKDTree
+                row["elem"] = int(cKDTree(c).query([x, y, z], k=1)[1])
+            except Exception:  # pragma: no cover - scipy missing
+                d = c - np.asarray([x, y, z])
+                row["elem"] = int(np.argmin(np.einsum("ij,ij->i", d, d)))
+        verts = getattr(ff, "vertices", None)
+        if verts is not None and len(verts):
+            d = np.asarray(verts, dtype=np.float64) - np.asarray([x, y, z])
+            row["node"] = int(np.argmin(np.einsum("ij,ij->i", d, d)))
+
+        if s["scalar"]:
+            info = variable_at_point(ff, s["scalar"], x, y, z)
+            if info is not None and info["isinarea"]:
+                row["scalar"] = s["scalar"]
+                row["scalar_value"] = info["values"]
+        if s["vector"]:
+            info = variable_at_point(ff, s["vector"], x, y, z)
+            if info is not None and info["isinarea"]:
+                vals = info["values"]
+                row["vector"] = s["vector"]
+                row["vector_x"], row["vector_y"], row["vector_z"] = vals
+        row["rank"] = 1
+        rows.append([row[c] for c in header])
+
+    with open(path, "w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(header)
+        w.writerows(rows)
+    return True

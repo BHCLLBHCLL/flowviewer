@@ -237,7 +237,7 @@ class FlowviewerApplication:
         "GetFaceNumOfRgn",
         "GetVariableInfo", "GetVariableMin", "GetVariableMax",
         # status / export
-        "SaveSTA", "ApplySTA", "SaveSTL",
+        "SaveSTA", "ApplySTA", "SaveSTL", "SaveVariableOutput",
         # application state (Set* family + animation)
         "SetDisplayAxis", "SetDisplayFLD", "SetDisplayTitleCycle",
         "SetDisplayTitlePath", "SetDisplayTitleTime", "SetDisplayObjName",
@@ -974,6 +974,24 @@ class FlowviewerApplication:
         try:
             from . import api
             return self._ok(api.export_stl(self._need_ff(), str(filepath)))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def SaveVariableOutput(self, path, items="all"):
+        """Save a variable output file (SaveVariableOutput).
+
+        ``items`` is ``"all"`` or a list of column keys (title/coords/
+        normal/scalar/vector/elem/node/rank).  Exports the probe objects
+        held on the current object tree, or a single default probe at the
+        first vertex/cell centre when no object tree is loaded.
+        """
+        try:
+            from . import api
+            objects = None
+            if self._main is not None:
+                objects = list(getattr(self._main, "children", []) or [])
+            return self._ok(api.save_variable_output(
+                self._need_ff(), str(path), items=items, objects=objects))
         except Exception as exc:
             return self._fail(exc)
 

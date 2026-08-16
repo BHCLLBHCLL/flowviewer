@@ -4734,3 +4734,70 @@ def test_r24_get_variable_info_com():
     p = api.cell_centers(app._ff)[0]
     info = app.GetVariableInfo("PRES", p[0], p[1], p[2])
     assert info is not None and info["name"] == "PRES"
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_r25_save_variable_output_api(tmp_path):
+    """R2.5: save_variable_output writes a probe CSV (default probe)."""
+    import csv
+    from fv.model.dataset import load_file
+    from fv import api
+    ff = load_file(FPH)
+    out = tmp_path / "r25.csv"
+    assert api.save_variable_output(ff, str(out))
+    with open(out, newline="", encoding="utf-8") as fh:
+        rows = list(csv.reader(fh))
+    header, data = rows[0], rows[1]
+    assert header[0] == "title" and "x" in header and "scalar" in header
+    assert data[0] == "Probe 1"
+    assert data[header.index("scalar_value")] != ""
+    assert data[header.index("vector_x")] != ""
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_r25_save_variable_output_items(tmp_path):
+    """R2.5: items subset restricts the emitted columns."""
+    import csv
+    from fv.model.dataset import load_file
+    from fv import api
+    ff = load_file(FPH)
+    out = tmp_path / "r25_sub.csv"
+    assert api.save_variable_output(ff, str(out), items=["title", "coords"])
+    with open(out, newline="", encoding="utf-8") as fh:
+        rows = list(csv.reader(fh))
+    assert rows[0] == ["title", "x", "y", "z"]
+    assert len(rows[1]) == 4
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_r25_save_variable_output_point_object(tmp_path):
+    """R2.5: PointObject probe vars drive the exported scalar/vector."""
+    import csv
+    from fv.model.dataset import load_file
+    from fv.model.objects import PointObject
+    from fv import api
+    ff = load_file(FPH)
+    p = api.cell_centers(ff)[0]
+    obj = PointObject(index=1, title="P1", position=(p[0], p[1], p[2]),
+                      probe_scalar=True, probe_scalar_var="PRES",
+                      probe_vector=True, probe_vector_var="VEL")
+    out = tmp_path / "r25_pt.csv"
+    assert api.save_variable_output(ff, str(out), objects=[obj])
+    with open(out, newline="", encoding="utf-8") as fh:
+        rows = list(csv.reader(fh))
+    header, data = rows[0], rows[1]
+    assert data[header.index("scalar")] == "PRES"
+    assert data[header.index("vector")] == "VEL"
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_r25_save_variable_output_com(tmp_path):
+    """R2.5: COM SaveVariableOutput returns True and writes a file."""
+    from fv.com import FlowviewerApplication
+    app = FlowviewerApplication()
+    app.open_file(FPH)
+    out = tmp_path / "r25c.csv"
+    assert app.SaveVariableOutput(str(out), "all") is True
+    assert app.ErrorCode == 0
+    assert out.exists()
+    assert "title" in out.read_text(encoding="utf-8")
