@@ -2086,6 +2086,56 @@ def test_fileset_cycle_management(tmp_path):
     except ValueError:
         pass
 
+def test_fileset_time_interpolation_and_runtime(tmp_path):
+    """Fractional cycle ids blend members; runtime API (P2.4)."""
+    import shutil
+    import numpy as np
+    from pathlib import Path
+    from fv import api
+    from fv.model.dataset import load_file
+    from fv.model.fileset import interpolate_at, interpolate_files, scan_sequence
+    base = Path(tmp_path)
+    for cyc in (1, 2):
+        shutil.copyfile(FPH, str(base / f"flow_{cyc}.fph"))
+    fs = scan_sequence(str(base / "flow_1.fph"))
+    assert len(fs) == 2
+
+    # direct file blend: bump PRES on the second member by +10
+    ff0 = load_file(str(base / "flow_1.fph"))
+    ff1 = load_file(str(base / "flow_2.fph"))
+    ff1.variables["PRES"].array = ff1.variables["PRES"].array + 10.0
+    mid = interpolate_files(ff0, ff1, 0.5)
+    np.testing.assert_allclose(
+        mid.variables["PRES"].array,
+        ff0.variables["PRES"].array + 5.0, rtol=1e-9)
+    assert mid.n_cells == ff0.n_cells
+    assert mid.vertices.shape == ff0.vertices.shape
+    assert set(mid.variables) == set(ff0.variables)
+
+    # runtime: scPOST SetCurCycleID family semantics
+    rt = api.cycle_runtime(fs)
+    assert api.get_cycle_num(rt) == 2
+    assert api.set_cur_cycle_id(rt, 2) == 2
+    assert api.set_cur_cycle_id(rt, 9) == -1     # out of range
+    assert api.get_cur_cycle_id(rt) == 2         # unchanged after failure
+    assert api.set_cur_cycle_id_f(rt, 1, 0.5) == 1
+    assert api.set_cur_cycle_id_f(rt, 2, 0.5) == -1  # no member after last
+    assert api.set_cur_cycle_id_f(rt, 1, 1.5) == -1  # bad fraction
+    cur = rt.current_file()
+    assert cur.variables["PRES"].array.shape \
+        == ff0.variables["PRES"].array.shape
+    assert np.all(np.isfinite(cur.variables["PRES"].array))
+    assert api.set_auto_cycle(rt, True) is True and rt.auto is True
+    assert api.reset_cyc_ope(rt) is True and fs.operation_mode == "None"
+
+    # interpolate_at + cache: parsed members are reused
+    cache = {}
+    interpolate_at(fs, 1.0, cache=cache)
+    interpolate_at(fs, 1.5, cache=cache)
+    assert len(cache) == 2
+    with pytest.raises(ValueError):
+        interpolate_at(fs, 3.0)
+
 def test_pod_decompose():
     """POD SVD decomposition: orthogonal modes + energy fractions (P3)."""
     import numpy as np

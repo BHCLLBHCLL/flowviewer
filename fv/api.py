@@ -601,3 +601,52 @@ def register_pod_modes(file_set, ff0, var: str, n_modes: int = 5):
     """Register POD_MEAN / POD_MODE_i variables on *ff0*."""
     from .model.pod import register_pod_modes as _f
     return _f(file_set, ff0, var, n_modes)
+
+
+# ── cycle runtime + time interpolation (scPOST AddCycList family, P2.4) ──
+
+def cycle_runtime(fs, cache=None):
+    """CycleRuntime over a FileSet (Get/SetCurCycleID family)."""
+    from .model.fileset import CycleRuntime
+    return CycleRuntime(fs, cache=cache)
+
+
+def get_cycle_num(rt) -> int:
+    """Number of cycles in the list (GetCycleNum)."""
+    return rt.get_cycle_num()
+
+
+def get_cur_cycle_id(rt) -> int:
+    """Current 1-based cycle id (GetCurCycleID)."""
+    return rt.get_cur_cycle_id()
+
+
+def set_cur_cycle_id(rt, cycid: int) -> int:
+    """Jump to cycle *cycid*; -1 when out of range (SetCurCycleID)."""
+    return rt.set_cur_cycle_id(cycid)
+
+
+def set_cur_cycle_id_f(rt, cyc_i: int, cyc_f: float) -> int:
+    """Fractional cycle id with time interpolation (SetCurCycleID_F)."""
+    return rt.set_cur_cycle_id_f(cyc_i, cyc_f)
+
+
+def get_cur_time(rt):
+    """Time of the current member (GetCurTime)."""
+    return rt.get_cur_time()
+
+
+def set_auto_cycle(rt, is_auto: bool) -> bool:
+    """Toggle the cycle-shift auto set flag (SetAutoCycle)."""
+    return rt.set_auto_cycle(is_auto)
+
+
+def reset_cyc_ope(rt) -> bool:
+    """Reset the cycle operation mode to None (ResetCycOpe)."""
+    return rt.reset_cyc_ope()
+
+
+def interpolate_at(fs, cycle_id: float, cache=None):
+    """FieldFile at a fractional 1-based cycle id (time interpolation)."""
+    from .model.fileset import interpolate_at as _f
+    return _f(fs, cycle_id, cache=cache)

@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
+
 from ..crdl.core import open_buffer
 from ..crdl.fields import parse_cycle_meta
 
@@ -138,3 +140,158 @@ def set_cycle_operation(fs, mode):
         raise ValueError("unknown cycle operation " + repr(mode))
     fs.operation_mode = mode
     return mode
+
+
+# ── time interpolation + cycle runtime (P2.4) ────────────────────────────
+
+def load_member(fs, cycle: int, cache: Optional[dict] = None):
+    """Load the member carrying *cycle*, through an optional cache.
+
+    The cache (``{path: FieldFile}``) lets timeline playback, POD and
+    register-all-cycles share already parsed members instead of
+    re-reading and re-parsing each file on every access.
+    """
+    m = None
+    for cand in fs.members:
+        if cand.cycle == int(cycle):
+            m = cand
+            break
+    if m is None:
+        return None
+    if cache is not None:
+        hit = cache.get(m.path)
+        if hit is not None:
+            return hit
+    from .dataset import load_file
+    ff = load_file(m.path)
+    if cache is not None:
+        cache[m.path] = ff
+    return ff
+
+
+def interpolate_files(ff0, ff1, f: float):
+    """Linear time interpolation of two same-mesh FieldFiles (P2.4).
+
+    Returns a FieldFile sharing ff0's mesh/parts with every common
+    variable blended as ``(1-f)*a0 + f*a1``; variables missing on one
+    side keep the other side's values.  ``f`` is clamped to [0, 1].
+    """
+    if not 0.0 <= f <= 1.0:
+        f = min(1.0, max(0.0, f))
+    from .dataset import FieldFile, VarInfo
+    out = FieldFile(path=ff0.path, kind=ff0.kind)
+    for attr in ("vertices", "n_vertices", "n_cells", "link_data",
+                 "cell_conn", "cell_types", "material", "faces",
+                 "bc_plan", "surface_regions", "volume_regions",
+                 "parts", "cvol_id", "parts_with_cvol", "meta",
+                 "element_flags", "has_particles", "_particle_vars"):
+        setattr(out, attr, getattr(ff0, attr))
+    out.variables = {}
+    for name, vi in ff0.variables.items():
+        v1 = ff1.variables.get(name)
+        if v1 is not None and np.shape(v1.array) == np.shape(vi.array):
+            arr = (1.0 - f) * np.asarray(vi.array, dtype=np.float64) \
+                + f * np.asarray(v1.array, dtype=np.float64)
+        else:
+            arr = vi.array
+        out.variables[name] = VarInfo(name=name, kind=vi.kind,
+                                      location=vi.location, array=arr)
+    out.cycle = ff0.cycle
+    out.time = (1.0 - f) * (ff0.time or 0.0) + f * (ff1.time or 0.0) \
+        if (ff0.time is not None or ff1.time is not None) else None
+    return out
+
+
+def interpolate_at(fs, cycle_id: float, cache: Optional[dict] = None):
+    """FieldFile at a fractional cycle id (1-based, scPOST SetCurCycleID_F).
+
+    ``cycle_id = cyc_i + cyc_f`` with integer part selecting the member
+    and the fraction blending it with the next member's variables.
+    Integer ids snap to the member itself; ids outside the sequence
+    raise ``ValueError``.
+    """
+    if not fs.members:
+        raise ValueError("empty FileSet")
+    cyc_i = int(np.floor(cycle_id))
+    cyc_f = float(cycle_id) - cyc_i
+    if cyc_i < 1 or cyc_i > len(fs.members):
+        raise ValueError(
+            "cycle id %g out of range 1..%d" % (cycle_id, len(fs.members)))
+    m0 = fs.members[cyc_i - 1]
+    ff0 = load_member(fs, m0.cycle, cache)
+    if cyc_f <= 0.0 or cyc_i >= len(fs.members):
+        return ff0
+    m1 = fs.members[cyc_i]
+    ff1 = load_member(fs, m1.cycle, cache)
+    return interpolate_files(ff0, ff1, cyc_f)
+
+
+class CycleRuntime:
+    """Runtime cycle state over a FileSet (scPOST AddCycList family, P2.4).
+
+    Cycle ids are 1-based positions into ``fs.members`` exactly like
+    the COM ``SetCurCycleID`` family; fractional ids time-interpolate
+    between the two adjacent members.
+    """
+
+    def __init__(self, fs: FileSet, cache: Optional[dict] = None):
+        self.fs = fs
+        self.cache = cache if cache is not None else {}
+        self.cur_id = 1.0
+        self.auto = False
+
+    # ── queries ───────────────────────────────────────────────────────────
+    def get_cycle_num(self) -> int:
+        """Number of cycles in the list (GetCycleNum)."""
+        return len(self.fs.members)
+
+    def cycle_ids(self) -> list:
+        """Cycle numbers (as stored per member) in order."""
+        return self.fs.cycles()
+
+    def get_cur_cycle_id(self) -> int:
+        """Current integer cycle id (GetCurCycleID)."""
+        return int(np.floor(self.cur_id))
+
+    def get_cur_time(self) -> Optional[float]:
+        """Time of the current member, header-read lazily (GetCurTime)."""
+        idx = self.get_cur_cycle_id() - 1
+        if not (0 <= idx < len(self.fs.members)):
+            return None
+        m = self.fs.members[idx]
+        if m.time is None:
+            m.refresh_meta()
+        return m.time
+
+    # ── mutations ─────────────────────────────────────────────────────────
+    def set_cur_cycle_id(self, cycid: int) -> int:
+        """Jump to cycle *cycid*; returns the new id or -1 (SetCurCycleID)."""
+        if not (1 <= int(cycid) <= len(self.fs.members)):
+            return -1
+        self.cur_id = float(int(cycid))
+        return int(cycid)
+
+    def set_cur_cycle_id_f(self, cyc_i: int, cyc_f: float) -> int:
+        """Set a fractional cycle id; interpolates variables (…_F)."""
+        cyc_i = int(cyc_i)
+        if not (1 <= cyc_i <= len(self.fs.members)) or not (0.0 <= cyc_f < 1.0):
+            return -1
+        if cyc_f > 0.0 and cyc_i >= len(self.fs.members):
+            return -1
+        self.cur_id = float(cyc_i) + float(cyc_f)
+        return cyc_i
+
+    def set_auto_cycle(self, is_auto: bool) -> bool:
+        """Toggle the cycle-shift auto set flag (SetAutoCycle)."""
+        self.auto = bool(is_auto)
+        return True
+
+    def reset_cyc_ope(self) -> bool:
+        """Reset the cycle operation mode to None (ResetCycOpe)."""
+        self.fs.operation_mode = "None"
+        return True
+
+    # ── data access ───────────────────────────────────────────────────────
+    def current_file(self):
+        """FieldFile at the current (possibly fractional) cycle id."""
+        return interpolate_at(self.fs, self.cur_id, cache=self.cache)
