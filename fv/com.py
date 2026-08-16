@@ -223,6 +223,12 @@ class FlowviewerApplication:
         "GetBoundingBox", "LocalXYZ2GlobalXYZ", "GlobalXYZ2LocalXYZ",
         "GetOverlappingRegionCount", "GetMATNumFLD", "GetMATIDofVOL",
         "GetVOLNum", "GetVOLorgnameAsArray",
+        "GetNodeCount", "GetElementCount", "GetNodeOfs", "GetNodeXYZ",
+        "GetNodeCountOfElement", "GetNodeCountOfFace", "GetNodesOfElement",
+        "GetNodesOfFace", "GetFaceCountOfElement",
+        "GetAdjacentElementOfFace", "GetAreaOfFace", "GetVolumeOfElement",
+        "GetElementsOfVolumeRegion", "GetNodesOfVolumeRegion",
+        "GetNodesOfSurfaceRegion",
         # status / export
         "SaveSTA", "ApplySTA", "SaveSTL",
         # application state (Set* family + animation)
@@ -634,6 +640,139 @@ class FlowviewerApplication:
         try:
             from . import api
             return self._ok(api.get_vol_org_names(self._need_ff()))
+        except Exception as exc:
+            return self._fail(exc)
+
+    # ── overlap-region geometry family (scPOST ov 参数族, R2.2) ──────────
+
+    def GetNodeCount(self, ov=0):
+        """Number of nodes in an overlap region (GetNodeCount)."""
+        try:
+            from . import api
+            return self._ok(api.get_node_count(self._need_ff(), ov))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetElementCount(self, ov=0):
+        """Number of elements in an overlap region (GetElementCount)."""
+        try:
+            from . import api
+            return self._ok(api.get_element_count(self._need_ff(), ov))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetNodeOfs(self):
+        """Initial node number (0 or 1) (GetNodeOfs)."""
+        try:
+            from . import api
+            return self._ok(api.get_node_ofs(self._need_ff()))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetNodeXYZ(self, nodeid):
+        """(x, y, z) of a node (GetNodeXYZ)."""
+        try:
+            from . import api
+            return self._ok(api.get_node_xyz(self._need_ff(), nodeid))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetNodeCountOfElement(self, ov, elem):
+        """Number of nodes of an element (GetNodeCountOfElement)."""
+        try:
+            from . import api
+            return self._ok(api.get_node_count_of_element(
+                self._need_ff(), elem, ov))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetNodeCountOfFace(self, ov, elem, face):
+        """Number of nodes on a local element face (GetNodeCountOfFace)."""
+        try:
+            from . import api
+            return self._ok(api.get_node_count_of_face(
+                self._need_ff(), elem, face, ov))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetNodesOfElement(self, ov, elem):
+        """Node ids of an element (GetNodesOfElement)."""
+        try:
+            from . import api
+            return self._ok(api.get_nodes_of_element(
+                self._need_ff(), elem, ov))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetNodesOfFace(self, ov, elem, face):
+        """Node ids on a local element face (GetNodesOfFace)."""
+        try:
+            from . import api
+            return self._ok(api.get_nodes_of_face(
+                self._need_ff(), elem, face, ov))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetFaceCountOfElement(self, ov, elem):
+        """Number of faces of an element (GetFaceCountOfElement)."""
+        try:
+            from . import api
+            return self._ok(api.get_face_count_of_element(
+                self._need_ff(), elem, ov))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetAdjacentElementOfFace(self, ov, elem, face):
+        """Element adjacent to a local face (GetAdjacentElementOfFace)."""
+        try:
+            from . import api
+            return self._ok(api.get_adjacent_element_of_face(
+                self._need_ff(), elem, face, ov))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetAreaOfFace(self, ov, elem, face):
+        """Area of a local element face (GetAreaOfFace)."""
+        try:
+            from . import api
+            return self._ok(api.get_area_of_face(
+                self._need_ff(), elem, face, ov))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetVolumeOfElement(self, ov, elem):
+        """Volume of an element (GetVolumeOfElement)."""
+        try:
+            from . import api
+            return self._ok(api.get_volume_of_element(
+                self._need_ff(), elem, ov))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetElementsOfVolumeRegion(self, volid):
+        """Element ids in a volume region (GetElementsOfVolumeRegion)."""
+        try:
+            from . import api
+            return self._ok(api.get_elements_of_volume_region(
+                self._need_ff(), volid))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetNodesOfVolumeRegion(self, volid):
+        """Node ids in a volume region (GetNodesOfVolumeRegion)."""
+        try:
+            from . import api
+            return self._ok(api.get_nodes_of_volume_region(
+                self._need_ff(), volid))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetNodesOfSurfaceRegion(self, surface_name):
+        """Node ids of a boundary region (GetNodesOfSurfaceRegion)."""
+        try:
+            from . import api
+            return self._ok(api.get_nodes_of_surface_region(
+                self._need_ff(), surface_name))
         except Exception as exc:
             return self._fail(exc)
 

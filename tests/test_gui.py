@@ -4605,3 +4605,44 @@ def test_r21_fld_local_coord_meta():
     ff = load_file(FLD)
     assert "local_coord" in ff.meta
     assert ff.meta["local_coord"] is None
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_r22_ov_geometry_queries():
+    """R2.2: ov-parameter geometry family (thin wrappers over topology)."""
+    from fv.model.dataset import load_file
+    from fv import api
+    ff = load_file(FPH)
+    assert api.get_node_count(ff) == ff.n_vertices
+    assert api.get_element_count(ff) == ff.n_cells
+    assert api.get_node_ofs(ff) in (0, 1)
+    xyz = api.get_node_xyz(ff, 0)
+    assert len(xyz) == 3 and all(isinstance(v, float) for v in xyz)
+    nodes = api.get_nodes_of_element(ff, 0)
+    assert len(nodes) == api.get_node_count_of_element(ff, 0) > 0
+    nfaces = api.get_face_count_of_element(ff, 0)
+    assert nfaces >= 0
+    if nfaces:
+        fnodes = api.get_nodes_of_face(ff, 0, 0)
+        assert len(fnodes) == api.get_node_count_of_face(ff, 0, 0)
+        assert api.get_area_of_face(ff, 0, 0) > 0.0
+        assert isinstance(api.get_adjacent_element_of_face(ff, 0, 0), int)
+    assert api.get_volume_of_element(ff, 0) > 0.0
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_r22_ov_geometry_com():
+    """R2.2: COM exposes the ov geometry family on an open file."""
+    from fv.com import FlowviewerApplication
+    app = FlowviewerApplication()
+    app.open_file(FPH)
+    assert app.GetNodeCount() == app._ff.n_vertices
+    assert app.GetElementCount() == app._ff.n_cells
+    assert app.GetNodeOfs() in (0, 1)
+    assert app.GetNodeCountOfElement(0, 0) > 0
+    assert app.GetFaceCountOfElement(0, 0) >= 0
+    nodes = app.GetNodesOfElement(0, 0)
+    assert isinstance(nodes, list) and len(nodes) > 0
+    xyz = app.GetNodeXYZ(0)
+    assert len(xyz) == 3
+    assert app.GetElementsOfVolumeRegion(1) is not None

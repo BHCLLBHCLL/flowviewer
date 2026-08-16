@@ -878,6 +878,157 @@ def get_vol_org_names(ff):
     return list(getattr(ff, "volume_regions", None) or [])
 
 
+# ── overlap-region geometry family (scPOST ov 参数族, R2.2) ────────────
+
+def ov_cell_mask(ff, ov=0):
+    """Boolean cell mask for an overlap region (``ov`` = 0 → whole mesh)."""
+    import numpy as np
+    n = int(getattr(ff, "n_cells", 0))
+    ov = int(ov)
+    if ov <= 0:
+        return np.ones(n, dtype=bool)
+    parts = list(getattr(ff, "parts_with_cvol", None) or [])
+    if ov > len(parts):
+        return np.zeros(n, dtype=bool)
+    cvol = getattr(ff, "cvol_id", None)
+    if cvol is None:
+        return np.zeros(n, dtype=bool)
+    from .crdl.mesh_gph import part_cvol_cell_mask
+    return part_cvol_cell_mask(cvol, parts[ov - 1][1]).astype(bool)
+
+
+def get_node_count(ff, ov=0) -> int:
+    """Number of nodes in an overlap region (GetNodeCount)."""
+    from .model import topology
+    if int(ov) <= 0:
+        return topology.node_count(ff)
+    import numpy as np
+    ids = set()
+    for c in np.flatnonzero(ov_cell_mask(ff, ov)):
+        ids.update(topology.nodes_of_element(ff, c))
+    return len(ids)
+
+
+def get_element_count(ff, ov=0) -> int:
+    """Number of elements in an overlap region (GetElementCount)."""
+    from .model import topology
+    if int(ov) <= 0:
+        return topology.element_count(ff)
+    import numpy as np
+    return int(ov_cell_mask(ff, ov).sum())
+
+
+def get_node_ofs(ff) -> int:
+    """Initial node number: 0 for FPH/hex, 1 for 1-based FLD (GetNodeOfs)."""
+    from .model import topology
+    return topology._fld_offset(ff)
+
+
+def get_node_xyz(ff, node_id):
+    """(x, y, z) of a node (GetNodeXYZ)."""
+    from .model import topology
+    return topology.node_xyz(ff, node_id)
+
+
+def get_nodes_of_element(ff, elem, ov=0) -> list:
+    """Node ids of an element (GetNodesOfElement)."""
+    from .model import topology
+    return topology.nodes_of_element(ff, int(elem))
+
+
+def get_node_count_of_element(ff, elem, ov=0) -> int:
+    """Number of nodes of an element (GetNodeCountOfElement)."""
+    return len(get_nodes_of_element(ff, elem, ov))
+
+
+def get_face_count_of_element(ff, elem, ov=0) -> int:
+    """Number of faces of an element (GetFaceCountOfElement)."""
+    from .model import topology
+    return topology.face_count_of_element(ff, int(elem))
+
+
+def _local_face_nodes(ff, elem, face) -> list:
+    """Node ids of a local face ``face`` of element ``elem``."""
+    from .model import topology
+    faces = topology.faces_of_cell(ff, int(elem))
+    f = int(face)
+    if not (0 <= f < len(faces)):
+        raise IndexError("local face index out of range")
+    fid = faces[f]
+    if getattr(ff, "poly", False):
+        return topology.face_nodes(ff, fid)
+    return [int(x) for x in fid if int(x) >= 0]
+
+
+def get_nodes_of_face(ff, elem, face, ov=0) -> list:
+    """Node ids on a local element face (GetNodesOfFace)."""
+    return _local_face_nodes(ff, elem, face)
+
+
+def get_node_count_of_face(ff, elem, face, ov=0) -> int:
+    """Number of nodes on a local element face (GetNodeCountOfFace)."""
+    return len(_local_face_nodes(ff, elem, face))
+
+
+def get_adjacent_element_of_face(ff, elem, face, ov=0) -> int:
+    """Element adjacent to a local face (GetAdjacentElementOfFace); -1 if
+    none (FLD has no face table)."""
+    from .model import topology
+    faces = topology.faces_of_cell(ff, int(elem))
+    f = int(face)
+    if not (0 <= f < len(faces)):
+        return -1
+    if not getattr(ff, "poly", False):
+        return -1
+    owner, neigh = topology.cells_of_face(ff, faces[f])
+    if owner == int(elem):
+        return neigh
+    if neigh == int(elem):
+        return owner
+    return -1
+
+
+def get_area_of_face(ff, elem, face, ov=0) -> float:
+    """Area of a local element face (GetAreaOfFace)."""
+    import numpy as np
+    from .model import topology
+    ids = _local_face_nodes(ff, elem, face)
+    if not ids:
+        return 0.0
+    v = np.asarray(getattr(ff, "vertices", None), dtype=np.float64)
+    return topology._polygon_area([v[i] for i in ids])
+
+
+def get_volume_of_element(ff, elem, ov=0) -> float:
+    """Volume of an element (GetVolumeOfElement)."""
+    from .model import topology
+    return topology.volume_of_element(ff, int(elem))
+
+
+def get_elements_of_volume_region(ff, volid) -> list:
+    """Element ids in a volume region by name or 1-based id
+    (GetElementsOfVolumeRegion)."""
+    from .model import topology
+    cells = _resolve_vol_cells(ff, volid)
+    return cells or []
+
+
+def get_nodes_of_volume_region(ff, volid) -> list:
+    """Node ids in a volume region (GetNodesOfVolumeRegion)."""
+    from .model import topology
+    cells = _resolve_vol_cells(ff, volid) or []
+    out = set()
+    for c in cells:
+        out.update(topology.nodes_of_element(ff, c))
+    return sorted(out)
+
+
+def get_nodes_of_surface_region(ff, surface_name) -> list:
+    """Node ids of a boundary region (GetNodesOfSurfaceRegion)."""
+    from .model import topology
+    return topology.nodes_of_surface_region(ff, surface_name)
+
+
 def get_cur_cycle_id_f(rt) -> float:
     """Fractional part of the current cycle id (GetCurCycleID_F)."""
     return float(rt.cur_id) - int(rt.cur_id)
