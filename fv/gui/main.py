@@ -1798,7 +1798,11 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             return
         x, y = obj.GetEventPosition()
         point, owner = self.scene.pick_actor(x, y)
-        if point is None or owner is None:
+        if point is None:
+            return
+        if self._try_fill_measure_pick(point):
+            return
+        if owner is None:
             return
         _kind, picked = owner
         scalar_var, vector_var, scalar_on, vector_on = self._pick_vars(picked)
@@ -1857,6 +1861,19 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             vector_var = getattr(obj, "vector_var", "") or ""
             vector_on = bool(vector_var)
         return scalar_var, vector_var, scalar_on, vector_on
+
+    def _try_fill_measure_pick(self, point) -> bool:
+        """R1.3: fill an armed MeasureDialog point pick; True if consumed."""
+        panel = getattr(self.property_host, "current_panel", None)
+        if panel is None:
+            return False
+        idx = getattr(panel, "_pick_index", None)
+        if idx is None or not hasattr(panel, "set_pick_point"):
+            return False
+        panel.set_pick_point(idx, point)
+        panel._pick_index = None
+        self.status.showMessage(f"Measure point {idx + 1} set", 2000)
+        return True
 
 
 def run_gui(filepath: Optional[str] = None) -> int:

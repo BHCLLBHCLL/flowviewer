@@ -4387,3 +4387,34 @@ def test_r12_area_pick_degrades_headless():
     from fv.render.scene import Scene
     s = Scene(enable_3d=False)
     assert s.area_pick(0, 0, 10, 10) == []
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+def test_r13_measure_actors():
+    """R1.3: Measure renders line(s) + billboard label."""
+    from fv.model.objects import MeasureObject
+    from fv.render.measure import build_measure_actors
+    d = MeasureObject(index=1, mode="Distance",
+                      points=[(0, 0, 0), (1, 2, 2)])
+    out = build_measure_actors(None, d)
+    assert "line" in out and "label" in out
+    a = MeasureObject(index=2, mode="Angle",
+                      points=[(0, 0, 0), (1, 0, 0), (0, 1, 0)])
+    out2 = build_measure_actors(None, a)
+    assert "line1" in out2 and "line2" in out2 and "label" in out2
+    # insufficient points -> empty
+    assert build_measure_actors(
+        None, MeasureObject(index=3, points=[(0, 0, 0)])) == {}
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_r13_measure_dialog_pick(qapp):
+    """R1.3: MeasureDialog begin_pick/set_pick_point fill the spinboxes."""
+    from fv.model.objects import MeasureObject
+    from fv.gui.object_dialogs2 import MeasureDialog
+    obj = MeasureObject(index=1)
+    d = MeasureDialog(obj)
+    d.begin_pick(1)
+    assert d._pick_index == 1
+    d.set_pick_point(1, (1.5, 2.5, 3.5))
+    assert obj.points[1] == (1.5, 2.5, 3.5)

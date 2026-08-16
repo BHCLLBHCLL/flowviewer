@@ -416,7 +416,7 @@ class Scene:
             self._layer_actors["surface"] = ["surface_1"]
             self._layer_actors["plane"] = ["plane_1"]
             for kind in ("isosurface", "point", "streamline", "volume",
-                         "colorbar", "light", "pathline", "cylinder", "circle", "text", "bitmap", "information", "mirror", "curve", "periodical", "bar", "gradation", "turbo", "region", "ufo"):
+                         "colorbar", "light", "pathline", "cylinder", "circle", "text", "bitmap", "information", "mirror", "curve", "periodical", "bar", "gradation", "turbo", "region", "ufo", "measure"):
                 if any(o.kind == kind for o in
                        getattr(main, "children", []) or []):
                     self._layer_actors[kind] = [f"{kind}_1"]
@@ -495,7 +495,9 @@ class Scene:
             self._add_region_actor(ff, obj)
         elif obj.kind == "ufo":
             self._add_ufo_actor(ff, obj)
-        # timeseries / maxmin / graph / grouping / measure / folder / regionbc
+        elif obj.kind == "measure":
+            self._add_measure_actor(ff, obj)
+        # timeseries / maxmin / graph / grouping / folder / regionbc
         # are dialog-only (no scene actors).
 
     def apply_to_object(self, ff: FieldFile, obj) -> None:
@@ -849,6 +851,15 @@ class Scene:
             self.add_actor(f"volume:{key}", actor)
             if not isinstance(actor, str):
                 self.register_actor_object(actor, "volume", obj)
+
+    def _add_measure_actor(self, ff, obj) -> None:
+        """Measure distance/angle line + billboard label (R1.3)."""
+        from .measure import build_measure_actors
+        actors = build_measure_actors(ff, obj)
+        for key, actor in actors.items():
+            self.add_actor(f"measure:{key}", actor)
+            if not isinstance(actor, str):
+                self.register_actor_object(actor, "measure", obj)
 
 
 def numpy_to_vtk_array(arr: np.ndarray, name: str):

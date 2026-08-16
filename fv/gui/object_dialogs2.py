@@ -1375,12 +1375,16 @@ class MeasureDialog(ObjectSettingsPanel):
         while len(pts) < 3:
             pts.append((0.0, 0.0, 0.0))
         self.spins = []
+        self._pick_index = None   # R1.3: point index awaiting a Draw Window pick
         for i in range(3):
             px, py, pz = pts[i]
             sx = _dspin(px, -1e9, 1e9, 6);
             sy = _dspin(py, -1e9, 1e9, 6);
             sz = _dspin(pz, -1e9, 1e9, 6)
             row = QHBoxLayout(); row.addWidget(sx); row.addWidget(sy); row.addWidget(sz)
+            pick = QPushButton("Pick", page)
+            pick.clicked.connect(lambda _=False, i=i: self.begin_pick(i))
+            row.addWidget(pick)
             form.addRow(f"Point {i + 1} x/y/z:", row)
             self.spins.append((sx, sy, sz))
         self.calc = QPushButton("Calculate", page)
@@ -1423,6 +1427,20 @@ class MeasureDialog(ObjectSettingsPanel):
                        float(sz.value())))
         obj.points = pts
         obj.compare_label = self.compare.currentData() or ""
+
+    def begin_pick(self, index: int) -> None:
+        """R1.3: arm point *index* to be filled from a Draw Window click."""
+        self._pick_index = index
+
+    def set_pick_point(self, index: int, point) -> None:
+        """R1.3: fill point *index* spinboxes from a picked world point."""
+        if not _HAS_QT or index < 0 or index >= len(self.spins):
+            return
+        sx, sy, sz = self.spins[index]
+        sx.setValue(float(point[0]))
+        sy.setValue(float(point[1]))
+        sz.setValue(float(point[2]))
+        self.apply_to(self.obj)
 
     def _on_ratio(self) -> None:
         self.apply_to(self.obj)
