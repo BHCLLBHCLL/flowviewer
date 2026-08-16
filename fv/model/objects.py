@@ -468,6 +468,7 @@ class GradationObject(PostObject):
     enabled: bool = True
     top_color: tuple = (1.0, 1.0, 1.0)
     bottom_color: tuple = (0.92, 0.94, 0.97)
+    control_points: tuple = ()            # R3.4: [(t, (r,g,b)), ...]
 
 
 @dataclass
@@ -693,6 +694,8 @@ class TextObject(PostObject):
     title: str = "Text"
     text: str = "Text"
     position: tuple = (0.1, 0.85)         # normalized display coords
+    anchor_3d: bool = False               # R3.4: world-space anchor
+    anchor_position: tuple = (0.0, 0.0, 0.0)  # R3.4: world (x, y, z)
     font_name: str = "MS Gothic"
     font_size: int = 14
     color: tuple = (0.0, 0.0, 0.0)

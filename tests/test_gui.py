@@ -5100,3 +5100,41 @@ def test_r37_color_table_dialog(qapp):
     assert dlg.result_name == "r37dlg"
     assert "r37dlg" in cb.list_colormaps()
     cb.unregister_colormap("r37dlg")
+
+
+
+def test_r34_gradation_colors():
+    """R3.4: multi-stop gradient expansion interpolates control points."""
+    from fv.render.scene import gradation_colors
+    c = gradation_colors([(0.0, (0.0, 0.0, 0.0)), (1.0, (1.0, 1.0, 1.0))], n=3)
+    assert c[0] == (0.0, 0.0, 0.0)
+    assert c[1] == (0.5, 0.5, 0.5)
+    assert c[-1] == (1.0, 1.0, 1.0)
+    c2 = gradation_colors([(0.0, (0, 0, 0)), (0.5, (1, 0, 0)),
+                           (1.0, (1, 1, 1))], n=5)
+    assert c2[2] == (1.0, 0.0, 0.0)  # t = 0.5
+    assert gradation_colors([(0.3, (0.5, 0.5, 0.5))], n=3) == [(0.5, 0.5, 0.5)] * 3
+    assert gradation_colors([], n=2) == [(1.0, 1.0, 1.0), (0.92, 0.94, 0.97)]
+
+
+def test_r34_text_gradation_fields():
+    """R3.4: TextObject 3D anchor and GradationObject control points exist."""
+    from fv.model.objects import TextObject, GradationObject
+    t = TextObject(anchor_3d=True, anchor_position=(1.0, 2.0, 3.0))
+    assert t.anchor_3d is True
+    assert t.anchor_position == (1.0, 2.0, 3.0)
+    g = GradationObject(control_points=((0.0, (0, 0, 0)), (1.0, (1, 1, 1))))
+    assert g.control_points == ((0.0, (0, 0, 0)), (1.0, (1, 1, 1)))
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+def test_r34_text_actor_3d():
+    """R3.4: anchor_3d emits a vtkBillboardTextActor3D at the world anchor."""
+    from fv.model.objects import TextObject
+    from fv.render.text import text_actor
+    obj = TextObject(text="Hi", anchor_3d=True, anchor_position=(1.0, 2.0, 3.0))
+    a = text_actor(obj)
+    assert a is not None and a.IsA("vtkBillboardTextActor3D")
+    assert tuple(a.GetPosition()) == (1.0, 2.0, 3.0)
+    a2 = text_actor(TextObject(text="Hi"))
+    assert a2.IsA("vtkTextActor")

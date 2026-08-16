@@ -182,19 +182,80 @@ class Scene:
         return True
 
     def apply_gradation(self, grad_obj) -> None:
-        """Set the renderer gradient background from a GradationObject (C1)."""
+        """Set the renderer gradient background (C1 / R3.4).
+
+        A multi-stop ``control_points`` list ([(t, (r,g,b)), ...]) expands
+        to a full-screen image gradient; otherwise the legacy top/bottom
+        two-stop gradient is used.
+        """
         self._gradation_obj = grad_obj
         if not self.enable_3d or self.renderer is None:
             return
         if not getattr(grad_obj, "enabled", True):
             self.renderer.GradientBackgroundOff()
+            self._clear_gradient_background()
             return
+        cps = getattr(grad_obj, "control_points", None)
+        if cps and len(cps) >= 2:
+            self._apply_multistop_background(cps)
+            return
+        self._clear_gradient_background()
         self.renderer.GradientBackgroundOn()
         try:
             self.renderer.SetBackground(*getattr(grad_obj, "top_color", (1.0, 1.0, 1.0)))
             self.renderer.SetBackground2(*getattr(grad_obj, "bottom_color", (0.92, 0.94, 0.97)))
         except (TypeError, IndexError):
             pass
+
+    def _clear_gradient_background(self) -> None:
+        if getattr(self, "_grad_bg_actor", None) is not None:
+            try:
+                self.renderer.RemoveActor2D(self._grad_bg_actor)
+            except Exception:
+                pass
+            self._grad_bg_actor = None
+
+    def _apply_multistop_background(self, control_points) -> None:
+        """Full-screen multi-stop gradient background (R3.4)."""
+        try:
+            import vtk
+            colors = gradation_colors(control_points, n=256)
+            n = len(colors)
+            img = vtk.vtkImageData()
+            img.SetDimensions(1, n, 1)
+            img.AllocateScalars(vtk.VTK_UNSIGNED_CHAR, 3)
+            for y in range(n):
+                r, g, b = colors[n - 1 - y]  # top colour = first stop
+                img.SetScalarComponentFromDouble(0, y, 0, 0, r * 255.0)
+                img.SetScalarComponentFromDouble(0, y, 0, 1, g * 255.0)
+                img.SetScalarComponentFromDouble(0, y, 0, 2, b * 255.0)
+            mapper = vtk.vtkImageMapper()
+            mapper.SetInputData(img)
+            mapper.SetColorWindow(255.0)
+            mapper.SetColorLevel(127.5)
+            mapper.SetRenderToRectangle(1)
+            if getattr(self, "_grad_bg_actor", None) is None:
+                self._grad_bg_actor = vtk.vtkActor2D()
+                self._grad_bg_actor.SetMapper(mapper)
+                c = self._grad_bg_actor.GetPositionCoordinate()
+                c.SetCoordinateSystemToNormalizedDisplay()
+                self._grad_bg_actor.SetPosition(0.0, 0.0)
+                c2 = self._grad_bg_actor.GetPosition2Coordinate()
+                c2.SetCoordinateSystemToNormalizedDisplay()
+                self._grad_bg_actor.SetPosition2(1.0, 1.0)
+                self.renderer.AddActor2D(self._grad_bg_actor)
+            else:
+                self._grad_bg_actor.SetMapper(mapper)
+            self.renderer.GradientBackgroundOff()
+        except Exception:
+            # Fall back to the native two-stop gradient (first/last stops).
+            self._clear_gradient_background()
+            self.renderer.GradientBackgroundOn()
+            try:
+                self.renderer.SetBackground(*control_points[-1][1])
+                self.renderer.SetBackground2(*control_points[0][1])
+            except (TypeError, IndexError):
+                pass
 
     def show_object_name(self, text: str, position=None) -> None:
         """Show a 3D billboard name label (scPOST ObjectNameDisplay, C3)."""
@@ -867,3 +928,32 @@ def numpy_to_vtk_array(arr: np.ndarray, name: str):
     fa = _vns.numpy_to_vtk(np.ascontiguousarray(arr, dtype=np.float64), deep=True)
     fa.SetName(name)
     return fa
+
+def gradation_colors(control_points, n=256):
+    """Expand gradient control points ``[(t, (r,g,b)), ...]`` to n RGB colors.
+
+    Linear interpolation with clamped, sorted stops (R3.4 multi-stop
+    background). A single stop repeats; empty input falls back to the
+    default white-to-light-blue two-stop ramp.
+    """
+    import numpy as np
+    pts = []
+    for t, rgb in control_points:
+        t = min(1.0, max(0.0, float(t)))
+        pts.append((t, (float(rgb[0]), float(rgb[1]), float(rgb[2]))))
+    pts.sort(key=lambda p: p[0])
+    if not pts:
+        return [(1.0, 1.0, 1.0), (0.92, 0.94, 0.97)]
+    if len(pts) == 1:
+        return [pts[0][1]] * n
+    xs = np.array([t for t, _ in pts], dtype=np.float64)
+    cs = np.array([c for _, c in pts], dtype=np.float64)
+    out = []
+    for i in range(n):
+        t = i / max(1, n - 1)
+        j = int(np.searchsorted(xs, t, side="right")) - 1
+        j = max(0, min(j, len(xs) - 2))
+        f = float(np.clip((t - xs[j]) / max(xs[j + 1] - xs[j], 1e-12), 0.0, 1.0))
+        c = cs[j] * (1.0 - f) + cs[j + 1] * f
+        out.append((float(c[0]), float(c[1]), float(c[2])))
+    return out

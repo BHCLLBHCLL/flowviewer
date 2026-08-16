@@ -12,8 +12,11 @@ from typing import Optional
 import vtk
 
 
-def text_actor(obj) -> Optional["vtk.vtkActor2D"]:
-    """vtkTextActor for a TextObject."""
+def text_actor(obj) -> Optional[object]:
+    """Text annotation: 2D ``vtkTextActor`` (default) or a
+    world-anchored ``vtkBillboardTextActor3D`` when ``anchor_3d`` (R3.4)."""
+    if getattr(obj, "anchor_3d", False):
+        return _text_actor_3d(obj)
     a = vtk.vtkTextActor()
     a.SetInput(getattr(obj, "text", "Text") or " ")
     tp = a.GetTextProperty()
@@ -29,6 +32,22 @@ def text_actor(obj) -> Optional["vtk.vtkActor2D"]:
     pos = getattr(obj, "position", (0.1, 0.85))
     a.GetPositionCoordinate().SetCoordinateSystemToNormalizedDisplay()
     a.SetPosition(float(pos[0]), float(pos[1]))
+    return a
+
+
+def _text_actor_3d(obj):
+    """Camera-facing, world-anchored text (R3.4)."""
+    a = vtk.vtkBillboardTextActor3D()
+    a.SetInput(getattr(obj, "text", "Text") or " ")
+    tp = a.GetTextProperty()
+    tp.SetFontSize(max(6, int(getattr(obj, "font_size", 14) or 14)))
+    tp.SetBold(1)
+    try:
+        tp.SetColor(*getattr(obj, "color", (0.0, 0.0, 0.0)))
+    except (TypeError, IndexError):
+        tp.SetColor(0.0, 0.0, 0.0)
+    pos = getattr(obj, "anchor_position", (0.0, 0.0, 0.0))
+    a.SetPosition(float(pos[0]), float(pos[1]), float(pos[2]))
     return a
 
 
