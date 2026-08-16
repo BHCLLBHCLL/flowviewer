@@ -18,7 +18,6 @@ try:
 except Exception:  # pragma: no cover
     _HAS_QT = False
 
-
 @pytest.fixture(scope="module")
 def qapp():
     if not _HAS_QT:
@@ -26,11 +25,9 @@ def qapp():
     app = QApplication.instance() or QApplication([])
     return app
 
-
 def _make(qapp, path, enable_3d=False):
     from fv.gui.main import FlowViewer
     return FlowViewer(filepath=path, enable_3d=enable_3d)
-
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_window_fph_layout(qapp):
@@ -61,7 +58,6 @@ def test_window_fph_layout(qapp):
     assert "Time :" in ov
     assert w.status.currentMessage().startswith("FPH")
 
-
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
 def test_window_fld_layout(qapp):
     w = _make(qapp, FLD)
@@ -70,7 +66,6 @@ def test_window_fld_layout(qapp):
     assert "grid" in w.scene.actor_names()
     assert "Surface (1)" in [o.label for o in w.main_object.children]
     assert "Plane (1)" in [o.label for o in w.main_object.children]
-
 
 def test_window_without_file(qapp):
     w = _make(qapp, None)
@@ -83,7 +78,6 @@ def test_window_without_file(qapp):
     assert hasattr(w, "tb_file")
     assert hasattr(w, "draw_pane")
     assert hasattr(w, "timeline_pane")
-
 
 def test_open_dialog_chrome(qapp):
     from fv.gui.dialogs import (
@@ -119,12 +113,10 @@ def test_open_dialog_chrome(qapp):
     hdr = DialogHeader("Open", "open")
     assert hdr.caption_label.text() == "Open"
 
-
 def test_headless_imports():
     import fv.gui.main  # noqa: F401
     import fv.render.scene  # noqa: F401
     assert fv.gui.main._HAS_GUI_DEPS in (True, False)
-
 
 def test_scene_fph_actor_build(qapp):
     from fv.gui.main import FlowViewer
@@ -133,7 +125,6 @@ def test_scene_fph_actor_build(qapp):
     names = w.scene.actor_names()
     assert "grid" in names and "surface" in names and "plane" in names
     assert "particle" in names
-
 
 def test_scene_reset_with_string_placeholders(qapp):
     """Regression: 3D reset() must not call RemoveActor on string placeholders
@@ -146,7 +137,6 @@ def test_scene_reset_with_string_placeholders(qapp):
     s._layer_actors["grid"] = ["wireframe"]
     s.set_layer_visible("grid", False)  # must not crash on strings
 
-
 def test_surface_plane_dialogs(qapp):
     from fv.gui.object_dialogs import (
         ObjectSettingsPanel, PlaneDialog, SurfaceDialog,
@@ -157,7 +147,6 @@ def test_surface_plane_dialogs(qapp):
     assert isinstance(sd, ObjectSettingsPanel)
     pd = PlaneDialog(PlaneObject(index=1, axis="Z", coordinate=0.0))
     assert pd.windowTitle().startswith("Plane")
-
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_tiled_property_host(qapp):
@@ -184,7 +173,6 @@ def test_tiled_property_host(qapp):
     w.property_host._on_hide()
     assert w.property_host.current_panel is None
 
-
 def test_trim_objects_populated(qapp):
     """Trim 'Trimmed by' list receives sibling objects (F-gap)."""
     w = _make(qapp, FPH)
@@ -193,7 +181,6 @@ def test_trim_objects_populated(qapp):
     assert panel is not None
     assert panel._trim_objects
     assert any(o.label == "Surface (1)" for o in panel._trim_objects)
-
 
 def test_pin_transient_panel(qapp):
     """Unpinned panels close on Draw; pinned panels persist (F-gap)."""
@@ -208,7 +195,6 @@ def test_pin_transient_panel(qapp):
     w.property_host.current_panel._btn_pin.setChecked(True)
     w._on_draw_clicked()
     assert w.property_host.current_panel is not None
-
 
 def test_particle_run_special(qapp):
     """Particle 'Run checked functions' applies + rebuilds (F-gap)."""
@@ -225,7 +211,6 @@ def test_particle_run_special(qapp):
     panel._run_special()
     assert w.property_host.current_panel is not None
 
-
 def test_usage_click_persists(qapp):
     """Plane Usage Guide buttons persist flags without Apply (F-gap)."""
     w = _make(qapp, FPH)
@@ -235,7 +220,6 @@ def test_usage_click_persists(qapp):
     btn.setChecked(True)
     panel._usage_click("hv")
     assert panel.plane.usage_hv is True
-
 
 def test_loader_registry_registered():
     """Real parsers are advertised in the loader registry (G-gap)."""
@@ -247,7 +231,6 @@ def test_loader_registry_registered():
     assert loaders.can_load(FPH) is True
     assert loaders.can_load(r"D:\training\cgns\examples\box_ansa_gph.cgns") is True
 
-
 def test_cgns_detection_probe():
     """CGNS files are flagged specifically, not as 'unknown' (G-gap)."""
     from fv.model import loaders
@@ -258,7 +241,6 @@ def test_cgns_detection_probe():
     desc = loaders.describe(cgns)
     assert "loadable" in desc or "cgns" in desc
 
-
 def test_open_dialog_is_loadable_honest(qapp):
     """Open dialog only marks loadable formats as loadable (G-gap)."""
     from fv.gui.dialogs import OpenDialog
@@ -267,7 +249,6 @@ def test_open_dialog_is_loadable_honest(qapp):
     assert dlg.is_loadable(
         r"D:\training\cgns\examples\box_ansa_gph.cgns") is True
 
-
 def test_options_qsettings_headless():
     """Options facade stores/recalls values even without a real store."""
     from fv.gui.options import Options
@@ -275,7 +256,6 @@ def test_options_qsettings_headless():
     o.set("last_dir", r"D:\some\dir")
     assert o.get("last_dir") == r"D:\some\dir"
     assert o.get("missing", "zz") == "zz"
-
 
 def test_tasks_load_worker_sync(monkeypatch):
     """launch_load headless fallback parses synchronously (P0.6)."""
@@ -289,14 +269,12 @@ def test_tasks_load_worker_sync(monkeypatch):
     assert "ff" in calls, calls
     assert calls["ff"].kind == "fph"
 
-
 def test_options_wired_into_window(qapp):
     """Main window exposes an Options instance and saves on close."""
     w = _make(qapp, FPH)
     assert hasattr(w, "options")
     w.options.set("env_show_units", False)
     assert w.options.get("env_show_units") is False
-
 
 def test_create_object_menu_wiring(qapp):
     """Create menu/toolbar actually instantiates objects (A-gap fix)."""
@@ -315,7 +293,6 @@ def test_create_object_menu_wiring(qapp):
     w._create_object("vector")
     assert any(o.kind == "vector" for o in w.main_object.children) is False
 
-
 def test_create_menu_all_kinds_wired(qapp):
     """P0.1/P0.4: every Create-menu entry maps to a real kind (no None)."""
     from fv.gui import main as gmain
@@ -329,7 +306,6 @@ def test_create_menu_all_kinds_wired(qapp):
     assert set(gmain._RENDERABLE_KINDS) >= {
         k for _, k in gmain._CREATE_MENU + gmain._CREATE_MORE}
 
-
 def _tree_texts(tree) -> set:
     """Collect all item texts (recursively) from the object tree widget."""
     texts = set()
@@ -342,7 +318,6 @@ def _tree_texts(tree) -> set:
     for i in range(tree.topLevelItemCount()):
         walk(tree.topLevelItem(i))
     return texts
-
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_create_object_secondary_kinds(qapp):
@@ -359,7 +334,6 @@ def test_create_object_secondary_kinds(qapp):
     # Cylinder maps to the cylinder pipeline (was kind=None stub)
     w._create_object("cylinder")
     assert any(o.kind == "cylinder" for o in w.main_object.children)
-
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_undo_redo_wired(qapp):
@@ -378,7 +352,6 @@ def test_undo_redo_wired(qapp):
     edit_menu = _menu_by_title(w, "Edit")
     texts = {a.text() for a in edit_menu.actions()}
     assert {"Undo", "Redo"} <= texts
-
 
 def test_surface_dialog_all_tabs_and_filter(qapp):
     from fv.model.dataset import load_file
@@ -404,7 +377,6 @@ def test_surface_dialog_all_tabs_and_filter(qapp):
     sd.apply_to(s)
     assert s.selected_regions == []
     assert s.show_contour is True
-
 
 def test_plane_dialog_all_tabs(qapp):
     from fv.model.dataset import load_file
@@ -447,7 +419,6 @@ def test_particle_dialog_all_tabs(qapp):
     pd.apply_to(pt)
     assert pt.intersection_regions == [((0.0, 0.0, 0.0), (1.0, 1.0, 1.0))]
 
-
 def test_mat_filter_from_fld(qapp):
     from fv.model.dataset import load_file
     from fv.model.objects import SurfaceObject
@@ -464,7 +435,6 @@ def test_mat_filter_from_fld(qapp):
             it.setCheckState(0, Qt.Checked)
     sd.apply_to(s)
     assert s.display_mats == [2]
-
 
 def test_plane_automove_roundtrip(qapp):
     """Automove triplet spins round-trip through PlaneDialog.apply_to."""
@@ -496,7 +466,6 @@ def test_plane_automove_roundtrip(qapp):
     pd._usage_guide_ck.setChecked(True)
     assert pd.usage_guide_is_on() is True
 
-
 def _has_vtk():
     try:
         import vtk
@@ -505,9 +474,7 @@ def _has_vtk():
     except Exception:  # pragma: no cover
         return False
 
-
 _VTK = _has_vtk()
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
@@ -521,7 +488,6 @@ def test_scene_plane_pipeline_3d():
     names = s.actor_names()
     assert "grid" in names
     assert any(n == "plane" or n.startswith("plane:") for n in names)
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
@@ -559,7 +525,6 @@ def test_automove_math_fph():
                        np.array([0.0, 0.0, 1.0]), 90.0)
     assert abs(v[0]) < 1e-9 and abs(v[1] - 1.0) < 1e-9
 
-
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_plane_pick():
@@ -582,7 +547,6 @@ def test_plane_pick():
     res2 = rp.pick_point(ff, PlaneObject(index=1), tuple(v[0]),
                          ugrid=ug, cell_centered=cc)
     assert "scalar" not in res2 and "vector" not in res2
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
@@ -612,7 +576,6 @@ def test_plane_automove_animation():
     s.animate(0, fps=11)
     assert tuple(plane.point) == p0
 
-
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_plane_automove_recut_reuses_grid():
@@ -640,7 +603,6 @@ def test_plane_automove_recut_reuses_grid():
     s.animate(6, fps=11)
     assert s._plane_cut_cache[key][0] is ugrid   # same grid on next frame
     assert len(s._plane_cut_cache) == 1
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
@@ -676,7 +638,6 @@ def test_plane_render_pipeline_fph():
     res = rp.integrate_cut(cut, "PRES")
     assert res["area"] > 0 and abs(res["average"]) > 0
 
-
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_plane_trim_coordinate_ranges():
@@ -708,7 +669,6 @@ def test_plane_trim_coordinate_ranges():
     trimmed2 = rp.trim_cut(cut, obj2)
     assert rp.integrate_cut(trimmed2, "PRES")["area"] == 0
 
-
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_plane_trim_dialog_roundtrip(qapp):
@@ -723,7 +683,6 @@ def test_plane_trim_dialog_roundtrip(qapp):
     assert p.trim_ymin is None
     assert p.trim_ymax is None
     assert p.trim_zmin is None
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
@@ -753,7 +712,6 @@ def test_plane_vector_integration(qapp):
     assert "m^2" in d.integrate_result.text()
     assert "m/s" in d.integrate_result.text()
 
-
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_plane_integration_csv_output(qapp, tmp_path):
@@ -779,7 +737,6 @@ def test_plane_integration_csv_output(qapp, tmp_path):
     assert "Area [m^2]" in labels
     assert f"{obj.contour_var} sum" in labels
     assert float(rows[1][1]) > 0
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
@@ -807,7 +764,6 @@ def test_plane_oilflow_streamlines():
     out3 = rp.build_plane_actors(ff, obj)
     assert "oilflow" not in out3
 
-
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_plane_oilflow_color_var_p15():
@@ -832,7 +788,6 @@ def test_plane_oilflow_color_var_p15():
     rng = arr.GetRange()
     mrng = mapper.GetScalarRange()
     assert abs(mrng[0] - rng[0]) < 1e-9 and abs(mrng[1] - rng[1]) < 1e-9
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
@@ -867,7 +822,6 @@ def test_plane_clip_region():
     obj.clip_enabled = False
     out2 = rp.build_plane_actors(ff, obj)
     assert "clip_region" not in out2
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
@@ -907,7 +861,6 @@ def test_plane_vector_extras():
     g3 = out3["vector"].GetMapper().GetInputAlgorithm()
     b3 = g3.GetSource().GetBounds()
     assert abs(b3[2]) - 0.15 < 1e-6 and abs(b3[3]) - 0.15 < 1e-6
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
@@ -950,7 +903,6 @@ def test_plane_colorbar_texture(tmp_path):
     finally:
         tmp.unlink(missing_ok=True)
 
-
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_plane_contour_extras():
@@ -978,7 +930,6 @@ def test_plane_contour_extras():
     out2 = rp.build_plane_actors(ff, obj2)
     assert out2["contour"].GetMapper().GetScalarVisibility() == 1
     assert "contour_value" not in out2
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
@@ -1009,7 +960,6 @@ def test_plane_volume_region_filter():
     assert 0 < np_ < full and 0 < nr < full
     assert abs((np_ + nr) - full) <= full * 0.02
 
-
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
 def test_plane_material_filter():
@@ -1031,7 +981,6 @@ def test_plane_material_filter():
     n1 = rp.build_plane_actors(ff, m1)["contour"].GetMapper() \
         .GetInput().GetNumberOfPoints()
     assert 0 < n1 < full
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
@@ -1064,7 +1013,6 @@ def test_plane_render_pipeline_fld():
     res = rp.integrate_cut(cut, "TEMP")
     assert res["area"] > 0 and abs(res["average"]) > 0
 
-
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_surface_render_pipeline_fph():
@@ -1095,7 +1043,6 @@ def test_surface_render_pipeline_fph():
     res = sr.integrate_surface(pd, "PRES")
     assert res["area"] > 0 and abs(res["average"]) > 0
 
-
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
 def test_surface_render_pipeline_fld():
@@ -1123,7 +1070,6 @@ def test_surface_render_pipeline_fld():
     sr.attach_scalar(ff, pd, fi, "TEMP", cc)
     res = sr.integrate_surface(pd, "TEMP")
     assert res["area"] > 0 and abs(res["average"]) > 0
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
@@ -1157,7 +1103,6 @@ def test_particle_render_pipeline_fph():
     out2 = pr.build_particle_actors(p2, ff)
     assert "particle" in out2
 
-
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_particle_render_pipeline_scene():
@@ -1171,7 +1116,6 @@ def test_particle_render_pipeline_scene():
     s.build(ff, main)
     names = s.actor_names()
     assert any(n.startswith("particle:") for n in names)
-
 
 def _synthetic_two_frame_fph(path):
     """Write a 2-frame FPH (6 x 30-particle coordinate blocks) to *path*."""
@@ -1198,7 +1142,6 @@ def _synthetic_two_frame_fph(path):
     pos_blocks = [coordinate(rng.random(30)) for _ in range(6)]
     Path(path).write_bytes(
         b"CRDL-FLD" + section("LS_ParticlesPosition", *pos_blocks))
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 def test_particle_multiframe_animate(tmp_path):
@@ -1240,7 +1183,6 @@ def test_particle_multiframe_animate(tmp_path):
     # out-of-range frame index loops back into [0, n_frames)
     s.animate(2)
     assert obj.frame_index == 0
-
 
 @pytest.mark.skipif(not _HAS_QT, reason="PyQt5 unavailable")
 def test_new_object_dialogs_tabs_and_apply(qapp):
@@ -1284,7 +1226,6 @@ def test_new_object_dialogs_tabs_and_apply(qapp):
     d.apply_to(cb)
     assert cb.gradation == 256
 
-
 @pytest.mark.skipif(not _HAS_QT, reason="PyQt5 unavailable")
 def test_new_object_dialogs_with_field_file(qapp):
     """Dialogs populate variable combos from a real field file."""
@@ -1302,7 +1243,6 @@ def test_new_object_dialogs_with_field_file(qapp):
     assert d.scalar_var.count() >= 1
     d = StreamlineDialog(StreamlineObject(index=1), field_file=ff)
     assert d.vector.count() >= 1
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
@@ -1333,7 +1273,6 @@ def test_isosurface_render_pipeline_fld():
     out2 = iso_render.build_isosurface_actors(ff, obj2)
     assert out2.get("contour") is not None
 
-
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_point_render_pipeline_fph():
     from fv.model.dataset import load_file
@@ -1349,7 +1288,6 @@ def test_point_render_pipeline_fph():
     out = pt_render.build_point_actors(ff, obj)
     assert "point" in out and out["point"] is not None
     assert "label" in out  # value label shown
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
@@ -1367,7 +1305,6 @@ def test_point_probe_fld_nearest_node():
     out = pt_render.build_point_actors(ff, obj)
     assert "point" in out
     assert "label" in out
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
@@ -1387,7 +1324,6 @@ def test_streamline_render_pipeline_fph():
     obj.color_var = "PRES"
     out = sl_render.build_streamline_actors(ff, obj)
     assert out.get("streamline") is not None
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
@@ -1419,7 +1355,6 @@ def test_streamline_render_pipeline_fld():
     pd2 = out2["streamline"].GetMapper().GetInput()
     assert pd2.GetNumberOfLines() >= pd.GetNumberOfLines()
 
-
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 def test_fld_cell_interpolator():
     """P2-1: FldCellInterpolator does true hex trilinear interpolation."""
@@ -1450,9 +1385,6 @@ def test_fld_cell_interpolator():
     nn = np.argmin(((v - far) ** 2).sum(axis=1))
     assert interp.sample(far, x) == float(x[nn])
 
-
-
-
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_volume_render_pipeline_fph():
@@ -1479,7 +1411,6 @@ def test_volume_render_pipeline_fph():
     otf = a.GetProperty().GetScalarOpacity()
     assert otf is not None and otf.GetSize() >= 2
 
-
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
 def test_volume_raycast_fld():
@@ -1496,7 +1427,6 @@ def test_volume_raycast_fld():
     assert "vtkVolume" in type(a).__name__
     assert "RayCastMapper" in type(a.GetMapper()).__name__
     assert a.GetProperty().GetScalarOpacity() is not None
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
@@ -1526,7 +1456,6 @@ def test_volume_transfer_and_sampling_p11():
     assert decimated.GetNumberOfCells() == \
         (grid.GetNumberOfCells() + 3) // 4
 
-
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_surface_luster_water_material():
@@ -1552,7 +1481,6 @@ def test_surface_luster_water_material():
     obj2.mesh_water = True
     ma = mesh_lines_actor(pd, obj2)
     assert abs(ma.GetProperty().GetSpecular() - 0.9) < 1e-6
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
@@ -1604,7 +1532,6 @@ def test_pathline_multi_cycle(tmp_path):
     assert pd.GetNumberOfPoints() >= 9
     assert pd.GetNumberOfLines() >= 1
 
-
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
 def test_pathline_step_and_color_p12(tmp_path):
@@ -1651,7 +1578,6 @@ def test_pathline_dialog_tabs_and_apply(qapp):
     d.apply_to(pl)
     assert pl.density_u == 12 and pl.steps_per_cycle == 25
 
-
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_plane_trim_by_surface():
@@ -1676,7 +1602,6 @@ def test_plane_trim_by_surface():
     # a Z=0 mid cut spans the whole domain; trimming should reduce it
     if n_full > 4:
         assert n_trim < n_full
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
@@ -1714,7 +1639,6 @@ def test_cylinder_circle_dialogs(qapp):
     d2.coord.setValue(0.5)
     d2.apply_to(cir)
     assert abs(cir.coordinate - 0.5) < 1e-9
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 def test_text_bitmap_actors():
@@ -1801,7 +1725,6 @@ def test_information_dialog(qapp):
     d.apply_to(info)
     assert abs(info.position[0] - 0.5) < 1e-9
 
-
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_undo_redo_objects(qapp):
     """Edit Undo/Redo restores object lists (P2.8)."""
@@ -1836,7 +1759,6 @@ def test_automove_custom_path(tmp_path):
     pf, _ = automove_coordinate(pl, 0.5)
     assert len(pf) == 3
 
-
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_mirror_copy_surface():
@@ -1859,7 +1781,6 @@ def test_mirror_copy_surface():
     # missing source -> no actors
     mir2 = MirrorCopyObject(index=2)
     assert build_mirror_actors(ff, mir2, siblings=[surf]) == {}
-
 
 def test_mirror_periodical_inherit_source_field():
     """R0.5: mirror/periodical copies inherit the source contour field."""
@@ -1900,8 +1821,6 @@ def test_mirror_periodical_inherit_source_field():
     assert out3["mirror"].GetMapper().GetInput().GetCellData().GetArray(
         "PRES") is None
 
-
-
 def test_vector_arrow_coloring_modes():
     """R0.6 (B7): vector arrows colour by magnitude/variable or mono RGB."""
     from fv.model.dataset import load_file
@@ -1938,8 +1857,6 @@ def test_vector_arrow_coloring_modes():
     obj.contour_var = "PRES"
     a = build_surface_actors(ff, obj)["vector"]
     assert a.GetMapper().GetArrayName() == "PRES"
-
-
 
 def test_hardcoded_params_adaptive():
     """R0.7: marker/tube radius adapt to extent; point labels stagger."""
@@ -2001,21 +1918,6 @@ def test_hardcoded_params_adaptive():
     assert abs(right - 0.4949 * 0.0025 * 3.0) < 1e-4
     assert right > 2.5 * left
 
-
-def test_time_series_max_min_parsers(tmp_path):
-    """TM/OT CSV parsers read cycle/time and min/max rows (P2.10)."""
-    from fv.model.tsmm import parse_max_min, parse_time_series
-    tm = tmp_path / "series.csv"
-    tm.write_text("cycle,time\n100,0.1\n200,0.2\n300,0.3\n", encoding="utf-8")
-    cyc, tim = parse_time_series(str(tm))
-    assert cyc == [100, 200, 300]
-    assert abs(tim[2] - 0.3) < 1e-9
-    mm = tmp_path / "mm.csv"
-    mm.write_text("var,min,max\nPRES,-1.5,2.5\nTEMP,0,100\n", encoding="utf-8")
-    vals = parse_max_min(str(mm))
-    assert vals["PRES"] == (-1.5, 2.5)
-    assert vals["TEMP"] == (0.0, 100.0)
-
 def test_time_series_dialog(qapp):
     """TimeSeriesDialog loads a CSV into the object (P2.10)."""
     from fv.gui.object_dialogs2 import TimeSeriesDialog
@@ -2026,7 +1928,6 @@ def test_time_series_dialog(qapp):
     d.apply_to(ts)
     assert ts.file.endswith("no_such.csv")
     assert ts.cycles == []  # missing file leaves data empty
-
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_graph_collect_series():
@@ -2051,7 +1952,6 @@ def test_graph_dialog(qapp):
     d.xmode.setCurrentIndex(d.xmode.findData("Cycle"))
     d.apply_to(g)
     assert g.x_mode == "Cycle"
-
 
 def test_grouping_object_and_dialog(qapp):
     """Grouping stores member labels via its dialog (P2.5)."""
@@ -2087,7 +1987,6 @@ def test_move_plane_to_pick():
     else:
         # headless-safe: no pick at centre is acceptable on CI
         pytest.skip("pick returned nothing at centre")
-
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_api_facade():
@@ -2346,159 +2245,6 @@ def test_fileset_time_interpolation_and_runtime(tmp_path):
     with pytest.raises(ValueError):
         interpolate_at(fs, 3.0)
 
-def test_pod_decompose():
-    """POD SVD decomposition: orthogonal modes + energy fractions (P3)."""
-    import numpy as np
-    from fv.model.pod import pod_decompose
-    rng = np.random.default_rng(7)
-    X = rng.standard_normal((12, 50))
-    mean, modes, energies, sv, tc = pod_decompose(X, 6)
-    assert mean.shape == (50,)
-    assert len(modes) == 6 and len(energies) == 6
-    assert tc.shape == (12, 6)  # one time-coefficient column per mode
-    assert np.all(energies >= 0) and energies.sum() <= 1.0 + 1e-12
-    assert np.all(np.diff(energies) <= 1e-12)  # descending energy
-    _, modes_full, e_full, _, tc_full = pod_decompose(X)
-    np.testing.assert_allclose(tc_full @ np.vstack(modes_full),
-                               X - X.mean(axis=0), atol=1e-8)
-    assert abs(e_full.sum() - 1.0) < 1e-9    # modes are orthonormal
-    M = np.vstack(modes)
-    gram = M @ M.T
-    assert np.allclose(gram, np.eye(6), atol=1e-9)
-    # rank-deficient data -> exactly one non-zero mode
-    Xr = np.tile(rng.standard_normal(50), (5, 1))
-    _, modes_r, energies_r, _, _ = pod_decompose(Xr, 3)
-    assert energies_r[0] > 0.999
-
-def test_pod_analysis_fileset(tmp_path):
-    """POD across a cycle FileSet registers POD_MEAN / POD_MODE_i (P3)."""
-    import shutil
-    from pathlib import Path
-    from fv import api
-    from fv.model.fileset import scan_sequence
-    base = Path(tmp_path)
-    for stale in base.glob("*.fph"):
-        stale.unlink()
-    for cyc in (1, 2, 3):
-        shutil.copyfile(FPH, str(base / f"flow_{cyc}.fph"))
-    fs = scan_sequence(str(base / "flow_1.fph"))
-    ff0 = api.open_file(FPH)
-    res = api.register_pod_modes(fs, ff0, "PRES", 3)
-    assert res["n_cycles"] == 3
-    assert res["mean"].shape == (ff0.n_cells,)
-    assert len(res["modes"]) == 3
-    assert "POD_MEAN" in ff0.variables
-    assert "POD_MODE_0" in ff0.variables and "POD_MODE_2" in ff0.variables
-
-def test_pod_allcyc_cache_and_no_swallow(tmp_path):
-    """POD/ALLCYC share a member cache and surface errors (P2.5)."""
-    import shutil
-    from pathlib import Path
-    from fv import api
-    from fv.model.fileset import scan_sequence
-    from fv.model.pod import collect_snapshots
-    base = Path(tmp_path)
-    for stale in base.glob("*.fph"):
-        stale.unlink()
-    for cyc in (1, 2, 3):
-        shutil.copyfile(FPH, str(base / ("flow_" + str(cyc) + ".fph")))
-    fs = scan_sequence(str(base / "flow_1.fph"))
-    assert len(fs) == 3
-
-    # shared cache: each member parsed once and reused across POD/ALLCYC
-    cache = {}
-    res = api.pod_analysis(fs, "PRES", 2, cache=cache)
-    assert res["cycles"] == [1, 2, 3]
-    assert len(cache) == 3
-    out = api.register_var_all_cycles(fs, "PP3", "PRES + 2.0", cache=cache)
-    assert [c for c, _ in out] == [1, 2, 3]
-    assert len(cache) == 3          # no re-parse of cached members
-    assert all("PP3" in ff.variables for ff in cache.values())
-
-    # missing variable is an explicit error, not a silent skip
-    with pytest.raises(ValueError):
-        collect_snapshots(fs, "NO_SUCH_VAR")
-
-    # a corrupt member must propagate, not be swallowed
-    (base / "flow_2.fph").write_bytes(b"garbage: not a field file")
-    with pytest.raises(Exception):
-        collect_snapshots(fs, "PRES")
-def test_pod_time_coeffs_and_export(tmp_path):
-    """POD time coefficients (U matrix) + CSV export (P3-1)."""
-    import csv
-    import shutil
-    from pathlib import Path
-    import numpy as np
-    from fv import api
-    from fv.model.fileset import scan_sequence
-    from fv.model.pod import export_pod_csv
-    base = Path(tmp_path)
-    for stale in base.glob("*.fph"):
-        stale.unlink()
-    for cyc in (1, 2, 3):
-        shutil.copyfile(FPH, str(base / ("flow_" + str(cyc) + ".fph")))
-    fs = scan_sequence(str(base / "flow_1.fph"))
-    res = api.pod_analysis(fs, "PRES", 2)
-    assert res["time_coeffs"].shape == (3, 2)
-    assert res["n_cycles"] == 3
-    out = tmp_path / "pod_u.csv"
-    export_pod_csv(res, str(out))
-    rows = list(csv.reader(out.read_text(encoding="utf-8").splitlines()))
-    assert rows[0] == ["cycle", "t_0", "t_1", "energy_0", "energy_1"]
-    assert [int(r[0]) for r in rows[1:]] == [1, 2, 3]
-    assert all(np.isfinite(float(r[1])) for r in rows[1:])
-
-
-def test_cluster_analysis_and_fields(tmp_path):
-    """k-means Clustering: labels / centroids / CSV + API wiring (P3-1)."""
-    import csv
-    import shutil
-    from pathlib import Path
-    import numpy as np
-    from fv import api
-    from fv.model.fileset import scan_sequence
-    from fv.model.pod import export_cluster_csv, kmeans
-    # separable 2-D data -> both clusters are found
-    X = np.array([[0., 0.], [0.1, 0.05], [-0.05, 0.1],
-                  [10., 10.], [9.9, 10.1], [10.2, 9.8]])
-    labels, cent, inertia, it = kmeans(X, 2, seed=1)
-    assert sorted(set(labels.tolist())) == [0, 1]
-    assert len(set(labels[:3].tolist())) == 1   # first group together
-    assert len(set(labels[3:].tolist())) == 1   # second group together
-    assert labels[0] != labels[3]
-    assert inertia > 0 and it >= 1
-    with pytest.raises(ValueError):
-        kmeans(np.zeros((0, 5)), 2)
-    # end-to-end across a cycle FileSet (identical snapshots stay stable)
-    base = Path(tmp_path)
-    for stale in base.glob("*.fph"):
-        stale.unlink()
-    for cyc in (1, 2, 3):
-        shutil.copyfile(FPH, str(base / ("flow_" + str(cyc) + ".fph")))
-    fs = scan_sequence(str(base / "flow_1.fph"))
-    res = api.cluster_analysis(fs, "PRES", 2)
-    assert res["n_clusters"] == 2 and res["n_cycles"] == 3
-    assert len(res["labels"]) == 3 and all(0 <= lb < 2 for lb in res["labels"])
-    assert sum(res["sizes"]) == 3
-    assert len(res["centroids"]) == 2
-    assert res["centroids"][0].shape == res["centroids"][1].shape
-    # deterministic for a fixed seed
-    assert api.cluster_analysis(fs, "PRES", 2)["labels"] == res["labels"]
-    # cluster count is capped by the number of snapshots
-    assert api.cluster_analysis(fs, "PRES", 9)["n_clusters"] == 3
-    # centroid fields register back onto a FieldFile
-    ff0 = api.open_file(FPH)
-    api.register_cluster_fields(fs, ff0, "PRES", 2)
-    assert "CLUSTER_0" in ff0.variables and "CLUSTER_1" in ff0.variables
-    assert ff0.variables["CLUSTER_0"].array.shape == (ff0.n_cells,)
-    # per-cycle assignment exports as CSV
-    out = tmp_path / "clusters.csv"
-    export_cluster_csv(res, str(out))
-    rows = list(csv.reader(out.read_text(encoding="utf-8").splitlines()))
-    assert rows[0] == ["cycle", "cluster"]
-    assert [int(r[0]) for r in rows[1:]] == [1, 2, 3]
-
-
 def test_xdmf_temporal_collection(tmp_path):
     """XDMF temporal collection: shared topology, per-step fields (P3)."""
     import numpy as np
@@ -2690,7 +2436,6 @@ def test_ugrid_cache_reuse():
     ug2, cc2 = build_ugrid(ff)
     assert ug1 is ug2
 
-
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
 def test_fld_ugrid_batch_build():
@@ -2710,7 +2455,6 @@ def test_fld_ugrid_batch_build():
     mask[:7] = True
     ug2, _ = build_ugrid(ff, cell_mask=mask)
     assert ug2.GetNumberOfCells() == 7
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
@@ -2753,17 +2497,6 @@ def test_particle_intersection_cloth():
     out = build_particle_actors(obj3, ff)
     assert "cloth" in out
 
-
-@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
-def test_compare_dialog_headless(qapp):
-    """CompareDialog builds headless with labelled panes (G2)."""
-    from fv.gui.dialogs import CompareDialog
-    from fv.model.dataset import load_file
-    ff = load_file(FPH)
-    d = CompareDialog(ff, ff, enable_3d=False)
-    assert "Compare" in d.windowTitle()
-
-
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_drag_plane_handlers(qapp, monkeypatch):
     """Drag handlers move the plane via the scene (G1)."""
@@ -2787,7 +2520,6 @@ def test_drag_plane_handlers(qapp, monkeypatch):
     w._drag_start(5, 5)
     assert w._drag_obj is None
 
-
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 def test_colorbar_actor_and_lut():
     from fv.model.objects import ColorbarObject
@@ -2800,7 +2532,6 @@ def test_colorbar_actor_and_lut():
     sb = colorbar_actor(cb, range_=(0.0, 300.0))
     assert sb is not None
     assert sb.GetLookupTable() is ColorbarRegistry.lut()
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 def test_scene_build_renders_colorbar():
@@ -2816,7 +2547,6 @@ def test_scene_build_renders_colorbar():
     sc.build(ff, main=main)
     assert "colorbar" in sc.actor_names()
 
-
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 def test_scene_build_colorbar_headless():
     """Headless build reports a colorbar actor layer."""
@@ -2830,7 +2560,6 @@ def test_scene_build_colorbar_headless():
     sc = Scene(enable_3d=False)
     sc.build(ff, main=main)
     assert "colorbar" in sc.actor_names()
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 def test_global_colorbar_applied_to_mappers():
@@ -2881,7 +2610,6 @@ def test_global_colorbar_applied_to_mappers():
                     found_fix = True
     assert found_fix
 
-
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 def test_light_object_minimal_render():
     """LightObject drives the renderer's key light (P0.3)."""
@@ -2920,7 +2648,6 @@ def test_light_object_headless_layer():
     sc.build(ff, main=main)
     assert "light" in sc.actor_names()
 
-
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 def test_particle_variable_selection():
     """Particle vector/scalar vars are honoured (P0.4)."""
@@ -2952,7 +2679,6 @@ def test_particle_variable_selection():
     pd = out2["particle"].GetMapper().GetInput()
     assert pd.GetPointData().GetScalars() is not None
     assert pd.GetPointData().GetScalars().GetName() == "ParticleScalar"
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
@@ -2991,9 +2717,6 @@ def test_volume_volume_region_filter():
                         display_volume_regions=["Case[2]"])
     ug_f, _ = build_ugrid(ff, cell_filter_mask(ff, obj))
     assert 0 < ug_f.GetNumberOfCells() < ug_all.GetNumberOfCells()
-
-
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 def test_volume_transfer_3point_ramp():
@@ -3034,7 +2757,6 @@ def test_window_open_async_path(qapp):
     assert w.dataset is not None and w.dataset.kind == "fph"
     assert "Surface (1)" in [o.label for o in w.main_object.children]
 
-
 def test_light_dialog_tabs_and_apply(qapp):
     """LightDialog exposes Brightness tab and writes back (P0.3)."""
     from fv.gui.object_dialogs2 import LightDialog
@@ -3048,7 +2770,6 @@ def test_light_dialog_tabs_and_apply(qapp):
     d.apply_to(light)
     assert light.enabled is False
     assert abs(light.brightness - 0.7) < 1e-6
-
 
 def test_fileset_scan_sequence(tmp_path):
     """Same-stem sibling files become ordered FileSet members."""
@@ -3064,7 +2785,6 @@ def test_fileset_scan_sequence(tmp_path):
     # find() walks at-or-after the requested cycle
     assert fs.find(6).cycle == 9
 
-
 def test_fileset_scans_real_v3_sequence():
     """Real laptop_thermal_steady_scaled_v3 sequence exposes 3 steps."""
     from fv.model.fileset import scan_sequence
@@ -3074,7 +2794,6 @@ def test_fileset_scans_real_v3_sequence():
     fs = scan_sequence(v3)
     assert [m.cycle for m in fs.members] == [10, 100, 200]
     assert len(fs) == 3
-
 
 def test_timeline_cycle_switch(qapp, tmp_path):
     """Timeline step loads the sequence member's field data."""
@@ -3095,7 +2814,6 @@ def test_timeline_cycle_switch(qapp, tmp_path):
     # Member for step 2 is flow_2.fph; its data now backs the scene
     assert w.dataset.path.lower().endswith("flow_2.fph")
     w._on_timeline_pause()
-
 
 def test_object_delete_duplicate_and_undo(qapp):
     """R0.2/R0.3: Edit delete/duplicate + undo covers edits, not just create."""
@@ -3126,7 +2844,6 @@ def test_object_delete_duplicate_and_undo(qapp):
     w.on_undo()
     plane2 = next(o for o in w.main_object.children if o.kind == "plane")
     assert plane2.coordinate == before
-
 
 def test_timeline_time_interpolation_gui(qapp, tmp_path):
     """R0.1: Time mode fractional cycle / physical time drive interpolate_at."""
@@ -3161,7 +2878,6 @@ def test_timeline_time_interpolation_gui(qapp, tmp_path):
         assert w.dataset is not None
     w._on_timeline_pause()
 
-
 def test_sta_save_load_roundtrip(tmp_path):
     """Save Status → JSON .sta; load_status rebuilds the child objects."""
     from fv.model.dataset import load_file
@@ -3180,7 +2896,6 @@ def test_sta_save_load_roundtrip(tmp_path):
     plane2 = next(o for o in restored if o.kind == "plane")
     assert plane2.coordinate == 2.5
     assert plane2.label == "Plane (1)"
-
 
 def test_sta_roundtrip_all_kinds(tmp_path):
     """P0.2: every PostObject kind survives an STA save/load round-trip."""
@@ -3208,7 +2923,6 @@ def test_sta_roundtrip_all_kinds(tmp_path):
         f"only {len(restored)}/{len(classes)} kinds restored")
     assert {o.kind for o in restored} == {c.kind for c in classes}
 
-
 def test_snapshot_png_headless_returns_false(tmp_path):
     """Headless scene has no render window → snapshot_png returns False."""
     from fv.model.dataset import load_file
@@ -3218,7 +2932,6 @@ def test_snapshot_png_headless_returns_false(tmp_path):
     sc = Scene(enable_3d=False)
     sc.build(ff)
     assert snapshot_png(sc, str(tmp_path / "x.png")) is False
-
 
 def test_export_handlers_wired(qapp):
     """File menu exposes Save Status / Print / Export PNG (D-gap)."""
@@ -3232,10 +2945,8 @@ def test_export_handlers_wired(qapp):
     w.on_export_png()
     w.on_print()
 
-
 def _menu_by_title(w, title):
     return next(m.menu() for m in w.menuBar().actions() if m.text() == title)
-
 
 def test_menu_stubs_wired(qapp):
     """Menu/view stubs now have real handlers (E-gap)."""
@@ -3255,7 +2966,6 @@ def test_menu_stubs_wired(qapp):
     w.on_iso_metric()
     w.on_compare_view()
 
-
 def test_environment_dialog(qapp):
     """Option → Environment dialog constructs with checkboxes."""
     from fv.gui.dialogs import EnvironmentDialog
@@ -3265,7 +2975,6 @@ def test_environment_dialog(qapp):
     assert hasattr(dlg, "chk_bggrad")
     dlg.chk_status.setChecked(False)
     dlg._on_ok()
-
 
 def test_unit_settings_dialog_and_camera_wiring(qapp):
     """R0.4: UnitDialog factor/round-trip; Camera+Unit handlers wired."""
@@ -3293,24 +3002,12 @@ def test_unit_settings_dialog_and_camera_wiring(qapp):
     assert dlg.length_unit == "mm"
     assert dlg.angle_unit == "rad"
 
-
 def test_on_contour_display_headless(qapp):
     """Display → Contour rebuilds the scene headlessly."""
     w = _make(qapp, FPH)
     w.on_contour_display()
     assert "surface" in w.scene.actor_names()
     assert "grid" in w.scene.actor_names()
-
-
-@pytest.mark.skipif(not Path(FPH).exists(), reason='sample not present')
-def test_compare_dialog_panes(qapp):
-    '''CompareDialog builds headless with labelled panes (G2).'''
-    from fv.gui.dialogs import CompareDialog
-    from fv.model.dataset import load_file
-    ff = load_file(FPH)
-    d = CompareDialog(ff, ff, enable_3d=False)
-    assert d.layout().count() >= 1
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
@@ -3350,7 +3047,6 @@ def test_curve_dialog(qapp):
     d.apply_to(c)
     assert c.points == [(0.0, 0.0, 0.0), (1.0, 1.0, 1.0)]
     assert c.samples == 50
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
@@ -3417,7 +3113,6 @@ def test_delx_difference():
     assert vi_fph.kind == "scalar"
     assert vi_fph.array.shape == (fph.n_cells,)
 
-
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
 def test_grad_div_rot():
     """grad/div/rot operate on node fields (B2)."""
@@ -3444,7 +3139,6 @@ def test_grad_div_rot():
     r = register_variable(ff, "RV", "rot(V)")
     assert r.kind == "vector"
     assert np.abs(r.array).max() < 0.4
-
 
 def test_measure_distance_angle():
     """Measure computes distance and angle (C2)."""
@@ -3496,7 +3190,6 @@ def test_measure_dialog(qapp):
     assert m.mode == "Angle"
     assert m.points[0][0] == 1.0
 
-
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
 def test_xdmf_reader(tmp_path):
     """Inline XDMF parses into a FieldFile (D1)."""
@@ -3524,7 +3217,6 @@ def test_xdmf_reader(tmp_path):
     assert ff.variables["PRES"].location == "node"
     assert ff.variables["PRES"].array.tolist() == [1, 2, 3, 4, 5, 6, 7, 8]
 
-
 def test_folder_tree_hierarchy(qapp):
     """Folder nests member objects under a tree node (A3)."""
     from fv.model.dataset import load_file
@@ -3544,7 +3236,6 @@ def test_folder_tree_hierarchy(qapp):
     mitem = w.object_tree._items.get("__main__")
     top = [mitem.child(i).text(0) for i in range(mitem.childCount())]
     assert "Plane (1)" in top
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
@@ -3569,7 +3260,6 @@ def test_bar_object():
     assert "bar" in out
     assert out["bar"].GetMapper().GetInput().GetNumberOfPoints() == 16
 
-
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_regionbc_dialog(qapp):
     """RegionBC lists boundary region names + face counts (A5)."""
@@ -3582,7 +3272,6 @@ def test_regionbc_dialog(qapp):
     assert d.list.count() == len(ff.surface_regions)
     assert any("faces" in d.list.item(i).text()
             for i in range(d.list.count()))
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
@@ -3604,7 +3293,6 @@ def test_gradation_background():
     grad.enabled = False
     sc.apply_gradation(grad)
     assert sc.renderer.GetGradientBackground() == 0
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
@@ -3629,7 +3317,6 @@ def test_object_name_billboard():
     assert sc2._name_text == "Plane (1)"
     assert sc2._name_actor is None
 
-
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_api_queries():
     """fv.api exposes region/MAT/cell query helpers (E1)."""
@@ -3645,7 +3332,6 @@ def test_api_queries():
     adj = api.adjacent_cells(ff, 0)
     assert isinstance(adj, list)
     assert all(isinstance(x, int) for x in adj)
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
@@ -3670,7 +3356,6 @@ def test_particle_trim_filter():
     obj2.display_particle_no = "999-1000"
     assert len(_filter_by_trim(pos, vel, obj2)) == 0
 
-
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_multi_object_drag(qapp, monkeypatch):
     """Drag dispatches to cylinder/circle/point moves (E3)."""
@@ -3690,7 +3375,6 @@ def test_multi_object_drag(qapp, monkeypatch):
     monkeypatch.setattr(w.scene, "move_plane_to_pick",
                         lambda x, y, plane_obj=None: True)
     assert w._move_object_to_pick(plane, 0, 0) is True
-
 
 def test_nastran_reader(tmp_path):
     """Free-field Nastran mesh parses into a FieldFile (D2)."""
@@ -3783,7 +3467,6 @@ def test_export_obj(tmp_path):
     assert txt.startswith("# flowviewer OBJ export")
     assert "v " in txt and "f " in txt  # HEXAHEDRON
 
-
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 def test_export_obj_normals_uv(tmp_path):
     """P2-4: OBJ export carries per-vertex normals and planar UVs."""
@@ -3796,7 +3479,6 @@ def test_export_obj_normals_uv(tmp_path):
     assert "vn " in txt and "vt " in txt
     assert any(ln.startswith("f ") and "/" in ln
                for ln in txt.splitlines())  # v/vt/vn faces
-
 
 def test_camera_dialog(qapp):
     """CameraDialog writes position/focal/projection back (5b)."""
@@ -3813,8 +3495,6 @@ def test_camera_dialog(qapp):
     assert c.parallel_projection is False
     d.scene = None
     d._apply_camera()
-
-
 
 def test_r08_camera_presets_statusbar_oilflow(qapp):
     """R0.8: camera view presets + status-bar cells/pick labels."""
@@ -3864,7 +3544,6 @@ def test_camera_keyframes_and_sequence():
     # headless capture writes nothing but returns an int
     n = capture_camera_sequence(None, [kf0, kf1], 3, "tmp")
     assert isinstance(n, int) and n == 0
-
 
 def test_camera_spline_keyframes_p15():
     """P1.5: >=3 keyframes use Catmull-Rom (passes through keyframes)."""
@@ -4008,7 +3687,6 @@ def test_global_window_container(qapp):
     assert w.global_window.camera is w._global_camera
     assert w.global_window.light is w._global_light
 
-
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_graph_curve_mode():
     """Graph samples a Curve as the arc-length X axis (6)."""
@@ -4032,7 +3710,6 @@ def test_graph_curve_mode():
     assert xs[0] == 0.0
     assert np.all(np.diff(xs) >= 0)
 
-
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_turbo_views():
     """Meridional / blade-to-blade transforms produce 2D points (7a)."""
@@ -4048,7 +3725,6 @@ def test_turbo_views():
     b2b = blade_to_blade_points(ff, rmid, "Z", tol=rmid * 0.1)
     assert b2b.shape[1] == 2
     assert b2b.shape[0] > 0
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 def test_turbo_heatmap_and_polar_p13():
@@ -4084,7 +3760,6 @@ def test_turbo_heatmap_and_polar_p13():
     assert sc is not None and len(sc) == 16
     assert np.isfinite(ps).sum() > 0
     assert np.isfinite(ss).sum() > 0
-
 
 def test_ufo_object(qapp):
     """UFO object + dialog build (7b)."""
@@ -4274,7 +3949,6 @@ def test_vr_backend_builders():
         assert "window" in handle
         assert release_vr_window(handle) is True
 
-
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_turbo_analysis():
     """Circumferential average / blade loading / polar view (1)."""
@@ -4346,7 +4020,6 @@ def test_ifld_metadata_scan():
     assert "Pressure" in meta["variables"]
     assert scan_ifld(r"D:\training\cgns\no_such.fld") is None
 
-
 def test_neutral_reader(tmp_path):
     """OBJ/STL neutral meshes load as a surface FieldFile (1)."""
     from fv.model.dataset import neutral_load
@@ -4385,7 +4058,6 @@ def test_neutral_scene():
     finally:
         os.unlink(path)
 
-
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_fph_cell_difference():
     """delx on an FPH cell field uses cell-centre differences (2)."""
@@ -4404,7 +4076,6 @@ def test_fph_cell_difference():
     nz = vi.array[np.nonzero(vi.array)]
     assert len(nz) > 0
     assert np.abs(nz - 1.0).max() < 0.3
-
 
 def test_marc_reader(tmp_path):
     """Marc .dat free text mesh parses (3)."""
@@ -4428,8 +4099,6 @@ def test_marc_reader(tmp_path):
     assert ff.n_vertices == 8 and ff.n_cells == 1
     assert ff.cell_types.tolist() == [12]
 
-
-
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_export_animation_frames_headless(tmp_path):
     """Animation exporter returns 0 written in headless mode (G5)."""
@@ -4448,7 +4117,6 @@ def test_export_animation_frames_headless(tmp_path):
                                frames=3)
     assert n == 0  # no render window: nothing written, no crash
     assert tmp_path.exists()
-
 
 @pytest.mark.skipif(not _HAS_QT, reason="PyQt5 unavailable")
 def test_p06_detail_sweep(qapp, tmp_path):
@@ -4475,7 +4143,6 @@ def test_p06_detail_sweep(qapp, tmp_path):
     assert tl.time_scale() == 1.0
     assert tl.format_time(None) == ""
 
-
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_p06_message_save_and_last_dir(qapp, tmp_path):
     """P0.6: message log persists to file; open records options.last_dir."""
@@ -4489,7 +4156,6 @@ def test_p06_message_save_and_last_dir(qapp, tmp_path):
     # last_dir recorded from the loaded dataset's folder
     assert w.options.last_dir == str(Path(FPH).parent)
 
-
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
 def test_r11_probe_at_fld_nearest_node():
     """R1.1: generic probe_at probes explicit vars (FLD nearest-node)."""
@@ -4502,7 +4168,6 @@ def test_r11_probe_at_fld_nearest_node():
     assert "scalar" in res and res["scalar"][0] == "TEMP"
     assert "vector" in res and res["vector"][0] == "VECT"
     assert probe_at(ff, pt) == {}
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
@@ -4518,7 +4183,6 @@ def test_r11_probe_at_generic_fph():
     res = probe_at(ff, pt, vector_var="VEL", vector_on=True)
     assert "vector" in res and res["vector"][0] == "VEL"
     assert probe_at(ff, pt) == {}
-
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_r11_pick_vars_mapping(qapp):
@@ -4540,7 +4204,6 @@ def test_r11_pick_vars_mapping(qapp):
     pl = PlaneObject(index=1, pick_scalar=True, pick_scalar_var="PRES",
                      pick_vector=True, pick_vector_var="VEL")
     assert w._pick_vars(pl) == ("PRES", "VEL", True, True)
-
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_r12_lock_and_rename(qapp):
@@ -4565,7 +4228,6 @@ def test_r12_lock_and_rename(qapp):
     # rename to identical title is a no-op
     assert w._apply_rename(obj, "RenamedObj") == new_label
 
-
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_r12_hide_selected(qapp):
     """R1.2: hide/show selected toggles visibility."""
@@ -4578,13 +4240,11 @@ def test_r12_hide_selected(qapp):
     w.on_hide_selected(False)
     assert obj.visible is True
 
-
 def test_r12_area_pick_degrades_headless():
     """R1.2: area_pick returns [] without a live renderer."""
     from fv.render.scene import Scene
     s = Scene(enable_3d=False)
     assert s.area_pick(0, 0, 10, 10) == []
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 def test_r13_measure_actors():
@@ -4603,7 +4263,6 @@ def test_r13_measure_actors():
     assert build_measure_actors(
         None, MeasureObject(index=3, points=[(0, 0, 0)])) == {}
 
-
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_r13_measure_dialog_pick(qapp):
     """R1.3: MeasureDialog begin_pick/set_pick_point fill the spinboxes."""
@@ -4615,7 +4274,6 @@ def test_r13_measure_dialog_pick(qapp):
     assert d._pick_index == 1
     d.set_pick_point(1, (1.5, 2.5, 3.5))
     assert obj.points[1] == (1.5, 2.5, 3.5)
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 def test_r14_colorbar_expanded_maps():
@@ -4629,7 +4287,6 @@ def test_r14_colorbar_expanded_maps():
         c1 = lut.GetTableValue(31)
         assert (c0[0], c0[1], c0[2]) != (c1[0], c1[1], c1[2])
 
-
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 def test_r14_colorbar_parametrized_labels():
     """R1.4: colorbar_actor honours num_labels / label_color / label_format."""
@@ -4642,7 +4299,6 @@ def test_r14_colorbar_parametrized_labels():
     assert sb.GetNumberOfLabels() == 5
     c = sb.GetLabelTextProperty().GetColor()
     assert abs(c[0] - 1.0) < 1e-9 and abs(c[1]) < 1e-9
-
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_r15_graph_multi_series():
@@ -4662,7 +4318,6 @@ def test_r15_graph_multi_series():
     xs, ys, var = collect_series(g2, ff0=ff)
     assert var == "PRES"
 
-
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_r15_graph_save(tmp_path):
     """R1.5: save_graph writes a PNG via matplotlib (Agg)."""
@@ -4679,48 +4334,6 @@ def test_r15_graph_save(tmp_path):
     assert save_graph(g, str(out), ff0=ff) is True
     assert out.exists() and out.stat().st_size > 0
 
-
-@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
-def test_r16_compare_same_file_zero_diff():
-    """R1.6: comparing a file with itself yields a zero difference field."""
-    from fv.model.dataset import load_file
-    from fv.model.compare import (common_variables, difference_field,
-                                  compare_stats, compare_summary)
-    ff = load_file(FPH)
-    common = common_variables(ff, ff)
-    assert "PRES" in common
-    res = difference_field(ff, ff, "PRES")
-    assert res is not None
-    assert res["min"] == 0.0 and res["max"] == 0.0
-    assert res["mean"] == 0.0 and res["rms"] == 0.0
-    assert res["diff"].shape == ff.variable_array("PRES").shape
-    st = compare_stats(ff, ff, "PRES")
-    assert st["var"] == "PRES" and st["min"] == 0.0
-    summary = compare_summary(ff, ff)
-    assert "PRES" in summary and "TURK" in summary
-
-
-@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
-def test_r16_compare_constant_offset():
-    """R1.6: a constant offset gives uniform |A−B| equal to the offset."""
-    import numpy as np
-    from dataclasses import replace
-    from fv.model.dataset import load_file, VarInfo
-    from fv.model.compare import difference_field, diff_field_file
-    a = load_file(FPH)
-    b = replace(a)
-    b.variables = dict(a.variables)
-    b.variables["PRES"] = VarInfo(name="PRES", kind="scalar", location="cell",
-                                  array=np.asarray(a.variable_array("PRES")) + 2.5)
-    res = difference_field(a, b, "PRES")
-    assert res["min"] == pytest.approx(2.5)
-    assert res["max"] == pytest.approx(2.5)
-    assert res["mean"] == pytest.approx(2.5)
-    diff_ff = diff_field_file(a, "PRES", res["diff"], res["location"])
-    arr = diff_ff.variable_array("PRES")
-    assert arr is not None and len(arr) == len(res["diff"])
-
-
 def test_r21_set_cyc_ope_mode_numeric():
     """R2.1: SetCycOpeMode accepts numeric 0-7 and legacy strings."""
     from fv.model.fileset import FileSet, set_cycle_operation
@@ -4736,7 +4349,6 @@ def test_r21_set_cyc_ope_mode_numeric():
     with pytest.raises(ValueError):
         set_cycle_operation(fs, 8)
 
-
 def test_r21_get_overlapping_region_count():
     """R2.1: GetOverlappingRegionCount counts regions, not cells."""
     import numpy as np
@@ -4751,7 +4363,6 @@ def test_r21_get_overlapping_region_count():
     ff2.cvol_id = np.array([1, 1, 2, 2], dtype=np.int64)
     ff2.parts_with_cvol = [("A", frozenset({1})), ("B", frozenset({1, 2}))]
     assert api.get_overlapping_region_count(ff2) == 2
-
 
 def test_r21_get_mat_id_of_vol():
     """R2.1: GetMATIDofVOL takes a 1-based volid and reports MAT count."""
@@ -4770,7 +4381,6 @@ def test_r21_get_mat_id_of_vol():
     ff.parts_with_cvol = [("R1", frozenset({1, 2})), ("R2", 2)]
     assert api.get_mat_id_of_vol(ff, "R1") == -1
     assert api.get_mat_num_of_vol(ff, "R1") == 2
-
 
 def test_r21_local_xyz_global_from_file():
     """R2.1: LocalXYZ2GlobalXYZ reads ff.meta['local_coord']."""
@@ -4792,7 +4402,6 @@ def test_r21_local_xyz_global_from_file():
     g2 = api.local_xyz_to_global_xyz((1.0, 0.0, 0.0), ff=ff2)
     assert np.allclose(g2, (11.0, 0.0, 0.0))
 
-
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
 def test_r21_fld_local_coord_meta():
     """R2.1: FLD parser stores local_coord (identity for this sample)."""
@@ -4800,7 +4409,6 @@ def test_r21_fld_local_coord_meta():
     ff = load_file(FLD)
     assert "local_coord" in ff.meta
     assert ff.meta["local_coord"] is None
-
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_r22_ov_geometry_queries():
@@ -4824,7 +4432,6 @@ def test_r22_ov_geometry_queries():
         assert isinstance(api.get_adjacent_element_of_face(ff, 0, 0), int)
     assert api.get_volume_of_element(ff, 0) > 0.0
 
-
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_r22_ov_geometry_com():
     """R2.2: COM exposes the ov geometry family on an open file."""
@@ -4841,7 +4448,6 @@ def test_r22_ov_geometry_com():
     xyz = app.GetNodeXYZ(0)
     assert len(xyz) == 3
     assert app.GetElementsOfVolumeRegion(1) is not None
-
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_r23_mat_vol_rgn_lookup_fph():
@@ -4862,7 +4468,6 @@ def test_r23_mat_vol_rgn_lookup_fph():
         assert name == ff.surface_regions[0][0]
         assert api.get_face_num_of_rgn(ff, 0) == len(ff.surface_regions[0][1])
 
-
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
 def test_r23_mat_lookup_fld():
     """R2.3: MAT lookup family on an FLD file with materials."""
@@ -4880,7 +4485,6 @@ def test_r23_mat_lookup_fld():
         assert api.get_mat_id_by_mat_emtname(ff, "MAT%d" % ids[0]) == ids[0]
     assert api.get_mat_n_of_element(ff, 0) in (-1, 1, 2)
 
-
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_r23_mat_vol_rgn_com():
     """R2.3: COM exposes the MAT/VOL/RGN lookup family."""
@@ -4889,7 +4493,6 @@ def test_r23_mat_vol_rgn_com():
     app.open_file(FPH)
     assert app.GetRgnNum() == len(app._ff.surface_regions)
     assert app.GetVOLorgnameAsArray() == list(app._ff.volume_regions)
-
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_r24_variable_at_point():
@@ -4905,7 +4508,6 @@ def test_r24_variable_at_point():
     resv = api.variable_at_point(ff, "VEL", p[0], p[1], p[2])
     assert resv is not None and len(resv["values"]) == 3
 
-
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
 def test_r24_variable_at_point_fld():
     """R2.4: node-centred FLD uses nearest-node lookup."""
@@ -4915,7 +4517,6 @@ def test_r24_variable_at_point_fld():
     v = ff.vertices[0]
     res = api.variable_at_point(ff, "PRES", v[0], v[1], v[2])
     assert res is not None and isinstance(res["values"], float)
-
 
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
 def test_p06_varreg_mag_div_rot():
@@ -4946,7 +4547,6 @@ def test_p06_varreg_mag_div_rot():
     assert r3.kind == FIELD_KIND_VECTOR and r3.array.shape == (n, 3)
     assert np.allclose(d.array, d3.array)
 
-
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
 def test_p05_oilflow_fld_numeric():
     """P0-5: oilflow on FLD takes the numeric fallback (no VTK locator crash)."""
@@ -4968,7 +4568,6 @@ def test_p05_oilflow_fld_numeric():
     actor = build_oilflow_actor(ff, obj)
     assert actor is not None
 
-
 def test_p04_gettickcount_ex():
     """P0-4: GetTickCountEx returns machine uptime in seconds."""
     from fv.com import FlowviewerApplication
@@ -4976,7 +4575,6 @@ def test_p04_gettickcount_ex():
     t = app.GetTickCountEx()
     assert isinstance(t, float)
     assert t > 3600.0            # machine has been up for over an hour
-
 
 def test_p04_shell_execute_error_path():
     """P0-4: ShellExecute fails cleanly on empty/bad targets."""
@@ -4988,7 +4586,6 @@ def test_p04_shell_execute_error_path():
     res = app.ShellExecute("Z:\\__no_such_file_flowviewer__.xyz")
     assert res is None
     assert app.ErrorCode != 0
-
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_p03_object_and_var_query():
@@ -5019,7 +4616,6 @@ def test_p03_object_and_var_query():
     app.RemoveAllObj()
     assert app.GetObjNum() == 0
 
-
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_p02_createvar_family():
     """P0-2: COM CreateVar*/DeleteVar/SetVarTitle registration family."""
@@ -5043,7 +4639,6 @@ def test_p02_createvar_family():
     d2 = app.CreateVarDST2(surfaces=None, maxlen=0)
     assert d2 is not None
 
-
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_p02_createvar_all_cycles():
     """P0-2: CreateVarALLCYC registers on every cycle of a FileSet."""
@@ -5054,7 +4649,6 @@ def test_p02_createvar_all_cycles():
                 members=[SequenceMember(cycle=1, path=FPH)])
     app._fs = fs
     assert app.CreateVarALLCYC("SEQ2", "PRES + 1") is not None
-
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_r24_get_variable_info_com():
@@ -5068,7 +4662,6 @@ def test_r24_get_variable_info_com():
     p = api.cell_centers(app._ff)[0]
     info = app.GetVariableInfo("PRES", p[0], p[1], p[2])
     assert info is not None and info["name"] == "PRES"
-
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_p01_create_object_family():
@@ -5090,7 +4683,6 @@ def test_p01_create_object_family():
     objs = [o for o in tree.children if o.kind == "surface"]
     assert [o.index for o in objs] == list(range(1, len(objs) + 1))
 
-
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_r25_save_variable_output_api(tmp_path):
     """R2.5: save_variable_output writes a probe CSV (default probe)."""
@@ -5108,7 +4700,6 @@ def test_r25_save_variable_output_api(tmp_path):
     assert data[header.index("scalar_value")] != ""
     assert data[header.index("vector_x")] != ""
 
-
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_r25_save_variable_output_items(tmp_path):
     """R2.5: items subset restricts the emitted columns."""
@@ -5122,7 +4713,6 @@ def test_r25_save_variable_output_items(tmp_path):
         rows = list(csv.reader(fh))
     assert rows[0] == ["title", "x", "y", "z"]
     assert len(rows[1]) == 4
-
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_r25_save_variable_output_point_object(tmp_path):
@@ -5144,7 +4734,6 @@ def test_r25_save_variable_output_point_object(tmp_path):
     assert data[header.index("scalar")] == "PRES"
     assert data[header.index("vector")] == "VEL"
 
-
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_r25_save_variable_output_com(tmp_path):
     """R2.5: COM SaveVariableOutput returns True and writes a file."""
@@ -5156,7 +4745,6 @@ def test_r25_save_variable_output_com(tmp_path):
     assert app.ErrorCode == 0
     assert out.exists()
     assert "title" in out.read_text(encoding="utf-8")
-
 
 def test_r26_application_misc():
     """R2.6: Application misc methods (PID/ticks/folder/wildcard/...)."""
@@ -5192,7 +4780,6 @@ def test_r26_application_misc():
     assert app.UpdateAll() is True
     assert app.AnimationFrame(3) == 3
     assert app.AnimationSecond(0.5) >= 1
-
 
 def test_r27_com_gui_bridge():
     """R2.7: COM methods forward to an attached GUI; headless degrades to flags."""
@@ -5243,7 +4830,6 @@ def test_r27_com_gui_bridge():
     # back to headless flag mode after detach
     assert app.UpdateAll() is True
 
-
 def test_r27_save_sta_bridge(tmp_path):
     """R2.7: SaveSTA persists the attached GUI object tree."""
     from fv.com import FlowviewerApplication, attach_gui, detach_gui
@@ -5258,7 +4844,6 @@ def test_r27_save_sta_bridge(tmp_path):
         assert out.exists()
     finally:
         detach_gui(gui)
-
 
 def test_r33_camera_slerp():
     """R3.3: view_up interpolation uses unit-length SLERP (no over-top jump)."""
@@ -5285,7 +4870,6 @@ def test_r33_camera_slerp():
     mn = (m[0] ** 2 + m[1] ** 2 + m[2] ** 2) ** 0.5
     assert abs(mn - 1.0) < 1e-9
 
-
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 def test_r32_video_export_vtk(tmp_path):
     """R3.2: export_animation_video writes an Ogg Theora video via VTK."""
@@ -5311,14 +4895,11 @@ def test_r32_video_export_vtk(tmp_path):
     assert n == 3
     assert out.exists() and out.stat().st_size > 0
 
-
 def test_r32_video_export_headless(tmp_path):
     """R3.2: export_animation_video degrades to 0 without a render window."""
     from fv.render.export import export_animation_video
     assert export_animation_video(None, None, None, None,
                                   str(tmp_path / "anim.ogv")) == 0
-
-
 
 def test_r36_synced_timeline_model():
     """R3.6: SyncedTimeline unifies ranges and resolves members in lockstep."""
@@ -5352,7 +4933,6 @@ def test_r36_synced_timeline_model():
     assert len(st2) == 1
     st2.clear()
     assert not st2
-
 
 @pytest.mark.skipif(not _HAS_QT, reason="PyQt5 unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
@@ -5388,8 +4968,6 @@ def test_r36_gui_multi_fileset_sync(qapp, tmp_path):
     w._close_current_files()
     assert w.filesets == []
 
-
-
 def test_r37_color_table_control_points():
     """R3.7: control points normalize/add/remove with clamped endpoints."""
     from fv.render.colorbar import (add_control_point, normalize_control_points,
@@ -5403,7 +4981,6 @@ def test_r37_color_table_control_points():
     assert [t for t, _ in p3] == [0.0, 1.0]
     assert normalize_control_points([]) == [(0.0, (0.0, 0.0, 1.0)),
                                              (1.0, (1.0, 0.0, 0.0))]
-
 
 def test_r37_color_table_csv_roundtrip(tmp_path):
     """R3.7: control points round-trip through CSV; header/gray handled."""
@@ -5420,7 +4997,6 @@ def test_r37_color_table_csv_roundtrip(tmp_path):
     g = load_colormap_csv(str(dat))
     assert g[0][1] == (0.0, 0.0, 0.0) and g[-1][1] == (1.0, 1.0, 1.0)
 
-
 def test_r37_color_table_register():
     """R3.7: register/list/unregister custom colormaps."""
     from fv.render import colorbar as cb
@@ -5434,7 +5010,6 @@ def test_r37_color_table_register():
     assert cb.unregister_colormap("r37test") is True
     assert "r37test" not in cb.list_colormaps()
     assert cb.unregister_colormap("rainbow") is False  # built-in kept
-
 
 @pytest.mark.skipif(not _HAS_QT, reason="PyQt5 unavailable")
 def test_r37_color_table_dialog(qapp):
@@ -5456,8 +5031,6 @@ def test_r37_color_table_dialog(qapp):
     assert "r37dlg" in cb.list_colormaps()
     cb.unregister_colormap("r37dlg")
 
-
-
 def test_r34_gradation_colors():
     """R3.4: multi-stop gradient expansion interpolates control points."""
     from fv.render.scene import gradation_colors
@@ -5471,7 +5044,6 @@ def test_r34_gradation_colors():
     assert gradation_colors([(0.3, (0.5, 0.5, 0.5))], n=3) == [(0.5, 0.5, 0.5)] * 3
     assert gradation_colors([], n=2) == [(1.0, 1.0, 1.0), (0.92, 0.94, 0.97)]
 
-
 def test_r34_text_gradation_fields():
     """R3.4: TextObject 3D anchor and GradationObject control points exist."""
     from fv.model.objects import TextObject, GradationObject
@@ -5480,7 +5052,6 @@ def test_r34_text_gradation_fields():
     assert t.anchor_position == (1.0, 2.0, 3.0)
     g = GradationObject(control_points=((0.0, (0, 0, 0)), (1.0, (1, 1, 1))))
     assert g.control_points == ((0.0, (0, 0, 0)), (1.0, (1, 1, 1)))
-
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 def test_r34_text_actor_3d():
