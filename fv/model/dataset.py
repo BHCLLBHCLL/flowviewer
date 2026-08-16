@@ -111,9 +111,8 @@ class FieldFile:
         return vi.array if vi is not None else None
 
 
-def _looks_like_fld(filepath: str) -> bool:
-    with open_buffer(filepath) as data:
-        return find_section(data, "LS_Elements") >= 0 or find_section(data, "LS_MatOfElements") >= 0
+def _looks_like_fld(data) -> bool:
+    return find_section(data, "LS_Elements") >= 0 or find_section(data, "LS_MatOfElements") >= 0
 
 
 
@@ -295,20 +294,25 @@ def ifld_load(filepath: str, bounds=None) -> FieldFile:
     cells/faces they fully own are kept, re-indexed, with per-node
     fields sliced to match (``ff.meta["ifld_trim"]`` records the kept
     counts).  The full-file scan summary stays attached as
-    ``ff.meta["ifld_scan"]`` for fast previews.
+    ``ff.meta["ifld_scan"]`` for fast previews.  The mesh parse, cycle
+    metadata and scan summary share one file read (P1-2).
     """
-    from ..crdl.ifld import scan_ifld, trim_fld_mesh
+    from ..crdl.ifld import _scan, trim_fld_mesh
     path = Path(filepath)
-    mesh = mesh_fld.parse_fld(str(path))
-    if not mesh["n_vertices"] and not mesh["n_cells"]:
-        mesh = _inherit_mesh_from_sibling(mesh, path)
-    if bounds is not None:
-        mesh = trim_fld_mesh(mesh, bounds)
-    ff = _ff_from_fld_mesh(mesh, path)
-    _fld_cycle_meta(str(path), ff)
-    summary = scan_ifld(str(path))
-    if summary:
-        ff.meta["ifld_scan"] = summary
+    with open_buffer(str(path)) as data:
+        mesh = mesh_fld.parse_fld(str(path), data=data)
+        if not mesh["n_vertices"] and not mesh["n_cells"]:
+            mesh = _inherit_mesh_from_sibling(mesh, path)
+        if bounds is not None:
+            mesh = trim_fld_mesh(mesh, bounds)
+        ff = _ff_from_fld_mesh(mesh, path)
+        _fld_cycle_meta(str(path), ff, data=data)
+        try:
+            summary = _scan(data)
+        except Exception:  # noqa: BLE001 - scan summary is best-effort
+            summary = None
+        if summary:
+            ff.meta["ifld_scan"] = summary
     return ff
 def op2_load(filepath: str) -> FieldFile:
     """Nastran .op2 binary results loader (pyNastran optional dep)."""
@@ -418,9 +422,17 @@ def _ff_from_fld_mesh(mesh, path) -> FieldFile:
     return ff
 
 
-def _fld_cycle_meta(filepath: str, ff: FieldFile) -> None:
-    """Fill cycle/time/particle flags from the file (filename fallback)."""
-    with open_buffer(str(filepath)) as data:
+def _fld_cycle_meta(filepath: str, ff: FieldFile, data=None) -> None:
+    """Fill cycle/time/particle flags from the file (filename fallback).
+
+    ``data`` may pass the already-open buffer so callers that parsed the
+    mesh with a single read do not re-open the file (P1-2).
+    """
+    if data is None:
+        with open_buffer(str(filepath)) as data:
+            ff.cycle, ff.time = fld_fields.parse_cycle_meta(data)
+            ff.has_particles = fld_fields.has_particle_results(data)
+    else:
         ff.cycle, ff.time = fld_fields.parse_cycle_meta(data)
         ff.has_particles = fld_fields.has_particle_results(data)
     if ff.cycle is None:
@@ -430,39 +442,47 @@ def _fld_cycle_meta(filepath: str, ff: FieldFile) -> None:
 def fld_only_load(filepath: str) -> FieldFile:
     """Direct FLD loader (no magic detection), mirror of the 'fld' branch."""
     path = Path(filepath)
-    mesh = mesh_fld.parse_fld(str(path))
-    if not mesh["n_vertices"] and not mesh["n_cells"]:
-        mesh = _inherit_mesh_from_sibling(mesh, path)
-    ff = _ff_from_fld_mesh(mesh, path)
-    _fld_cycle_meta(str(path), ff)
+    with open_buffer(str(path)) as data:
+        mesh = mesh_fld.parse_fld(str(path), data=data)
+        if not mesh["n_vertices"] and not mesh["n_cells"]:
+            mesh = _inherit_mesh_from_sibling(mesh, path)
+        ff = _ff_from_fld_mesh(mesh, path)
+        _fld_cycle_meta(str(path), ff, data=data)
     return ff
 
 
 def load_file(filepath: str) -> FieldFile:
-    """Detect GPH/FPH vs FLD by section layout and parse into a FieldFile."""
+    """Detect GPH/FPH vs FLD by section layout and parse into a FieldFile.
+
+    Mesh, flow solution and cycle metadata are all read from one file
+    buffer (P1-2 single-open reuse).
+    """
     path = Path(filepath)
-    is_fld = _looks_like_fld(str(path))
-
-    if is_fld or path.suffix.lower() == ".fld":
-        return fld_only_load(str(path))
-
-    mesh = mesh_gph.parse_gph_mesh(str(path))
-    ff = FieldFile(path=str(path), kind="gph" if path.suffix.lower() == ".gph" else "fph")
-    ff.vertices = mesh["vertices"]
-    ff.n_vertices = mesh["n_vertices"]
-    ff.n_cells = mesh["n_cells"]
-    ff.link_data = mesh["link_data"]
-    ff.surface_regions = mesh["surface_regions"]
-    ff.volume_regions = mesh["volume_regions"]
-    ff.parts = mesh["parts"]
-    ff.cvol_id = mesh.get("cvol_id")
-    ff.parts_with_cvol = mesh.get("parts_with_cvol") or []
-    ff.file_size = mesh["file_size"]
-    ff.meta = mesh.get("meta") or {}
-    ff.element_flags = mesh.get("element_flags")
-    ff.element_centers = mesh.get("element_centers")
-
     with open_buffer(str(path)) as data:
+        if _looks_like_fld(data) or path.suffix.lower() == ".fld":
+            mesh = mesh_fld.parse_fld(str(path), data=data)
+            if not mesh["n_vertices"] and not mesh["n_cells"]:
+                mesh = _inherit_mesh_from_sibling(mesh, path)
+            ff = _ff_from_fld_mesh(mesh, path)
+            _fld_cycle_meta(str(path), ff, data=data)
+            return ff
+
+        mesh = mesh_gph.parse_gph_mesh(str(path), data=data)
+        ff = FieldFile(path=str(path), kind="gph" if path.suffix.lower() == ".gph" else "fph")
+        ff.vertices = mesh["vertices"]
+        ff.n_vertices = mesh["n_vertices"]
+        ff.n_cells = mesh["n_cells"]
+        ff.link_data = mesh["link_data"]
+        ff.surface_regions = mesh["surface_regions"]
+        ff.volume_regions = mesh["volume_regions"]
+        ff.parts = mesh["parts"]
+        ff.cvol_id = mesh.get("cvol_id")
+        ff.parts_with_cvol = mesh.get("parts_with_cvol") or []
+        ff.file_size = mesh["file_size"]
+        ff.meta = mesh.get("meta") or {}
+        ff.element_flags = mesh.get("element_flags")
+        ff.element_centers = mesh.get("element_centers")
+
         sph = fld_fields.parse_fph_flow_solution(data, ff.n_cells)
         for name, arr in sph.items():
             ff.variables[name] = VarInfo(

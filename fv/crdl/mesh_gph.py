@@ -810,72 +810,78 @@ def parse_element_centers(data, n_cells: int) -> Optional[np.ndarray]:
         return None
     return np.column_stack(comps).astype(np.float64)
 
-def parse_gph_mesh(filepath: str) -> dict:
-    """Extract mesh data (vertices, faces, parts) from a GPH / FPH file."""
-    with open_buffer(filepath) as data:
-        result: dict = {
-            "file_size": len(data),
-            "vertices": None,
-            "n_vertices": 0,
-            "link_data": None,
-            "n_cells": 0,
-            "cvol_id": None,
-            "volume_regions": [],
-            "parts": [],
-            "parts_with_cvol": [],
-            "part_assembly": {},
-            "assembly_info": None,
-            "surface_regions": [],
-            "element_flags": None,
-            "element_centers": None,
-            "meta": {},
-        }
+def parse_gph_mesh(filepath: str, data=None) -> dict:
+    """Extract mesh data (vertices, faces, parts) from a GPH / FPH file.
 
-        xyz, n_vertices = parse_ls_nodes_xyz(data)
-        link_data = parse_ls_links(data)
+    ``data`` may pass an already-open buffer (bytes / mmap) to reuse a
+    single read for mesh + fields + cycle metadata (P1-2).
+    """
+    if data is None:
+        with open_buffer(filepath) as _d:
+            return parse_gph_mesh(filepath, data=_d)
+    result: dict = {
+        "file_size": len(data),
+        "vertices": None,
+        "n_vertices": 0,
+        "link_data": None,
+        "n_cells": 0,
+        "cvol_id": None,
+        "volume_regions": [],
+        "parts": [],
+        "parts_with_cvol": [],
+        "part_assembly": {},
+        "assembly_info": None,
+        "surface_regions": [],
+        "element_flags": None,
+        "element_centers": None,
+        "meta": {},
+    }
 
-        result["assembly_info"] = parse_ls_assemblies(data)
-        result["cvol_id"] = parse_ls_cvol_ids(data)
-        result["parts_with_cvol"] = parse_ls_parts(data, cvol_id=result["cvol_id"])
-        result["parts"] = [name for name, _ in result["parts_with_cvol"]]
-        result["volume_regions"] = parse_ls_string_list(data, "LS_VolumeRegions")
-        result["surface_regions"] = parse_ls_surface_regions(data)
-        legacy_part_asm: dict = {}
-        if result["assembly_info"]:
-            for pname, path in result["assembly_info"]["part_paths"].items():
-                if path is None:
-                    legacy_part_asm[pname] = None
-                else:
-                    comps = path.split(".")
-                    legacy_part_asm[pname] = comps[-2] if len(comps) >= 2 else None
-        result["part_assembly"] = legacy_part_asm
+    xyz, n_vertices = parse_ls_nodes_xyz(data)
+    link_data = parse_ls_links(data)
 
-        if xyz is None or n_vertices == 0 or link_data is None:
-            return result
+    result["assembly_info"] = parse_ls_assemblies(data)
+    result["cvol_id"] = parse_ls_cvol_ids(data)
+    result["parts_with_cvol"] = parse_ls_parts(data, cvol_id=result["cvol_id"])
+    result["parts"] = [name for name, _ in result["parts_with_cvol"]]
+    result["volume_regions"] = parse_ls_string_list(data, "LS_VolumeRegions")
+    result["surface_regions"] = parse_ls_surface_regions(data)
+    legacy_part_asm: dict = {}
+    if result["assembly_info"]:
+        for pname, path in result["assembly_info"]["part_paths"].items():
+            if path is None:
+                legacy_part_asm[pname] = None
+            else:
+                comps = path.split(".")
+                legacy_part_asm[pname] = comps[-2] if len(comps) >= 2 else None
+    result["part_assembly"] = legacy_part_asm
 
-        fn = link_data["face_nodes"]
-        bad = fn >= n_vertices
-        if bad.any():
-            fn = fn.copy()
-            fn[bad] = n_vertices - 1
-            link_data["face_nodes"] = fn
-
-        perm = _renumber_by_first_use(link_data["face_nodes"], n_vertices)
-        inv_perm = np.argsort(perm)
-        xyz_renum = xyz[inv_perm]
-        link_data["face_nodes"] = perm[link_data["face_nodes"]]
-        link_data["face_offsets"] = link_data["face_offsets"]
-
-        result["vertices"] = xyz_renum
-        result["n_vertices"] = n_vertices
-        result["link_data"] = link_data
-        result["n_cells"] = link_data["n_cells"]
-        result["meta"] = parse_header_meta(data)
-        result["element_flags"] = parse_element_information_flag(
-            data, result["n_cells"])
-        result["element_centers"] = parse_element_centers(
-            data, result["n_cells"])
+    if xyz is None or n_vertices == 0 or link_data is None:
         return result
+
+    fn = link_data["face_nodes"]
+    bad = fn >= n_vertices
+    if bad.any():
+        fn = fn.copy()
+        fn[bad] = n_vertices - 1
+        link_data["face_nodes"] = fn
+
+    perm = _renumber_by_first_use(link_data["face_nodes"], n_vertices)
+    inv_perm = np.argsort(perm)
+    xyz_renum = xyz[inv_perm]
+    link_data["face_nodes"] = perm[link_data["face_nodes"]]
+    link_data["face_offsets"] = link_data["face_offsets"]
+
+    result["vertices"] = xyz_renum
+    result["n_vertices"] = n_vertices
+    result["link_data"] = link_data
+    result["n_cells"] = link_data["n_cells"]
+    result["meta"] = parse_header_meta(data)
+    result["element_flags"] = parse_element_information_flag(
+        data, result["n_cells"])
+    result["element_centers"] = parse_element_centers(
+        data, result["n_cells"])
+    return result
 
 
 __all__ = [

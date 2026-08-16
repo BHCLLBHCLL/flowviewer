@@ -139,6 +139,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.fileset = None
         self.filesets: list = []       # R3.6: multiple FileSets in lockstep
         self._member_cache: dict = {}  # {path: FieldFile} shared by playback/interp
+        self._member_cache_cap = 12  # P1-2 LRU cap for playback caches
         self._play_timer = None
         self._playing = False
         self._iren_ready = False
@@ -667,9 +668,9 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 self.object_tree.blockSignals(False)
         cyc = ff.cycle if ff.cycle is not None else 0
         self.fileset = None
-        self._member_cache = {}
+        from ..model.fileset import LruCache, scan_sequence
+        self._member_cache = LruCache(maxsize=self._member_cache_cap)
         if options is None or not getattr(options, "single_file", False):
-            from ..model.fileset import scan_sequence
             try:
                 self.fileset = scan_sequence(str(Path(ff.path)))
             except Exception:  # noqa: BLE001
@@ -730,7 +731,8 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.main_object = None
         self.fileset = None
         self.filesets = []
-        self._member_cache = {}
+        from ..model.fileset import LruCache
+        self._member_cache = LruCache(maxsize=self._member_cache_cap)
         self._on_timeline_pause()
         self.scene.reset()
         self.object_tree.build_startup_tree()

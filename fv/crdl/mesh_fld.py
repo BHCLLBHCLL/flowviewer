@@ -550,94 +550,100 @@ def _parse_local_coord(data) -> Optional[dict]:
     return None
 
 
-def parse_fld(filepath: str) -> dict[str, Any]:
-    """Parse an FLD file into a structured mesh + solution dict."""
-    with open_buffer(filepath) as data:
-        result: dict[str, Any] = {
-            "file_size": len(data),
-            "vertices": None,
-            "n_vertices": 0,
-            "cell_conn": None,
-            "cell_types": None,
-            "material": None,
-            "n_cells": 0,
-            "faces": [],
-            "bc_plan": [],
-            "face_cells": [],
-            "volume_names": [],
-            "fields": {},
-            "bc_sections": [],
-            "ls_sfile": None,
-            "meta": {},
-        }
+def parse_fld(filepath: str, data=None) -> dict[str, Any]:
+    """Parse an FLD file into a structured mesh + solution dict.
 
-        xyz, n_verts = _parse_ls_nodes(data)
-        if xyz is None:
-            xyz, n_verts = _parse_ls_nodes_f32(data)
-        cell_conn, cell_types, mat = _parse_hex_cells(data)
-        if xyz is not None:
-            result["vertices"] = xyz
-            result["n_vertices"] = n_verts
-        if cell_conn is not None and mat is not None:
-            result["cell_conn"] = cell_conn
-            result["cell_types"] = cell_types
-            result["material"] = mat
-            result["n_cells"] = int(cell_conn.shape[0])
+    ``data`` may pass an already-open buffer (bytes / mmap) to reuse a
+    single read for mesh + fields + cycle metadata (P1-2).
+    """
+    if data is None:
+        with open_buffer(filepath) as _d:
+            return parse_fld(filepath, data=_d)
+    result: dict[str, Any] = {
+        "file_size": len(data),
+        "vertices": None,
+        "n_vertices": 0,
+        "cell_conn": None,
+        "cell_types": None,
+        "material": None,
+        "n_cells": 0,
+        "faces": [],
+        "bc_plan": [],
+        "face_cells": [],
+        "volume_names": [],
+        "fields": {},
+        "bc_sections": [],
+        "ls_sfile": None,
+        "meta": {},
+    }
 
-        result["volume_names"] = _parse_volume_names(data)
-        if mat is not None:
-            faces, bc_plan, face_cells = _build_face_list_and_bcs(data, mat)
-            result["faces"] = faces
-            result["bc_plan"] = bc_plan
-            result["face_cells"] = face_cells
+    xyz, n_verts = _parse_ls_nodes(data)
+    if xyz is None:
+        xyz, n_verts = _parse_ls_nodes_f32(data)
+    cell_conn, cell_types, mat = _parse_hex_cells(data)
+    if xyz is not None:
+        result["vertices"] = xyz
+        result["n_vertices"] = n_verts
+    if cell_conn is not None and mat is not None:
+        result["cell_conn"] = cell_conn
+        result["cell_types"] = cell_types
+        result["material"] = mat
+        result["n_cells"] = int(cell_conn.shape[0])
 
-        n = n_verts or 0
-        temp_blocks = _f64_field_blocks(data, "Temperature")
-        cn01_blocks = _f64_field_blocks(data, "CN01")
-        pres_blocks = _f64_field_blocks(data, "Pressure")
-        vect_blocks = _f64_field_blocks(data, "VECT")
-        hvec_blocks = _f64_field_blocks(data, "HVEC")
+    result["volume_names"] = _parse_volume_names(data)
+    if mat is not None:
+        faces, bc_plan, face_cells = _build_face_list_and_bcs(data, mat)
+        result["faces"] = faces
+        result["bc_plan"] = bc_plan
+        result["face_cells"] = face_cells
 
-        fields: dict[str, np.ndarray] = {}
-        def _size_ok(arr):
-            """Match the mesh vertex count, or accept any block when the
-            mesh is absent (result-only files inherit it later)."""
-            return arr.size > 0 and (n == 0 or arr.size == n)
-        if pres_blocks and _size_ok(pres_blocks[0]):
-            fields["PRES"] = pres_blocks[0]
-        if temp_blocks:
-            if _size_ok(temp_blocks[0]):
-                fields["TEMP"] = temp_blocks[0]
-                fields["ATMS"] = temp_blocks[0].copy()
-            if len(temp_blocks) > 3 and _size_ok(temp_blocks[3]):
-                fields["TURK"] = temp_blocks[3]
-            if len(temp_blocks) > 6 and _size_ok(temp_blocks[6]):
-                fields["TEPS"] = temp_blocks[6]
-        if cn01_blocks:
-            if _size_ok(cn01_blocks[0]):
-                fields["CN01"] = cn01_blocks[0]
-            if len(cn01_blocks) > 3 and _size_ok(cn01_blocks[3]):
-                fields["HTRC"] = cn01_blocks[3]
-            if len(cn01_blocks) > 6 and _size_ok(cn01_blocks[6]):
-                fields["SURT"] = cn01_blocks[6]
-            if len(cn01_blocks) > 9 and _size_ok(cn01_blocks[9]):
-                fields["HTFX"] = cn01_blocks[9]
-        if len(vect_blocks) >= 3 and all(_size_ok(a) for a in vect_blocks[:3]):
-            fields["VECTX"] = vect_blocks[0]
-            fields["VECTY"] = vect_blocks[1]
-            fields["VECTZ"] = vect_blocks[2]
-        if len(hvec_blocks) >= 3 and all(_size_ok(a) for a in hvec_blocks[:3]):
-            fields["HVECX"] = hvec_blocks[0]
-            fields["HVECY"] = hvec_blocks[1]
-            fields["HVECZ"] = hvec_blocks[2]
+    n = n_verts or 0
+    temp_blocks = _f64_field_blocks(data, "Temperature")
+    cn01_blocks = _f64_field_blocks(data, "CN01")
+    pres_blocks = _f64_field_blocks(data, "Pressure")
+    vect_blocks = _f64_field_blocks(data, "VECT")
+    hvec_blocks = _f64_field_blocks(data, "HVEC")
 
-        result["fields"] = fields
-        result["bc_sections"] = _parse_bc_sections(data)
-        result["ls_sfile"] = _parse_ls_sfile(data)
-        result["meta"] = parse_header_meta(data)
-        result["meta"]["local_coord"] = _parse_local_coord(data)
+    fields: dict[str, np.ndarray] = {}
+    def _size_ok(arr):
+        """Match the mesh vertex count, or accept any block when the
+        mesh is absent (result-only files inherit it later)."""
+        return arr.size > 0 and (n == 0 or arr.size == n)
+    if pres_blocks and _size_ok(pres_blocks[0]):
+        fields["PRES"] = pres_blocks[0]
+    if temp_blocks:
+        if _size_ok(temp_blocks[0]):
+            fields["TEMP"] = temp_blocks[0]
+            fields["ATMS"] = temp_blocks[0].copy()
+        if len(temp_blocks) > 3 and _size_ok(temp_blocks[3]):
+            fields["TURK"] = temp_blocks[3]
+        if len(temp_blocks) > 6 and _size_ok(temp_blocks[6]):
+            fields["TEPS"] = temp_blocks[6]
+    if cn01_blocks:
+        if _size_ok(cn01_blocks[0]):
+            fields["CN01"] = cn01_blocks[0]
+        if len(cn01_blocks) > 3 and _size_ok(cn01_blocks[3]):
+            fields["HTRC"] = cn01_blocks[3]
+        if len(cn01_blocks) > 6 and _size_ok(cn01_blocks[6]):
+            fields["SURT"] = cn01_blocks[6]
+        if len(cn01_blocks) > 9 and _size_ok(cn01_blocks[9]):
+            fields["HTFX"] = cn01_blocks[9]
+    if len(vect_blocks) >= 3 and all(_size_ok(a) for a in vect_blocks[:3]):
+        fields["VECTX"] = vect_blocks[0]
+        fields["VECTY"] = vect_blocks[1]
+        fields["VECTZ"] = vect_blocks[2]
+    if len(hvec_blocks) >= 3 and all(_size_ok(a) for a in hvec_blocks[:3]):
+        fields["HVECX"] = hvec_blocks[0]
+        fields["HVECY"] = hvec_blocks[1]
+        fields["HVECZ"] = hvec_blocks[2]
 
-        return result
+    result["fields"] = fields
+    result["bc_sections"] = _parse_bc_sections(data)
+    result["ls_sfile"] = _parse_ls_sfile(data)
+    result["meta"] = parse_header_meta(data)
+    result["meta"]["local_coord"] = _parse_local_coord(data)
+
+    return result
 
 
 __all__ = ["parse_fld"]

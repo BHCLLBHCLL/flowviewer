@@ -176,12 +176,75 @@ def set_cycle_operation(fs, mode):
 
 # ── time interpolation + cycle runtime (P2.4) ────────────────────────────
 
+class LruCache:
+    """Ordered mapping with a capacity cap (P1-2).
+
+    Timeline playback / POD / register-all-cycles load many cycle files;
+    without a cap every parsed FieldFile (mesh + variables) stays pinned
+    for the session.  ``maxsize`` entries are kept and re-accessed keys
+    move to the back (LRU eviction); ``None`` disables eviction (plain
+    unbounded dict semantics).
+    """
+
+    __slots__ = ("_d", "_max")
+
+    def __init__(self, maxsize=None):
+        self._d = {}
+        self._max = None if maxsize is None else int(maxsize)
+
+    def get(self, key, default=None):
+        d = self._d
+        v = d.get(key, _MISS)
+        if v is _MISS:
+            return default
+        if self._max is not None:
+            d.pop(key)
+            d[key] = v                      # refresh recency
+        return v
+
+    def put(self, key, value) -> None:
+        d = self._d
+        if key in d:
+            d.pop(key)
+        d[key] = value
+        if self._max is not None:
+            while len(d) > self._max:
+                d.pop(next(iter(d)))        # evict oldest
+
+    def __setitem__(self, key, value):
+        self.put(key, value)
+
+    def __getitem__(self, key):
+        return self.get(key)
+
+    def __contains__(self, key) -> bool:
+        return key in self._d
+
+    def __iter__(self):
+        return iter(self._d)
+
+    def keys(self):
+        return self._d.keys()
+
+    def __len__(self) -> int:
+        return len(self._d)
+
+    def __bool__(self) -> bool:
+        return bool(self._d)
+
+    def clear(self) -> None:
+        self._d.clear()
+
+
+_MISS = object()
+
+
 def load_member(fs, cycle: int, cache: Optional[dict] = None):
     """Load the member carrying *cycle*, through an optional cache.
 
-    The cache (``{path: FieldFile}``) lets timeline playback, POD and
-    register-all-cycles share already parsed members instead of
-    re-reading and re-parsing each file on every access.
+    The cache (``{path: FieldFile}`` or :class:`LruCache`) lets timeline
+    playback, POD and register-all-cycles share already parsed members
+    instead of re-reading and re-parsing each file on every access.
     """
     m = None
     for cand in fs.members:
@@ -268,7 +331,7 @@ class CycleRuntime:
 
     def __init__(self, fs: FileSet, cache: Optional[dict] = None):
         self.fs = fs
-        self.cache = cache if cache is not None else {}
+        self.cache = cache if cache is not None else LruCache(maxsize=8)
         self.cur_id = 1.0
         self.auto = False
 
