@@ -1037,6 +1037,60 @@ class FlowviewerApplication:
         except Exception as exc:
             return self._fail(exc)
 
+    # ── object creation (scPOST CreateObject* family, P0-1) ───────────────
+
+    def _object_tree(self):
+        """Lazily-built MainObject tree (bridge GUI first, else headless)."""
+        gui = _bridge_gui()
+        if gui is not None and getattr(gui, "main_object", None) is not None:
+            return gui.main_object
+        if self._main is None:
+            from .model.objects import MainObject
+            self._main = MainObject.from_field_file(self._need_ff(), magic=False)
+        return self._main
+
+    def _create_kind(self, kind: str, **kw):
+        """Create a PostObject of *kind*, attach it to the object tree
+        with an auto-incremented index, and return it."""
+        from . import api
+        ff = self._need_ff()
+        obj = api.create_object(ff, kind, **kw)
+        tree = self._object_tree()
+        children = getattr(tree, "children", None)
+        if children is None:
+            children = tree.children = []
+        same = [o for o in children if getattr(o, "kind", "") == kind]
+        obj.index = (max((int(getattr(o, "index", 0)) for o in same),
+                         default=0)) + 1
+        children.append(obj)
+        return obj
+
+    def CreateObjectNeutral(self, path):
+        """Open a Neutral file and return its metadata (CreateObjectNeutral)."""
+        try:
+            from . import api
+            ff = api.open_file(str(path))
+            with self._lock:
+                self._ff = ff
+            return self._ok({"path": ff.path, "kind": getattr(ff, "kind", ""),
+                             "n_cells": ff.n_cells,
+                             "n_vertices": ff.n_vertices})
+        except Exception as exc:
+            return self._fail(exc)
+
+    def CreateSurfacesOfVolumeRegions(self):
+        """Create one Surface per volume region (CreateSurfacesOfVolumeRegions)."""
+        try:
+            from . import api
+            self._need_ff()
+            created = []
+            for nm in api.volume_region_names(self._need_ff()):
+                created.append(self._create_kind("surface",
+                                                 display_volume_regions=[nm]))
+            return self._ok(created)
+        except Exception as exc:
+            return self._fail(exc)
+
     # ── application state setters (P3) ────────────────────────────────────
 
     def _set_flag(self, key, value):
@@ -1314,6 +1368,55 @@ class FlowviewerApplication:
 # registration.
 if _TYPLIB_FILE:
     FlowviewerApplication._reg_typelib_filename_ = _TYPLIB_FILE
+
+
+# ── CreateObject* family (scPOST 21/22, P0-1) ─────────────────────────────
+# CreateObjectNeutral is implemented as a method on the class (opens a
+# Neutral file); the remaining 21 kinds map onto api.create_object and are
+# generated below so every scPOST CreateObject* name is callable.
+
+_CREATE_OBJECT_KINDS = {
+    "CreateObjectBitmap": "bitmap",
+    "CreateObjectCircle": "circle",
+    "CreateObjectCurve": "curve",
+    "CreateObjectCutplane": "plane",
+    "CreateObjectCylinder": "cylinder",
+    "CreateObjectGradation": "gradation",
+    "CreateObjectGrouping": "grouping",
+    "CreateObjectInformation": "information",
+    "CreateObjectIsosurface": "isosurface",
+    "CreateObjectLight": "light",
+    "CreateObjectMirror": "mirror",
+    "CreateObjectOT": "maxmin",
+    "CreateObjectParticles": "particle",
+    "CreateObjectPCL": "pathline",
+    "CreateObjectPeriod": "periodical",
+    "CreateObjectPoints": "point",
+    "CreateObjectRNAT": "regionbc",
+    "CreateObjectStreamlines": "streamline",
+    "CreateObjectSurface": "surface",
+    "CreateObjectUFO": "ufo",
+    "CreateObjectVolume": "volume",
+}
+
+
+def _make_create_object(method_name: str, kind: str):
+    def method(self, *args, **kw):
+        try:
+            self._need_ff()
+            if args and "title" not in kw:
+                kw["title"] = str(args[0])
+            return self._ok(self._create_kind(kind, **kw))
+        except Exception as exc:
+            return self._fail(exc)
+    method.__name__ = method_name
+    method.__doc__ = "Create a %s object (scPOST %s)." % (kind, method_name)
+    return method
+
+
+for _name, _kind in _CREATE_OBJECT_KINDS.items():
+    setattr(FlowviewerApplication, _name, _make_create_object(_name, _kind))
+del _name, _kind
 
 
 def register_server() -> bool:

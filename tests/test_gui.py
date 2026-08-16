@@ -4737,6 +4737,27 @@ def test_r24_get_variable_info_com():
 
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_p01_create_object_family():
+    """P0-1: every scPOST CreateObject* name is callable and attaches to the tree."""
+    from fv.com import FlowviewerApplication, _CREATE_OBJECT_KINDS
+    app = FlowviewerApplication()
+    app.open_file(FPH)
+    for name, kind in _CREATE_OBJECT_KINDS.items():
+        obj = getattr(app, name)("title-%s" % kind)
+        assert obj is not None, name
+        assert obj.kind == kind, (name, obj.kind)
+        assert obj.title == "title-%s" % kind
+    assert callable(app.CreateObjectNeutral)
+    assert callable(app.CreateSurfacesOfVolumeRegions)
+    tree = app._object_tree()
+    kinds = [o.kind for o in tree.children]
+    for kind in _CREATE_OBJECT_KINDS.values():
+        assert kind in kinds, kind
+    objs = [o for o in tree.children if o.kind == "surface"]
+    assert [o.index for o in objs] == list(range(1, len(objs) + 1))
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_r25_save_variable_output_api(tmp_path):
     """R2.5: save_variable_output writes a probe CSV (default probe)."""
     import csv
