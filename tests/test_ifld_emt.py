@@ -54,3 +54,50 @@ def test_emt_alias_loads_fph_family(tmp_path):
     ff = load_file(str(dst))
     assert ff.kind == "fph" and ff.n_cells == 63_697
     assert ff.link_data is not None
+
+
+def test_ifld_trimming_partial_load(tmp_path):
+    """Trimming Open: bounds-limited iFLD load re-indexes mesh+fields (P2.6)."""
+    if not FLD_EX1.exists():
+        pytest.skip("ex1 fld sample not present")
+    import numpy as np
+    from fv import api
+    from fv.crdl.ifld import trim_fld_mesh
+    from fv.crdl.mesh_fld import parse_fld
+    from fv.model.dataset import ifld_load
+
+    full = parse_fld(str(FLD_EX1))
+    v = full["vertices"]
+    bounds = (float(np.median(v[:, 0])), float(v[:, 0].max()),
+              float(np.median(v[:, 1])), float(v[:, 1].max()),
+              float(np.median(v[:, 2])), float(v[:, 2].max()))
+    mesh = trim_fld_mesh(full, bounds)
+    assert 0 < mesh["n_vertices"] < full["n_vertices"]
+    assert 0 < mesh["n_cells"] < full["n_cells"]
+    nv = mesh["n_vertices"]
+    assert mesh["vertices"][:, 0].min() >= bounds[0]
+    ids = mesh["cell_conn"][mesh["cell_conn"] >= 0]
+    assert ids.min() >= 0 and ids.max() <= nv  # 0- or 1-based, in range
+    assert all(a.size == nv for a in mesh["fields"].values())
+    t = mesh["meta"]["ifld_trim"]
+    assert t["kept_vertices"] == nv and t["kept_cells"] == mesh["n_cells"]
+    assert t["total_cells"] == full["n_cells"]
+
+    # end-to-end: trimmed loader keeps scan meta + trim record
+    dst = tmp_path / "case.ifld"
+    shutil.copyfile(FLD_EX1, dst)
+    ff = ifld_load(str(dst), bounds)
+    assert ff.n_vertices == nv and ff.n_cells == mesh["n_cells"]
+    assert ff.meta["ifld_trim"]["bounds"] == bounds
+    assert "ifld_scan" in ff.meta
+    assert all(vi.array.size == nv for vi in ff.variables.values())
+
+    # api passthrough matches the loader
+    ff2 = api.open_ifld(str(dst), bounds)
+    assert ff2.n_vertices == nv
+
+    # degenerate boxes raise instead of returning junk
+    with pytest.raises(ValueError):
+        trim_fld_mesh(full, (1e18, 2e18, 1e18, 2e18, 1e18, 2e18))
+    with pytest.raises(ValueError):
+        trim_fld_mesh(full, (1.0, -1.0, 1.0, -1.0, 1.0, -1.0))

@@ -265,15 +265,26 @@ def pph_load(filepath: str) -> FieldFile:
     return ff
 
 
-def ifld_load(filepath: str) -> FieldFile:
+def ifld_load(filepath: str, bounds=None) -> FieldFile:
     """iFLD loader: quick metadata scan (D3) + full FLD parse.
 
-    Trimming/partial open is not implemented yet; the scan summary is
-    attached as ``ff.meta["ifld_scan"]`` for fast previews.
+    With ``bounds`` = ``(xmin, xmax, ymin, ymax, zmin, zmax)`` the
+    parsed mesh is spatially trimmed before the FieldFile is built
+    (scPOST Trimming Open, P2.6): only vertices inside the box and the
+    cells/faces they fully own are kept, re-indexed, with per-node
+    fields sliced to match (``ff.meta["ifld_trim"]`` records the kept
+    counts).  The full-file scan summary stays attached as
+    ``ff.meta["ifld_scan"]`` for fast previews.
     """
-    from ..crdl.ifld import scan_ifld
+    from ..crdl.ifld import scan_ifld, trim_fld_mesh
     path = Path(filepath)
-    ff = fld_only_load(filepath)
+    mesh = mesh_fld.parse_fld(str(path))
+    if not mesh["n_vertices"] and not mesh["n_cells"]:
+        mesh = _inherit_mesh_from_sibling(mesh, path)
+    if bounds is not None:
+        mesh = trim_fld_mesh(mesh, bounds)
+    ff = _ff_from_fld_mesh(mesh, path)
+    _fld_cycle_meta(str(path), ff)
     summary = scan_ifld(str(path))
     if summary:
         ff.meta["ifld_scan"] = summary
@@ -339,12 +350,8 @@ def _inherit_mesh_from_sibling(mesh: dict, path: Path) -> dict:
     return mesh
 
 
-def fld_only_load(filepath: str) -> FieldFile:
-    """Direct FLD loader (no magic detection), mirror of the 'fld' branch."""
-    path = Path(filepath)
-    mesh = mesh_fld.parse_fld(str(path))
-    if not mesh["n_vertices"] and not mesh["n_cells"]:
-        mesh = _inherit_mesh_from_sibling(mesh, path)
+def _ff_from_fld_mesh(mesh, path) -> FieldFile:
+    """Build the FLD-kind FieldFile from a parse_fld mesh dict."""
     ff = FieldFile(path=str(path), kind="fld")
     ff.vertices = mesh["vertices"]
     ff.n_vertices = mesh["n_vertices"]
@@ -367,11 +374,26 @@ def fld_only_load(filepath: str) -> FieldFile:
             location="node",
             array=arr,
         )
-    with open_buffer(str(path)) as data:
+    return ff
+
+
+def _fld_cycle_meta(filepath: str, ff: FieldFile) -> None:
+    """Fill cycle/time/particle flags from the file (filename fallback)."""
+    with open_buffer(str(filepath)) as data:
         ff.cycle, ff.time = fld_fields.parse_cycle_meta(data)
         ff.has_particles = fld_fields.has_particle_results(data)
     if ff.cycle is None:
-        ff.cycle = _cycle_from_filename(path)
+        ff.cycle = _cycle_from_filename(Path(filepath))
+
+
+def fld_only_load(filepath: str) -> FieldFile:
+    """Direct FLD loader (no magic detection), mirror of the 'fld' branch."""
+    path = Path(filepath)
+    mesh = mesh_fld.parse_fld(str(path))
+    if not mesh["n_vertices"] and not mesh["n_cells"]:
+        mesh = _inherit_mesh_from_sibling(mesh, path)
+    ff = _ff_from_fld_mesh(mesh, path)
+    _fld_cycle_meta(str(path), ff)
     return ff
 
 

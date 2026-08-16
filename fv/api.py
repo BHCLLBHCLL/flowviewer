@@ -15,6 +15,16 @@ def open_file(path: str):
     return load_file(path)
 
 
+def open_ifld(path: str, bounds=None):
+    """Open an iFLD/FLD file, optionally trimmed to a bounding box.
+
+    ``bounds`` is ``(xmin, xmax, ymin, ymax, zmin, zmax)`` (scPOST
+    Trimming Open): only the mesh/fields inside the box are kept.
+    """
+    from .model.dataset import ifld_load
+    return ifld_load(path, bounds)
+
+
 def create_object(ff, kind: str = "surface", **kw):
     """Create a PostObject (surface/plane/... ) with keyword overrides."""
     from .model import objects as om
