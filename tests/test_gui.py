@@ -4722,6 +4722,28 @@ def test_r24_variable_at_point_fld():
     assert res is not None and isinstance(res["values"], float)
 
 
+@pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
+def test_p05_oilflow_fld_numeric():
+    """P0-5: oilflow on FLD takes the numeric fallback (no VTK locator crash)."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import PlaneObject
+    from fv.render.oilflow import build_oilflow_actor, _numeric_trace_fld
+    ff = load_file(FLD)
+    assert ff.kind == "fld"
+    obj = PlaneObject(index=1)
+    obj.oilflow_display = True
+    obj.oilflow_var = "VECT"
+    obj.oilflow_color_var = "PRES"
+    obj.oilflow_steps = 8
+    obj.oilflow_length = 1.0
+    poly = _numeric_trace_fld(ff, obj)
+    assert poly is not None
+    assert poly.GetNumberOfCells() > 0
+    assert poly.GetPointData().GetArray("PRES") is not None
+    actor = build_oilflow_actor(ff, obj)
+    assert actor is not None
+
+
 def test_p04_gettickcount_ex():
     """P0-4: GetTickCountEx returns machine uptime in seconds."""
     from fv.com import FlowviewerApplication
