@@ -24,6 +24,57 @@ def attach_vector(ugrid, ff: FieldFile, base: str, cell_centered: bool,
     return _plane_attach(ugrid, ff, base, cell_centered, rows=rows)
 
 
+def apply_vector_coloring(obj, glyph_input, mapper, actor) -> None:
+    """R0.6 (B7): colour vector glyphs by variable / magnitude / mono.
+
+    - ``vector_contour_color`` + a ``contour_var`` array present on the
+      glyph input → mapper colours by that variable (shared colorbar LUT);
+    - ``vector_contour_color`` alone → colour by vector magnitude |v|;
+    - ``vector_mono_color`` → flat ``vector_mono_rgb``;
+    - default → scPOST black arrows.
+
+    ``glyph_input`` is the polydata fed to ``vtkGlyph3D``; the colour
+    array must live in its PointData so the glyph copies it to the output.
+    """
+    if getattr(obj, "vector_contour_color", False):
+        pd = glyph_input.GetPointData() if glyph_input is not None else None
+        name = None
+        var = getattr(obj, "contour_var", "") or ""
+        if var and pd is not None and pd.GetArray(var) is not None:
+            name = var
+        elif pd is not None and pd.GetVectors() is not None:
+            base = pd.GetVectors().GetName() or "vec"
+            name = base + "_mag"
+            if pd.GetArray(name) is None:
+                mags = np.linalg.norm(
+                    np.asarray(_vns.vtk_to_numpy(pd.GetVectors())
+                               ).reshape(-1, 3), axis=1)
+                fa = _vns.numpy_to_vtk(
+                    np.ascontiguousarray(mags, dtype=np.float64), deep=True)
+                fa.SetName(name)
+                pd.AddArray(fa)
+        if (name is not None and pd is not None
+                and pd.GetArray(name) is not None):
+            rng = pd.GetArray(name).GetRange()
+            if rng[0] == rng[1]:
+                rng = (rng[0] - 1.0, rng[1] + 1.0)
+            mapper.SetScalarModeToUsePointData()
+            mapper.SelectColorArray(name)
+            mapper.SetScalarRange(float(rng[0]), float(rng[1]))
+            try:
+                from .colorbar import ColorbarRegistry
+                mapper.SetLookupTable(ColorbarRegistry.lut())
+            except Exception:  # pragma: no cover - headless
+                pass
+            return
+    rgb = getattr(obj, "vector_mono_rgb", None)
+    if getattr(obj, "vector_mono_color", False) and rgb:
+        actor.GetProperty().SetColor(
+            float(rgb[0]), float(rgb[1]), float(rgb[2]))
+    else:
+        actor.GetProperty().SetColor(0.0, 0.0, 0.0)
+
+
 def vector_glyph_actor(ff: FieldFile, obj, polydata,
                        source_grid=None,
                        cell_centered=False) -> Optional["vtk.vtkActor"]:
@@ -57,7 +108,7 @@ def vector_glyph_actor(ff: FieldFile, obj, polydata,
     mapper.SetInputConnection(g.GetOutputPort())
     actor = vtk.vtkActor()
     actor.SetMapper(mapper)
-    actor.GetProperty().SetColor(0.0, 0.0, 0.0)
+    apply_vector_coloring(obj, out, mapper, actor)
     return actor
 
 

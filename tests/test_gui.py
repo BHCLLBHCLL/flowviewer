@@ -1839,6 +1839,45 @@ def test_mirror_periodical_inherit_source_field():
         "PRES") is None
 
 
+
+def test_vector_arrow_coloring_modes():
+    """R0.6 (B7): vector arrows colour by magnitude/variable or mono RGB."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import SurfaceObject
+    from fv.render.surface import build_surface_actors
+    ff = load_file(FPH)
+
+    # Default: scPOST black arrows
+    obj = SurfaceObject(index=1)
+    obj.show_vector = True
+    obj.vector_var = "VEL"
+    a = build_surface_actors(ff, obj).get("vector")
+    assert a is not None
+    assert a.GetProperty().GetColor() == (0.0, 0.0, 0.0)
+
+    # Mono colour
+    obj.vector_mono_color = True
+    obj.vector_mono_rgb = (0.2, 0.4, 0.8)
+    a = build_surface_actors(ff, obj)["vector"]
+    got = a.GetProperty().GetColor()
+    assert all(abs(g - e) < 1e-3 for g, e in zip(got, (0.2, 0.4, 0.8)))
+
+    # Contour colour: magnitude fallback (no contour var on glyph input)
+    obj.vector_mono_color = False
+    obj.vector_contour_color = True
+    a = build_surface_actors(ff, obj)["vector"]
+    m = a.GetMapper()
+    assert m.GetArrayName() and m.GetArrayName().endswith("_mag")
+    rng = m.GetScalarRange()
+    assert rng[0] < rng[1]
+
+    # Contour colour: by variable when contour_var rides the glyph input
+    obj.show_contour = True
+    obj.contour_var = "PRES"
+    a = build_surface_actors(ff, obj)["vector"]
+    assert a.GetMapper().GetArrayName() == "PRES"
+
+
 def test_time_series_max_min_parsers(tmp_path):
     """TM/OT CSV parsers read cycle/time and min/max rows (P2.10)."""
     from fv.model.tsmm import parse_max_min, parse_time_series

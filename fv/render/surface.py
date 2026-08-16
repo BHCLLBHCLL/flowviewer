@@ -263,6 +263,8 @@ def vector_actor(pd, obj, cell_centered: bool) -> Optional["vtk.vtkActor"]:
     mapper.SetInputConnection(glyph.GetOutputPort())
     actor = vtk.vtkActor()
     actor.SetMapper(mapper)
+    from .vector import apply_vector_coloring
+    apply_vector_coloring(obj, work, mapper, actor)
     return actor
 
 

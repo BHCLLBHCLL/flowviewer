@@ -588,8 +588,8 @@ def _glyph_actor(pts_pd, obj, scale: float,
     mapper.SetInputConnection(glyph.GetOutputPort())
     actor = vtk.vtkActor()
     actor.SetMapper(mapper)
-    if obj.vector_mono_color:
-        actor.GetProperty().SetColor(*obj.vector_mono_color)
+    from .vector import apply_vector_coloring
+    apply_vector_coloring(obj, work, mapper, actor)
     if obj.vector_transparent:
         actor.GetProperty().SetOpacity(0.5)
     return actor
