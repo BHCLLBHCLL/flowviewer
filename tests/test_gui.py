@@ -4418,3 +4418,30 @@ def test_r13_measure_dialog_pick(qapp):
     assert d._pick_index == 1
     d.set_pick_point(1, (1.5, 2.5, 3.5))
     assert obj.points[1] == (1.5, 2.5, 3.5)
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+def test_r14_colorbar_expanded_maps():
+    """R1.4: build_lut supports Jet/Hot/Cool/Turbo/Viridis/Parula."""
+    from fv.render.colorbar import build_lut
+    for name in ("Jet", "Hot", "Cool", "Turbo", "Viridis", "Parula",
+                 "Rainbow", "Gray", "Invert"):
+        lut = build_lut(32, name)
+        assert lut.GetNumberOfTableValues() == 32
+        c0 = lut.GetTableValue(0)
+        c1 = lut.GetTableValue(31)
+        assert (c0[0], c0[1], c0[2]) != (c1[0], c1[1], c1[2])
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+def test_r14_colorbar_parametrized_labels():
+    """R1.4: colorbar_actor honours num_labels / label_color / label_format."""
+    from fv.model.objects import ColorbarObject
+    from fv.render.colorbar import colorbar_actor
+    cb = ColorbarObject(num_labels=5, label_color=(1.0, 0.0, 0.0),
+                        label_format="%.2f")
+    sb = colorbar_actor(cb)
+    assert sb is not None
+    assert sb.GetNumberOfLabels() == 5
+    c = sb.GetLabelTextProperty().GetColor()
+    assert abs(c[0] - 1.0) < 1e-9 and abs(c[1]) < 1e-9

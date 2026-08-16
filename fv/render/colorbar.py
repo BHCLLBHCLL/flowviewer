@@ -41,28 +41,58 @@ class ColorbarRegistry:
         cls._lut = None
 
 
+# R1.4: named colormaps defined by RGB control points (t -> (r, g, b)).
+_COLORMAPS = {
+    "rainbow": [(0.0, (0.0, 0.0, 1.0)), (0.25, (0.0, 1.0, 1.0)),
+                (0.5, (0.0, 1.0, 0.0)), (0.75, (1.0, 1.0, 0.0)),
+                (1.0, (1.0, 0.0, 0.0))],
+    "jet": [(0.0, (0.0, 0.0, 0.5)), (0.125, (0.0, 0.0, 1.0)),
+            (0.375, (0.0, 1.0, 1.0)), (0.625, (1.0, 1.0, 0.0)),
+            (0.875, (1.0, 0.0, 0.0)), (1.0, (0.5, 0.0, 0.0))],
+    "hot": [(0.0, (0.0, 0.0, 0.0)), (0.35, (1.0, 0.0, 0.0)),
+            (0.66, (1.0, 1.0, 0.0)), (1.0, (1.0, 1.0, 1.0))],
+    "cool": [(0.0, (0.0, 1.0, 1.0)), (1.0, (1.0, 0.0, 1.0))],
+    "turbo": [(0.0, (0.190, 0.071, 0.232)), (0.25, (0.133, 0.473, 0.918)),
+              (0.5, (0.134, 0.829, 0.643)), (0.75, (0.906, 0.754, 0.112)),
+              (1.0, (0.479, 0.015, 0.010))],
+    "viridis": [(0.0, (0.267, 0.005, 0.329)), (0.25, (0.282, 0.318, 0.537)),
+                (0.5, (0.192, 0.499, 0.483)), (0.75, (0.383, 0.700, 0.345)),
+                (1.0, (0.993, 0.906, 0.144))],
+    "parula": [(0.0, (0.208, 0.166, 0.529)), (0.25, (0.037, 0.446, 0.830)),
+               (0.5, (0.023, 0.688, 0.733)), (0.75, (0.761, 0.700, 0.197)),
+               (1.0, (0.977, 0.920, 0.089))],
+}
+_COLORMAPS["spectrum"] = _COLORMAPS["rainbow"]
+
+
 def build_lut(gradation: int = 256, color_map: str = "Rainbow"):
-    """vtkLookupTable for the shared colorbar band."""
+    """vtkLookupTable for the shared colorbar band (R1.4 expanded maps)."""
     lut = vtk.vtkLookupTable()
     lut.SetNumberOfTableValues(max(2, int(gradation)))
     lut.Build()
-    if str(color_map).lower() in ("gray", "grey"):
+    key = str(color_map).lower()
+    if key in ("gray", "grey"):
         _fill_gray(lut)
-    elif str(color_map).lower() in ("invert", "reverse"):
-        _fill_rainbow(lut, invert=True)
-    else:
-        _fill_rainbow(lut)
+        return lut
+    invert = key in ("invert", "reverse")
+    ctrl = _COLORMAPS.get(key, _COLORMAPS["rainbow"])
+    _fill_from_control_points(lut, ctrl, invert=invert)
     return lut
 
 
-def _fill_rainbow(lut, invert: bool = False):
+def _fill_from_control_points(lut, ctrl, invert: bool = False):
+    """Fill a LUT by linear interpolation of RGB control points (R1.4)."""
     n = lut.GetNumberOfTableValues()
-    hues = np.linspace(0.0, 0.8 if not invert else 0.8, n)
-    if invert:
-        hues = hues[::-1]
-    cols = _hsv_to_rgb(np.column_stack((hues, np.ones(n), np.ones(n))))
+    pts = [(1.0 - t, c) for t, c in reversed(ctrl)] if invert else list(ctrl)
+    xs = np.array([t for t, _ in pts], dtype=np.float64)
+    cs = np.array([c for _, c in pts], dtype=np.float64)
     for i in range(n):
-        lut.SetTableValue(i, cols[i][0], cols[i][1], cols[i][2], 1.0)
+        t = i / max(1, n - 1)
+        j = int(np.searchsorted(xs, t, side="right")) - 1
+        j = max(0, min(j, len(xs) - 2))
+        f = float(np.clip((t - xs[j]) / max(xs[j + 1] - xs[j], 1e-12), 0.0, 1.0))
+        c = cs[j] * (1.0 - f) + cs[j + 1] * f
+        lut.SetTableValue(i, float(c[0]), float(c[1]), float(c[2]), 1.0)
 
 
 def _fill_gray(lut):
@@ -70,14 +100,6 @@ def _fill_gray(lut):
     for i in range(n):
         v = i / max(1, n - 1)
         lut.SetTableValue(i, v, v, v, 1.0)
-
-
-def _hsv_to_rgb(hsv: np.ndarray) -> np.ndarray:
-    import colorsys
-    rows = []
-    for h, s, v in hsv:
-        rows.append(colorsys.hsv_to_rgb(h, s, v))
-    return np.asarray(rows, dtype=np.float64)
 
 
 def colorbar_actor(obj, range_: Optional[tuple] = None,
@@ -97,7 +119,7 @@ def colorbar_actor(obj, range_: Optional[tuple] = None,
         lut.Build()
     sb = vtk.vtkScalarBarActor()
     sb.SetLookupTable(lut)
-    sb.SetNumberOfLabels(7)
+    sb.SetNumberOfLabels(max(2, int(getattr(obj, "num_labels", 7) or 7)))
     sb.SetMaximumNumberOfColors(lut.GetNumberOfTableValues())
     orient = (getattr(obj, "orientation", "Horizontal") or "Horizontal")
     if str(orient).lower().startswith("v"):
@@ -112,14 +134,16 @@ def colorbar_actor(obj, range_: Optional[tuple] = None,
         title = ""
     if title:
         sb.SetTitle(title)
+    lc = tuple(getattr(obj, "label_color", (0.0, 0.0, 0.0)))
     fp = sb.GetLabelTextProperty()
     fp.SetFontFamilyToArial()
     fp.SetFontSize(max(8, int(getattr(obj, "font_size", 9) or 9)))
-    fp.SetColor(0.0, 0.0, 0.0)
+    fp.SetColor(float(lc[0]), float(lc[1]), float(lc[2]))
     tp = sb.GetTitleTextProperty()
     tp.SetFontFamilyToArial()
     tp.SetFontSize(max(8, int(getattr(obj, "font_size", 9) or 9)) + 2)
-    tp.SetColor(0.0, 0.0, 0.0)
+    tp.SetColor(float(lc[0]), float(lc[1]), float(lc[2]))
+    sb.SetLabelFormat(getattr(obj, "label_format", "%.4g") or "%.4g")
     return sb
 
 

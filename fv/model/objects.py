@@ -818,6 +818,9 @@ class ColorbarObject(PostObject):
     font_float: float = 100.0
     visible: bool = True
     position: tuple[float, float] = (0.12, 0.03)
+    label_color: tuple[float, float, float] = (0.0, 0.0, 0.0)   # R1.4
+    num_labels: int = 7                                          # R1.4
+    label_format: str = "%.4g"                                   # R1.4
 
 
 @dataclass
