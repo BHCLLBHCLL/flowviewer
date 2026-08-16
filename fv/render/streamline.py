@@ -343,6 +343,14 @@ def _seed_grid(ugrid, obj) -> Optional["vtk.vtkPolyData"]:
     return pts
 
 
+def _tube_radius(lines_out) -> float:
+    """R0.7: tube radius scales with the streamline extent (0.2% diag)."""
+    b = lines_out.GetBounds()
+    diag = ((b[1] - b[0]) ** 2 + (b[3] - b[2]) ** 2
+            + (b[5] - b[4]) ** 2) ** 0.5
+    return max(1e-6, 0.002 * diag) if diag > 0.0 else 1e-3
+
+
 def _render_actor(lines_out, base: str, obj) -> Optional["vtk.vtkActor"]:
     draw_type = (getattr(obj, "draw_type", "Line") or "Line")
     color_var = getattr(obj, "color_var", "") or ""
@@ -353,7 +361,7 @@ def _render_actor(lines_out, base: str, obj) -> Optional["vtk.vtkActor"]:
         tube = vtk.vtkTubeFilter()
         tube.SetInputData(lines_out)
         tube.SetNumberOfSides(3 if str(draw_type) == "Triangle" else 8)
-        tube.SetRadius(1e-3)
+        tube.SetRadius(_tube_radius(lines_out))
         tube.Update()
         mapper.SetInputConnection(tube.GetOutputPort())
     else:

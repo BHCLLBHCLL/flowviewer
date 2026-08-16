@@ -1878,6 +1878,68 @@ def test_vector_arrow_coloring_modes():
     assert a.GetMapper().GetArrayName() == "PRES"
 
 
+
+def test_hardcoded_params_adaptive():
+    """R0.7: marker/tube radius adapt to extent; point labels stagger."""
+    import vtk
+    from fv.model.objects import InformationObject, ParticleObject, PointObject
+    from fv.render.information import marker_actor
+    from fv.render.particle import _sphere_actor
+    from fv.render.point import _label_actor
+    from fv.render.streamline import _tube_radius
+
+    # Information marker radius follows the bounds diagonal (0.5%)
+    obj = InformationObject(index=1)
+    obj.show_marker = True
+    a1 = marker_actor(obj)
+    a2 = marker_actor(obj, bounds=((0.0, 0.0, 0.0), (10.0, 0.0, 0.0)))
+    r1 = a1.GetMapper().GetInputAlgorithm().GetRadius()
+    r2 = a2.GetMapper().GetInputAlgorithm().GetRadius()
+    assert abs(r1 - 0.002) < 1e-12
+    assert abs(r2 - 0.05) < 1e-9
+
+    # Streamline tube radius scales with the extent (0.2% diag)
+    line = vtk.vtkLineSource()
+    line.SetPoint1(0.0, 0.0, 0.0)
+    line.SetPoint2(5.0, 0.0, 0.0)
+    line.Update()
+    assert abs(_tube_radius(line.GetOutput()) - 0.01) < 1e-9
+
+    # Point label staggers vertically by object index
+    t1 = _label_actor("x", PointObject(index=1))
+    t3 = _label_actor("x", PointObject(index=3))
+    assert t1.GetPosition() == (0.02, 0.84)
+    assert abs(t3.GetPosition()[1] - (0.84 - 0.12)) < 1e-9
+
+    # Particle spheres scale by |velocity| (vectors attached)
+    from vtk.util import numpy_support as vns
+    import numpy as np
+    pd = vtk.vtkPolyData()
+    pts = vtk.vtkPoints()
+    pts.InsertNextPoint(0.0, 0.0, 0.0)
+    pts.InsertNextPoint(1.0, 0.0, 0.0)
+    pd.SetPoints(pts)
+    fa = vns.numpy_to_vtk(
+        np.array([[1.0, 0.0, 0.0], [3.0, 0.0, 0.0]]), deep=True)
+    fa.SetName("Velocity")
+    pd.GetPointData().SetVectors(fa)
+    po = ParticleObject(index=1)
+    po.size_px = 5
+    a = _sphere_actor(pd, po)
+    assert a is not None
+    a.GetMapper().Update()
+    out = a.GetMapper().GetInput()
+    b = out.GetBounds()
+    # mean |v| = 2 normalises the scale factor: sphere x-extents are
+    # 0.4949*0.0025*|v| (0.4949 = tessellated unit-sphere x bound), so
+    # the fast particle is ~3x wider than the slow one.
+    left = abs(b[0])
+    right = b[1] - 1.0
+    assert abs(left - 0.4949 * 0.0025 * 1.0) < 1e-4
+    assert abs(right - 0.4949 * 0.0025 * 3.0) < 1e-4
+    assert right > 2.5 * left
+
+
 def test_time_series_max_min_parsers(tmp_path):
     """TM/OT CSV parsers read cycle/time and min/max rows (P2.10)."""
     from fv.model.tsmm import parse_max_min, parse_time_series

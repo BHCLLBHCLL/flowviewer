@@ -37,12 +37,27 @@ def probe_values(ff: FieldFile, point) -> dict:
     return out
 
 
-def marker_actor(obj) -> Optional["vtk.vtkActor"]:
-    """Small sphere at the probe position."""
+def marker_actor(obj, bounds=None) -> Optional["vtk.vtkActor"]:
+    """Small sphere at the probe position.
+
+    R0.7: the radius follows the model extent (0.5% of the bounds
+    diagonal) so the marker stays visible at any model scale; the old
+    fixed 0.002 vanished on large models.
+    """
     if not getattr(obj, "show_marker", True):
         return None
+    r = 0.002
+    if bounds is not None:
+        try:
+            lo = np.asarray(bounds[0], dtype=np.float64)
+            hi = np.asarray(bounds[1], dtype=np.float64)
+            diag = float(np.linalg.norm(hi - lo))
+            if diag > 0.0:
+                r = 0.005 * diag
+        except (TypeError, ValueError, IndexError):
+            pass
     sphere = vtk.vtkSphereSource();
-    sphere.SetRadius(0.002);
+    sphere.SetRadius(r);
     pos = getattr(obj, "position", (0.0, 0.0, 0.0));
     sphere.SetCenter(float(pos[0]), float(pos[1]), float(pos[2]));
     sphere.SetThetaResolution(12); sphere.SetPhiResolution(12)

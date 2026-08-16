@@ -182,7 +182,10 @@ def _label_actor(text: str, obj) -> Optional["vtk.vtkActor2D"]:
     tp.SetBold(1)
     tp.SetColor(0.0, 0.0, 0.0)
     ta.GetPositionCoordinate().SetCoordinateSystemToNormalizedDisplay()
-    ta.SetPosition(0.02, 0.84)
+    # R0.7: stagger labels vertically by object index so several Point
+    # probes don't overwrite each other at the same corner slot.
+    idx = max(1, int(getattr(obj, "index", 1) or 1))
+    ta.SetPosition(0.02, 0.84 - ((idx - 1) % 10) * 0.06)
     return ta
 
 

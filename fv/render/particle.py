@@ -90,6 +90,14 @@ def build_particle_actors(obj: ParticleObject,
 
     actors: dict[str, vtk.vtkActor] = {}
 
+    # Vector glyphs need the vectors attached first; R0.7 also lets the
+    # Sphere glyph scale them by magnitude, so attach before the actors.
+    if velocities is not None:
+        vec = _vns.numpy_to_vtk(
+            np.ascontiguousarray(velocities, dtype=np.float64), deep=True)
+        vec.SetName("Velocity")
+        polydata.GetPointData().SetVectors(vec)
+
     # Particle points / spheres
     if obj.particle_type in ("Sphere", "Actual"):
         actor = _sphere_actor(polydata, obj)
@@ -100,10 +108,6 @@ def build_particle_actors(obj: ParticleObject,
 
     # Vector glyphs
     if velocities is not None:
-        vec = _vns.numpy_to_vtk(
-            np.ascontiguousarray(velocities, dtype=np.float64), deep=True)
-        vec.SetName("Velocity")
-        polydata.GetPointData().SetVectors(vec)
         glyph = _glyph_actor(polydata, obj)
         if glyph is not None:
             actors["vector"] = glyph
@@ -172,9 +176,28 @@ def _sphere_actor(polydata, obj) -> Optional[vtk.vtkActor]:
     g = vtk.vtkGlyph3D()
     g.SetInputData(polydata)
     g.SetSourceConnection(sphere.GetOutputPort())
-    g.SetScaleFactor(r)
-    g.ScalingOff()
-    g.SetVectorModeToUseNormal()
+    # R0.7: scale spheres by |velocity| when vectors are attached (the
+    # factor normalises on the mean magnitude so the average sphere keeps
+    # the base radius r); without vectors stay constant-size.
+    vecs = polydata.GetPointData().GetVectors()
+    scaled = False
+    if vecs is not None and vecs.GetNumberOfTuples() > 0:
+        mags = np.linalg.norm(
+            np.asarray(_vns.vtk_to_numpy(vecs)).reshape(-1, 3), axis=1)
+        mean = float(mags.mean()) if mags.size else 0.0
+        if mean > 1e-12:
+            g.ScalingOn()
+            g.SetScaleModeToScaleByVector()
+            g.SetScaleFactor(r / mean)
+            scaled = True
+    if not scaled:
+        g.SetScaleFactor(r)
+        g.ScalingOff()
+        g.SetVectorModeToUseNormal()
+    else:
+        # UseVector so ScaleByVector reads our vectors (spheres are
+        # orientation-symmetric, so vector orientation is harmless).
+        g.SetVectorModeToUseVector()
     mapper = vtk.vtkPolyDataMapper()
     mapper.SetInputConnection(g.GetOutputPort())
     mapper.ScalarVisibilityOn()

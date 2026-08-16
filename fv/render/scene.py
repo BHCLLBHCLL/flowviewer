@@ -772,7 +772,7 @@ class Scene:
     def _add_information_actor(self, obj) -> None:
         """Information probe marker (P2.4)."""
         from .information import marker_actor
-        a = marker_actor(obj)
+        a = marker_actor(obj, bounds=self._bounds)
         if a is not None:
             self.add_actor("information", a)
             self.register_actor_object(a, "information", obj)
