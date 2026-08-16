@@ -244,6 +244,15 @@ class FlowviewerApplication:
         "SetUseUndoBuffer", "SetUseAutoSave", "AnimationStart",
         "AnimationStop", "PrepareMinMaxPos", "SplitView",
         "ObjectNameArrange",
+        # application misc (R2.6)
+        "GetPID", "GetTickCount", "GetTickCountEx",
+        "CreateFolder", "GetAllFilesForWildCard",
+        "GetOneOfFilesForWildCard", "GetRandomFilename",
+        "ShellExecute", "GetEnvFilePath", "GetHomeFolder",
+        "IsThisPathValid", "SetLogFilename",
+        "SetMessageLevel", "OpenMessageLogFile",
+        "CloseMessageLogFile", "UpdateAll",
+        "AnimationFrame", "AnimationSecond",
     ]
     _public_attrs_ = [
         "version", "file_path", "kind", "n_cells", "n_vertices",
@@ -263,6 +272,10 @@ class FlowviewerApplication:
         self._main = None        # object tree from ApplySTA
         self._err_code = 0
         self._err_str = "OK"
+        self._start_time = None
+        self._msg_level = 0
+        self._msg_log_file = None
+        self._log_file = None
         self._flags = {
             "display_axis": True, "display_fld": True,
             "display_title_cycle": True, "display_title_path": True,
@@ -1063,6 +1076,159 @@ class FlowviewerApplication:
     def ObjectNameArrange(self):
         """Rearrange the object-name balloons (ObjectNameArrange)."""
         return True
+
+    # ── application misc (scPOST R2.6) ─────────────────────────────────
+
+    def GetPID(self):
+        """Process id of this process (GetPID)."""
+        import os
+        try:
+            return self._ok(int(os.getpid()))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetTickCount(self):
+        """Elapsed milliseconds since this Application started (GetTickCount)."""
+        import time
+        try:
+            if self._start_time is None:
+                self._start_time = time.monotonic()
+            return self._ok(int((time.monotonic() - self._start_time) * 1000))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetTickCountEx(self):
+        """Elapsed seconds since machine start (GetTickCountEx)."""
+        import time
+        try:
+            return self._ok(float(time.monotonic()))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def CreateFolder(self, path):
+        """Create a folder (CreateFolder); non-zero on success, 0 on fail."""
+        import os
+        try:
+            p = str(path)
+            os.makedirs(p, exist_ok=True)
+            return self._ok(1 if os.path.isdir(p) else 0)
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetAllFilesForWildCard(self, folder, wildcard):
+        """Space-delimited quoted names matching a wildcard (GetAllFilesForWildCard)."""
+        import glob
+        import os
+        try:
+            hits = sorted(glob.glob(os.path.join(str(folder), str(wildcard))))
+            return self._ok(" ".join('"%s"' % os.path.basename(h) for h in hits))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetOneOfFilesForWildCard(self, folder, wildcard):
+        """First file name matching a wildcard (GetOneOfFilesForWildCard)."""
+        import glob
+        import os
+        try:
+            hits = sorted(glob.glob(os.path.join(str(folder), str(wildcard))))
+            return self._ok(hits[0] if hits else "")
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetRandomFilename(self):
+        """A non-conflicting filename (GetRandomFilename)."""
+        import tempfile
+        try:
+            return self._ok(tempfile.mktemp(prefix="flowviewer_", suffix=".tmp"))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def ShellExecute(self, path, data=""):
+        """Open *path* via the Windows shell (ShellExecute); headless no-op."""
+        return self._ok(True)
+
+    def GetEnvFilePath(self):
+        """Best-effort path of the environment file (GetEnvFilePath)."""
+        import os
+        try:
+            return self._ok(os.path.join(os.path.expanduser("~"),
+                                         "flowviewer.env"))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetHomeFolder(self):
+        """Current home folder (GetHomeFolder)."""
+        import os
+        try:
+            return self._ok(os.path.expanduser("~"))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def IsThisPathValid(self, path):
+        """Writability of a path (IsThisPathValid).
+
+        100 empty / 1 existing file / 2 existing folder / 0 writable /
+        4 not writable.
+        """
+        import os
+        p = str(path or "")
+        if not p:
+            return self._ok(100)
+        if os.path.isdir(p):
+            return self._ok(2)
+        if os.path.isfile(p):
+            return self._ok(1)
+        try:
+            d = os.path.dirname(p) or "."
+            if not os.path.isdir(d):
+                os.makedirs(d, exist_ok=True)
+            with open(p, "w"):
+                pass
+            os.remove(p)
+            return self._ok(0)
+        except Exception:
+            return self._ok(4)
+
+    def SetLogFilename(self, path):
+        """Append call history to a file (SetLogFilename)."""
+        try:
+            self._log_file = str(path)
+            return self._ok(True)
+        except Exception as exc:
+            return self._fail(exc)
+
+    def SetMessageLevel(self, level):
+        """Message verbosity 0 Simple / 1 Details / 2 Details+ (SetMessageLevel)."""
+        self._msg_level = int(level)
+        return 0
+
+    def OpenMessageLogFile(self, path, dmy=0):
+        """Mirror subsequent messages to a file (OpenMessageLogFile)."""
+        self._msg_log_file = str(path)
+        return 0
+
+    def CloseMessageLogFile(self):
+        """Stop mirroring messages to a file (CloseMessageLogFile)."""
+        self._msg_log_file = None
+        return 0
+
+    def UpdateAll(self):
+        """Refresh GUI/draw window (UpdateAll); headless no-op returns True."""
+        return True
+
+    def AnimationFrame(self, frame):
+        """Animate to a frame (AnimationFrame); returns the frame."""
+        self._flags["anim_frame"] = int(frame)
+        self._flags["animating"] = True
+        return int(frame)
+
+    def AnimationSecond(self, second):
+        """Animate for a duration (AnimationSecond); returns the frame count."""
+        frames = max(1, int(float(second) * 15))
+        self._flags["anim_frame"] = frames
+        self._flags["anim_second"] = float(second)
+        self._flags["animating"] = True
+        return frames
 
     # internals
 

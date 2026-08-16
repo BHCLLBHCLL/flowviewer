@@ -4801,3 +4801,39 @@ def test_r25_save_variable_output_com(tmp_path):
     assert app.ErrorCode == 0
     assert out.exists()
     assert "title" in out.read_text(encoding="utf-8")
+
+
+def test_r26_application_misc():
+    """R2.6: Application misc methods (PID/ticks/folder/wildcard/...)."""
+    import os
+    import tempfile
+    from fv.com import FlowviewerApplication
+    app = FlowviewerApplication()
+    assert app.GetPID() > 0
+    assert app.GetTickCount() >= 0
+    assert app.GetTickCountEx() > 0
+    assert bool(app.GetHomeFolder())
+    assert bool(app.GetEnvFilePath())
+    assert app.IsThisPathValid("") == 100
+    tmp = tempfile.mkdtemp()
+    try:
+        assert app.CreateFolder(os.path.join(tmp, "sub")) == 1
+        assert app.IsThisPathValid(os.path.join(tmp, "sub")) == 2
+        newfile = os.path.join(tmp, "newfile.tmp")
+        assert app.IsThisPathValid(newfile) == 0
+        with open(os.path.join(tmp, "a.fld"), "w") as fh:
+            fh.write("")
+        assert '"a.fld"' in app.GetAllFilesForWildCard(tmp, "*.fld")
+        assert app.GetOneOfFilesForWildCard(tmp, "*.fld").endswith("a.fld")
+    finally:
+        import shutil
+        shutil.rmtree(tmp, ignore_errors=True)
+    assert bool(app.GetRandomFilename())
+    assert app.ShellExecute("x") is True
+    assert app.SetLogFilename("x") is True
+    assert app.SetMessageLevel(1) == 0
+    assert app.OpenMessageLogFile("x") == 0
+    assert app.CloseMessageLogFile() == 0
+    assert app.UpdateAll() is True
+    assert app.AnimationFrame(3) == 3
+    assert app.AnimationSecond(0.5) >= 1
