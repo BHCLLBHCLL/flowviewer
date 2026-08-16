@@ -4,4 +4,6 @@ __pycache__/
 tests/*
 !tests/*.py
 !tests/tr03_9.fph
+!tests/data/
+!tests/data/*
 .pytest_tmp/*.tlb
