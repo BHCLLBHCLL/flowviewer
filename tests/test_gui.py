@@ -2584,6 +2584,27 @@ def test_ugrid_cache_reuse():
 
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
+def test_fld_ugrid_batch_build():
+    """P2-2: batched vtkCellArray build matches the FLD connectivity."""
+    import numpy as np
+    from fv.model.dataset import load_file
+    from fv.render.plane import build_ugrid
+    ff = load_file(FLD)
+    ug, cc = build_ugrid(ff)
+    assert not cc and ug.GetNumberOfCells() == ff.n_cells
+    conn = np.asarray(ff.cell_conn, dtype=np.int64)
+    cell = ug.GetCell(0)
+    ids = [int(cell.GetPointId(k)) for k in range(cell.GetNumberOfPoints())]
+    assert ids == conn[0].tolist()
+    # masked rows: only the kept subset survives
+    mask = np.zeros(ff.n_cells, dtype=bool)
+    mask[:7] = True
+    ug2, _ = build_ugrid(ff, cell_mask=mask)
+    assert ug2.GetNumberOfCells() == 7
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_particle_intersection_cloth():
     """Intersection regions filter particles; cloth connects them (G3)."""

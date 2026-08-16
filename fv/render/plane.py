@@ -183,6 +183,15 @@ def _build_fph_ugrid(ff: FieldFile, rows=None):
     return ug
 
 
+_CELL_NN = {10: 4, 12: 8, 13: 6, 14: 5}
+_VTK_CELL_CODE = {
+    10: lambda: vtk.VTK_TETRA,
+    12: lambda: vtk.VTK_HEXAHEDRON,
+    13: lambda: vtk.VTK_WEDGE,
+    14: lambda: vtk.VTK_PYRAMID,
+}
+
+
 def _build_fld_ugrid(ff: FieldFile, rows=None):
     if ff.vertices is None or ff.cell_conn is None:
         return None
@@ -193,37 +202,40 @@ def _build_fld_ugrid(ff: FieldFile, rows=None):
     points.SetData(_vns.numpy_to_vtk(verts, deep=True))
     ug = vtk.vtkUnstructuredGrid()
     ug.SetPoints(points)
-    cells = vtk.vtkCellArray()
     if rows is not None:
         sel = conn[rows]
         sel_types = ctypes[rows] if ctypes is not None else None
     else:
         sel = conn
         sel_types = ctypes
+    n = sel.shape[0]
+    if n == 0:
+        return ug
+    # P2-2: batch-insert the whole grid through one vtkIdTypeArray
+    # (legacy ``[npts, id0..]`` per cell) instead of a per-cell Python loop.
     if sel_types is None:
-        for row in sel:
-            h = vtk.vtkHexahedron()
-            for k in range(8):
-                h.GetPointIds().SetId(k, int(row[k]))
-            cells.InsertNextCell(h)
+        cnt = np.full((n, 1), 8, dtype=np.int64)
+        flat = np.column_stack([cnt, sel]).ravel()
+        arr = _vns.numpy_to_vtkIdTypeArray(flat, deep=True)
+        cells = vtk.vtkCellArray()
+        cells.SetCells(n, arr)
         ug.SetCells(vtk.VTK_HEXAHEDRON, cells)
         return ug
-    # CGNS / mixed types: build per-cell vtk cells (P1.2)
-    makers = {
-        10: (vtk.vtkTetra, 4),
-        12: (vtk.vtkHexahedron, 8),
-        13: (vtk.vtkWedge, 6),
-        14: (vtk.vtkPyramid, 5),
-    }
-    for c, row in enumerate(sel):
-        t = int(sel_types[c])
-        maker, nn = makers.get(t, (vtk.vtkHexahedron, 8))
-        cell = maker()
-        n = min(nn, len(row))
-        for k in range(n):
-            cell.GetPointIds().SetId(k, int(row[k]))
-        cells.InsertNextCell(cell)
-    ug.SetCells(vtk.VTK_UNSTRUCTURED_GRID, cells)
+    # CGNS / mixed types: per-cell counts + vtk type codes (P1.2).
+    # The legacy cell array is packed ``[npts, ids...]`` with no padding,
+    # so each row is truncated to its own node count.
+    t = np.asarray(sel_types, dtype=np.int64)
+    counts = np.array([_CELL_NN.get(int(x), 8) for x in t], dtype=np.int64)
+    rows8 = np.where(np.arange(8)[None, :] < counts[:, None], sel, 0)
+    flat = np.concatenate([
+        np.concatenate([[int(c)], rows8[i, :c]]) for i, c in enumerate(counts)
+    ])
+    arr = _vns.numpy_to_vtkIdTypeArray(flat, deep=True)
+    cells = vtk.vtkCellArray()
+    cells.SetCells(n, arr)
+    codes = np.array([_VTK_CELL_CODE.get(int(x), lambda: vtk.VTK_HEXAHEDRON)()
+                      for x in t], dtype=np.uint8)
+    ug.SetCells(_vns.numpy_to_vtk(codes, deep=True), cells)
     return ug
 
 
