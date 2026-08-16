@@ -250,6 +250,71 @@ def export_animation_frames(ff, main, scene, render_window,
     return written
 
 
+def _write_vtk_video(scene, render_window, filename: str,
+                     frames: int = 30, fps: int = 15) -> int:
+    """Encode scene animation frames to a video via a VTK writer (R3.2).
+
+    Uses ``vtkOggTheoraWriter`` for ``.ogv``, or ``vtkAVIWriter`` for
+    ``.avi`` when that writer is available on this build.  Advances *scene*
+    once per frame and writes it from *render_window*.  Returns the number
+    of frames written, or 0 on failure.
+    """
+    if not _HAS_VTK:
+        return 0
+    import vtk
+    ext = os.path.splitext(filename)[1].lower()
+    writer = None
+    if ext == ".avi" and hasattr(vtk, "vtkAVIWriter"):
+        writer = vtk.vtkAVIWriter()
+    elif hasattr(vtk, "vtkOggTheoraWriter"):
+        writer = vtk.vtkOggTheoraWriter()
+    if writer is None:
+        return 0
+    try:
+        writer.SetFileName(str(filename))
+        if hasattr(writer, "SetRate"):
+            writer.SetRate(int(fps))
+        w2i = vtk.vtkWindowToImageFilter()
+        w2i.SetInput(render_window)
+        w2i.SetInputBufferTypeToRGB()
+        writer.SetInputConnection(w2i.GetOutputPort())
+        writer.Start()
+        written = 0
+        for t in range(max(1, int(frames))):
+            try:
+                if scene is not None:
+                    scene.animate(t, fps=int(fps))
+            except Exception:
+                pass
+            render_window.Render()
+            w2i.Modified()
+            writer.Write()
+            written += 1
+        writer.End()
+        if os.path.exists(filename) and os.path.getsize(filename) > 0:
+            return written
+        return 0
+    except Exception:
+        return 0
+
+
+def export_animation_video(ff, main, scene, render_window, filename: str,
+                           frames: int = 30, fps: int = 15,
+                           base: str = "frame") -> int:
+    """Render an animation and encode it to a video file (R3.2).
+
+    Writes the animation via VTK's native writer (Ogg Theora ``.ogv``, or
+    AVI when available).  ``ff`` / ``main`` / ``base`` are accepted for API
+    parity with :func:`export_animation_frames` but only ``scene`` and
+    ``render_window`` are required.  Returns the number of frames written,
+    or 0 when VTK / the render window is missing.
+    """
+    if render_window is None:
+        return 0
+    return _write_vtk_video(scene, render_window, filename, frames=frames,
+                            fps=fps)
+
+
 def export_surface_obj(ff, filename: str, obj=None) -> bool:
     """Write the boundary surface as Wavefront OBJ (4, FBX-neutral).
 

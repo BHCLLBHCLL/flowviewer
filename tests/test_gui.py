@@ -4929,3 +4929,36 @@ def test_r33_camera_slerp():
     m = mid["view_up"]
     mn = (m[0] ** 2 + m[1] ** 2 + m[2] ** 2) ** 0.5
     assert abs(mn - 1.0) < 1e-9
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+def test_r32_video_export_vtk(tmp_path):
+    """R3.2: export_animation_video writes an Ogg Theora video via VTK."""
+    import vtk
+    from fv.render.export import export_animation_video
+    if not hasattr(vtk, "vtkOggTheoraWriter"):
+        pytest.skip("vtkOggTheoraWriter unavailable")
+    ren = vtk.vtkRenderer()
+    win = vtk.vtkRenderWindow()
+    win.SetOffScreenRendering(1)
+    win.AddRenderer(ren)
+    win.SetSize(64, 64)
+    src = vtk.vtkSphereSource()
+    mapper = vtk.vtkPolyDataMapper()
+    mapper.SetInputConnection(src.GetOutputPort())
+    actor = vtk.vtkActor()
+    actor.SetMapper(mapper)
+    ren.AddActor(actor)
+    win.Render()
+    out = tmp_path / "anim.ogv"
+    n = export_animation_video(None, None, None, win, str(out),
+                               frames=3, fps=15)
+    assert n == 3
+    assert out.exists() and out.stat().st_size > 0
+
+
+def test_r32_video_export_headless(tmp_path):
+    """R3.2: export_animation_video degrades to 0 without a render window."""
+    from fv.render.export import export_animation_video
+    assert export_animation_video(None, None, None, None,
+                                  str(tmp_path / "anim.ogv")) == 0

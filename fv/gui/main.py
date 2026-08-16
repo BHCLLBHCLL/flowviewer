@@ -349,6 +349,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         add(m, "Export VRML…", self.on_export_vrml)
         add(m, "Export glTF…", self.on_export_gltf)
         add(m, "Export Animation Frames…", self.on_export_animation_frames)
+        add(m, "Export Animation Video…", self.on_export_animation_video)
         m.addSeparator()
         add(m, "Exit", self.close)
 
@@ -835,6 +836,38 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.message_win.log(
             f"Exported {n} animation frames to {out_dir}")
         self.status.showMessage(f"Exported {n} frames", 5000)
+
+    def on_export_animation_video(self) -> None:
+        """File > Export Animation Video… (R3.2): encode MP4/AVI via ffmpeg."""
+        if not self._enable_3d or self.vtk_widget is None:
+            self.message_win.log("Animation export needs 3D mode", "WARN")
+            return
+        if self.dataset is None or self.main_object is None:
+            self.status.showMessage("Open a field file first", 4000)
+            return
+        from PyQt5.QtWidgets import QFileDialog, QInputDialog
+        frames, ok = QInputDialog.getInt(
+            self, "Export Animation Video", "Frames:", 30, 2, 500)
+        if not ok:
+            return
+        default = (f"{Path(self.dataset.path).stem}.ogv"
+                   if self.dataset else "animation.ogv")
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Animation Video", default,
+            "Ogg Theora video (*.ogv);;AVI video (*.avi)")
+        if not path:
+            return
+        from ..render.export import export_animation_video
+        n = export_animation_video(
+            self.dataset, self.main_object, self.scene,
+            self.vtk_widget.GetRenderWindow(), path,
+            frames=frames, fps=15)
+        if n:
+            self.message_win.log(f"Exported {n}-frame video → {path}")
+            self.status.showMessage(f"Exported {n}-frame video", 5000)
+        else:
+            self.message_win.log("Video export failed (ffmpeg missing?)",
+                                 "ERROR")
 
     def on_export_png(self) -> None:
         """File → Export PNG…: render the current scene to an image file."""
