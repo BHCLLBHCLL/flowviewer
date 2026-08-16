@@ -1539,6 +1539,17 @@ class GradationDialog(ObjectSettingsPanel):
 class CameraDialog(ObjectSettingsPanel):
     """Camera — position / focal / projection (5b)."""
 
+    # R0.8: view-direction presets (unit direction, view-up)
+    PRESETS = {
+        "Front": ((0.0, -1.0, 0.0), (0.0, 0.0, 1.0)),
+        "Back": ((0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
+        "Top": ((0.0, 0.0, 1.0), (0.0, 1.0, 0.0)),
+        "Bottom": ((0.0, 0.0, -1.0), (0.0, 1.0, 0.0)),
+        "Left": ((-1.0, 0.0, 0.0), (0.0, 0.0, 1.0)),
+        "Right": ((1.0, 0.0, 0.0), (0.0, 0.0, 1.0)),
+        "Iso": ((1.0, -1.0, 1.0), (0.0, 0.0, 1.0)),
+    }
+
     def __init__(self, obj, field_file=None, parent=None, scene=None):
         super().__init__(getattr(obj, "label", "Camera"), parent)
         if not _HAS_QT:
@@ -1560,7 +1571,14 @@ class CameraDialog(ObjectSettingsPanel):
         self.parallel.setChecked(bool(getattr(obj, "parallel_projection", True)))
         self.apply_cam = QPushButton("Apply to view", page)
         self.apply_cam.clicked.connect(self._apply_camera)
-        lay = QVBoxLayout(page); lay.addLayout(form); lay.addWidget(self.parallel); lay.addWidget(self.apply_cam); lay.addStretch(1)
+        # R0.8: standard view presets (scPOST camera toolbar)
+        preset_row = QHBoxLayout()
+        for name in ("Front", "Back", "Top", "Bottom", "Left", "Right", "Iso"):
+            btn = QPushButton(name, page)
+            btn.clicked.connect(lambda _=False, n=name: self._apply_preset(n))
+            preset_row.addWidget(btn)
+        lay = QVBoxLayout(page); lay.addLayout(form); lay.addWidget(self.parallel)
+        lay.addWidget(self.apply_cam); lay.addLayout(preset_row); lay.addStretch(1)
         self.tabs.addTab(page, "Camera")
 
         # Sequence tab (keyframes + continuous screenshot)
@@ -1579,6 +1597,28 @@ class CameraDialog(ObjectSettingsPanel):
         slay = QVBoxLayout(seq); slay.addLayout(sf); slay.addWidget(self.add_kf)
         slay.addWidget(self.clear_kf); slay.addWidget(self.cap_seq); slay.addStretch(1)
         self.tabs.addTab(seq, "Sequence")
+
+    def _preset_pose(self, name: str):
+        """Camera pose for a preset relative to the model bounds (R0.8)."""
+        b = getattr(self.scene, "_bounds", None) if self.scene else None
+        if b is not None:
+            lo, hi = tuple(b[0]), tuple(b[1])
+            center = tuple((lo[i] + hi[i]) / 2.0 for i in range(3))
+            radius = max((hi[i] - lo[i]) / 2.0 for i in range(3))
+        else:
+            center, radius = (0.0, 0.0, 0.0), 1.0
+        d, up = self.PRESETS[name]
+        n = (d[0] ** 2 + d[1] ** 2 + d[2] ** 2) ** 0.5 or 1.0
+        dist = max(radius, 1e-6) * 3.0
+        pos = tuple(center[i] + d[i] / n * dist for i in range(3))
+        return pos, center, up
+
+    def _apply_preset(self, name: str) -> None:
+        pos, focal, up = self._preset_pose(name)
+        self.posx.setValue(pos[0]); self.posy.setValue(pos[1]); self.posz.setValue(pos[2])
+        self.fx.setValue(focal[0]); self.fy.setValue(focal[1]); self.fz.setValue(focal[2])
+        self.obj.view_up = up
+        self._apply_camera()
 
     def _apply_camera(self) -> None:
         self.apply_to(self.obj)

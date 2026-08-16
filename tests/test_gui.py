@@ -3617,6 +3617,33 @@ def test_camera_dialog(qapp):
     d.scene = None
     d._apply_camera()
 
+
+
+def test_r08_camera_presets_statusbar_oilflow(qapp):
+    """R0.8: camera view presets + status-bar cells/pick labels."""
+    from fv.gui.object_dialogs2 import CameraDialog
+    from fv.model.objects import CameraObject
+
+    w = _make(qapp, FPH)
+    assert w._cells_label.text().startswith("Cells ")
+    assert "Cells —" not in w._cells_label.text()
+    assert w._pick_label.text() == "Pick —"
+
+    c = CameraObject(index=1)
+    d = CameraDialog(c, scene=w.scene)
+    pos, focal, up = d._preset_pose("Front")
+    assert up == (0.0, 0.0, 1.0)
+    assert pos[1] < focal[1]          # looks from -Y
+    pos_iso, _, up_iso = d._preset_pose("Iso")
+    assert pos_iso[0] > focal[0] and pos_iso[2] > focal[2]
+    # no scene/bounds -> unit-sphere fallback keeps finite pose
+    d2 = CameraDialog(CameraObject(index=2), scene=None)
+    p2, f2, _ = d2._preset_pose("Top")
+    assert all(abs(v) < 10.0 for v in p2) and f2 == (0.0, 0.0, 0.0)
+    d._apply_preset("Back")
+    assert d.obj.view_up == (0.0, 0.0, 1.0)
+    assert d.obj.position[1] > d.obj.focal_point[1]
+
 def test_camera_keyframes_and_sequence():
     """Camera keyframe interpolation + sequence capture degrade (5b)."""
     import numpy as np

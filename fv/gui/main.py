@@ -294,10 +294,13 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._coord_label = QLabel("( —, —, — )")
         self._mode_label = QLabel("Navigation")
         self._op_label = QLabel("Trackball")
+        self._cells_label = QLabel("Cells —")   # R0.8
+        self._pick_label = QLabel("Pick —")     # R0.8
         self._cycle_label = QLabel("Cycle —")
         sb = self.statusBar()
         sb.addPermanentWidget(self._coord_label, 1)
-        for w in (self._mode_label, self._op_label, self._cycle_label):
+        for w in (self._mode_label, self._op_label, self._cells_label,
+                  self._pick_label, self._cycle_label):
             sb.addPermanentWidget(w)
         self.status = sb
         self.status.showMessage("Ready")
@@ -662,6 +665,10 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self.timeline.set_range(cyc, cyc)
         self.timeline.set_step(cyc)
         self._cycle_label.setText(f"Cycle {cyc}")
+        try:  # R0.8: cell count in the status bar
+            self._cells_label.setText(f"Cells {self.dataset.n_cells:,}")
+        except Exception:  # noqa: BLE001
+            self._cells_label.setText("Cells —")
         if ff.time is not None:
             self.timeline.edit_time.setText(self.timeline.format_time(ff.time))
         self.setWindowTitle(f"flowviewer — {Path(ff.path).name}")
@@ -1675,13 +1682,18 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         from ..render.plane import pick_point
         res = pick_point(self.dataset, plane, point)
         lines = [f"Pick at ({point[0]:.4g}, {point[1]:.4g}, {point[2]:.4g})"]
+        summary = []
         if "scalar" in res:
             name, val = res["scalar"]
             lines.append(f"  {name} = {val:.6g}")
+            summary.append(f"{name}={val:.6g}")
         if "vector" in res:
             name, (vx, vy, vz) = res["vector"]
             lines.append(f"  {name} = ({vx:.6g}, {vy:.6g}, {vz:.6g})")
+            summary.append(f"{name}=({vx:.3g},{vy:.3g},{vz:.3g})")
         self.message_win.log("\n".join(lines))
+        if summary:  # R0.8: picked values in the status bar
+            self._pick_label.setText("Pick " + " | ".join(summary))
 
 
 def run_gui(filepath: Optional[str] = None) -> int:

@@ -73,11 +73,15 @@ def build_oilflow_actor(ff: FieldFile, obj, ugrid=None,
     tracer.SetSourceData(seeds)
     tracer.SetInputArrayToProcess(
         0, 0, 0, vtk.vtkDataObject.FIELD_ASSOCIATION_POINTS, base)
-    method = getattr(obj, "oilflow_integration_method", "Runge-Kutta")
-    if str(method).lower() == "euler":
+    method = str(getattr(obj, "oilflow_integration_method",
+                          "Runge-Kutta") or "Runge-Kutta").lower()
+    if method == "euler":
         tracer.SetIntegratorTypeToEuler()
-    else:
+    elif method in ("rk2", "runge-kutta2"):
         tracer.SetIntegratorTypeToRungeKutta2()
+    else:
+        # R0.8: "Runge-Kutta" uses RK4, matching the streamline tracer.
+        tracer.SetIntegratorTypeToRungeKutta4()
     tracer.SetMaximumPropagation(
         float(getattr(obj, "oilflow_length", 1.0) or 1.0))
     tracer.SetInitialIntegrationStep(
