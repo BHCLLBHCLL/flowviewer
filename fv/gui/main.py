@@ -172,6 +172,13 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         else:
             self.message_win.log("Ready — File → Open to load FLD / FPH / GPH")
 
+        # R2.7: expose this instance to the COM automation bridge.
+        try:
+            from ..com import attach_gui
+            attach_gui(self)
+        except Exception:
+            pass
+
     # ── chrome ────────────────────────────────────────────────────────────
 
     def _apply_style(self) -> None:
@@ -1754,6 +1761,11 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             if getattr(self, "options", None) is not None:
                 self.options.save_window(self)
         finally:
+            try:
+                from ..com import detach_gui
+                detach_gui(self)
+            except Exception:
+                pass
             super().closeEvent(event)
 
     def showEvent(self, event) -> None:  # noqa: N802

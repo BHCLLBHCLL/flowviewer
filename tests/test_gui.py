@@ -4837,3 +4837,69 @@ def test_r26_application_misc():
     assert app.UpdateAll() is True
     assert app.AnimationFrame(3) == 3
     assert app.AnimationSecond(0.5) >= 1
+
+
+def test_r27_com_gui_bridge():
+    """R2.7: COM methods forward to an attached GUI; headless degrades to flags."""
+    from fv.com import FlowviewerApplication, attach_gui, detach_gui
+
+    calls = []
+
+    class FakeTimeline:
+        def set_step(self, s):
+            calls.append(("step", s))
+
+    class FakeGUI:
+        def on_redraw(self):
+            calls.append("redraw")
+
+        def _on_timeline_play(self):
+            calls.append("play")
+
+        def _on_timeline_pause(self):
+            calls.append("pause")
+
+        def _on_timeline_step(self, s):
+            calls.append(("timestep", s))
+
+    gui = FakeGUI()
+    gui.timeline = FakeTimeline()
+
+    app = FlowviewerApplication()
+    # headless: no forwarding, just flags / True
+    assert app.UpdateAll() is True
+    assert calls == []
+
+    attach_gui(gui)
+    try:
+        app.UpdateAll()
+        app.AnimationStart()
+        app.AnimationStop()
+        app.AnimationFrame(3)
+        app.AnimationSecond(0.5)
+    finally:
+        detach_gui(gui)
+
+    assert "redraw" in calls
+    assert "play" in calls
+    assert "pause" in calls
+    assert ("step", 3) in calls
+    assert ("step", 7) in calls  # 0.5s * 15 fps = 7
+    # back to headless flag mode after detach
+    assert app.UpdateAll() is True
+
+
+def test_r27_save_sta_bridge(tmp_path):
+    """R2.7: SaveSTA persists the attached GUI object tree."""
+    from fv.com import FlowviewerApplication, attach_gui, detach_gui
+    from fv.model.objects import MainObject
+    gui = type("G", (), {"main_object": MainObject(path="x",
+                                                   display_name="x")})()
+    app = FlowviewerApplication()
+    attach_gui(gui)
+    try:
+        out = tmp_path / "r27.sta"
+        assert app.SaveSTA(str(out)) is True
+        assert out.exists()
+    finally:
+        detach_gui(gui)

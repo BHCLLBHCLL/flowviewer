@@ -36,6 +36,27 @@ except Exception:
     _TYPLIB_FILE = None
 
 
+# ── COM→GUI bridge singleton (R2.7) ──────────────────────────────────────
+
+_BRIDGE = {"gui": None}
+
+
+def attach_gui(instance):
+    """Register a running FlowViewer instance for COM→GUI forwarding."""
+    _BRIDGE["gui"] = instance
+
+
+def detach_gui(instance=None):
+    """Unregister the running FlowViewer instance (by identity when given)."""
+    if instance is None or _BRIDGE["gui"] is instance:
+        _BRIDGE["gui"] = None
+
+
+def _bridge_gui():
+    """The currently attached FlowViewer instance, or None (headless)."""
+    return _BRIDGE["gui"]
+
+
 class FlowviewerApplicationEvents:
     """COM event (outgoing) interface contract for VBS WithEvents (3).
 
@@ -958,10 +979,18 @@ class FlowviewerApplication:
     # ── status / export (P3) ──────────────────────────────────────────────
 
     def SaveSTA(self, filepath):
-        """Save the current object tree to a .sta status file (SaveSTA)."""
+        """Save the current object tree to a .sta status file (SaveSTA).
+
+        When a running FlowViewer is attached via the bridge its live object
+        tree is persisted; otherwise the headless ``_main`` tree (or the
+        magic default) is used.
+        """
         try:
             from . import api
             from .model.objects import MainObject
+            gui = _bridge_gui()
+            if gui is not None and getattr(gui, "main_object", None) is not None:
+                return self._ok(api.save_sta(gui.main_object, str(filepath)))
             main = self._main
             if main is None:
                 main = MainObject.from_field_file(self._need_ff(),
@@ -1047,12 +1076,26 @@ class FlowviewerApplication:
         return self._set_flag("use_autosave", on)
 
     def AnimationStart(self):
-        """Begin animation (AnimationStart; state flag headless)."""
-        return self._set_flag("animating", True)
+        """Begin animation (AnimationStart); drives the GUI timeline when attached."""
+        self._set_flag("animating", True)
+        gui = _bridge_gui()
+        if gui is not None and hasattr(gui, "_on_timeline_play"):
+            try:
+                gui._on_timeline_play()
+            except Exception:
+                pass
+        return True
 
     def AnimationStop(self):
-        """Stop animation (AnimationStop; state flag headless)."""
-        return self._set_flag("animating", False)
+        """Stop animation (AnimationStop); pauses the GUI timeline when attached."""
+        self._set_flag("animating", False)
+        gui = _bridge_gui()
+        if gui is not None and hasattr(gui, "_on_timeline_pause"):
+            try:
+                gui._on_timeline_pause()
+            except Exception:
+                pass
+        return True
 
     def PrepareMinMaxPos(self, mode=0, loop=6, show=0):
         """Use the max/min position display (PrepareMinMaxPos).
@@ -1213,13 +1256,28 @@ class FlowviewerApplication:
         return 0
 
     def UpdateAll(self):
-        """Refresh GUI/draw window (UpdateAll); headless no-op returns True."""
+        """Refresh GUI/draw window (UpdateAll); calls on_redraw when attached."""
+        gui = _bridge_gui()
+        if gui is not None and hasattr(gui, "on_redraw"):
+            try:
+                gui.on_redraw()
+            except Exception:
+                pass
         return True
 
     def AnimationFrame(self, frame):
-        """Animate to a frame (AnimationFrame); returns the frame."""
+        """Animate to a frame (AnimationFrame); drives the GUI timeline when attached."""
         self._flags["anim_frame"] = int(frame)
         self._flags["animating"] = True
+        gui = _bridge_gui()
+        if gui is not None and hasattr(gui, "_on_timeline_step"):
+            try:
+                tl = getattr(gui, "timeline", None)
+                if tl is not None and hasattr(tl, "set_step"):
+                    tl.set_step(int(frame))
+                gui._on_timeline_step(int(frame))
+            except Exception:
+                pass
         return int(frame)
 
     def AnimationSecond(self, second):
@@ -1228,6 +1286,15 @@ class FlowviewerApplication:
         self._flags["anim_frame"] = frames
         self._flags["anim_second"] = float(second)
         self._flags["animating"] = True
+        gui = _bridge_gui()
+        if gui is not None and hasattr(gui, "_on_timeline_step"):
+            try:
+                tl = getattr(gui, "timeline", None)
+                if tl is not None and hasattr(tl, "set_step"):
+                    tl.set_step(frames)
+                gui._on_timeline_step(frames)
+            except Exception:
+                pass
         return frames
 
     # internals
