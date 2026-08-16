@@ -2176,6 +2176,40 @@ def test_pod_analysis_fileset(tmp_path):
     assert len(res["modes"]) == 3
     assert "POD_MEAN" in ff0.variables
     assert "POD_MODE_0" in ff0.variables and "POD_MODE_2" in ff0.variables
+
+def test_pod_allcyc_cache_and_no_swallow(tmp_path):
+    """POD/ALLCYC share a member cache and surface errors (P2.5)."""
+    import shutil
+    from pathlib import Path
+    from fv import api
+    from fv.model.fileset import scan_sequence
+    from fv.model.pod import collect_snapshots
+    base = Path(tmp_path)
+    for stale in base.glob("*.fph"):
+        stale.unlink()
+    for cyc in (1, 2, 3):
+        shutil.copyfile(FPH, str(base / ("flow_" + str(cyc) + ".fph")))
+    fs = scan_sequence(str(base / "flow_1.fph"))
+    assert len(fs) == 3
+
+    # shared cache: each member parsed once and reused across POD/ALLCYC
+    cache = {}
+    res = api.pod_analysis(fs, "PRES", 2, cache=cache)
+    assert res["cycles"] == [1, 2, 3]
+    assert len(cache) == 3
+    out = api.register_var_all_cycles(fs, "PP3", "PRES + 2.0", cache=cache)
+    assert [c for c, _ in out] == [1, 2, 3]
+    assert len(cache) == 3          # no re-parse of cached members
+    assert all("PP3" in ff.variables for ff in cache.values())
+
+    # missing variable is an explicit error, not a silent skip
+    with pytest.raises(ValueError):
+        collect_snapshots(fs, "NO_SUCH_VAR")
+
+    # a corrupt member must propagate, not be swallowed
+    (base / "flow_2.fph").write_bytes(b"garbage: not a field file")
+    with pytest.raises(Exception):
+        collect_snapshots(fs, "PRES")
 def test_api_object_management():
     """GetObjNum/GetObjectByType/Remove* (P2)."""
     from fv import api

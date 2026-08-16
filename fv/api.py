@@ -524,10 +524,10 @@ def set_variable_title(ff, name, title):
     from .model.varreg import set_variable_title as _f
     return _f(ff, name, title)
 
-def register_var_all_cycles(file_set, name, expr):
+def register_var_all_cycles(file_set, name, expr, cache=None):
     """Register an expression on every cycle of a FileSet (CreateVarALLCYC)."""
     from .model.varreg import register_var_all_cycles as _f
-    return _f(file_set, name, expr)
+    return _f(file_set, name, expr, cache)
 
 # ── object management (scPOST GetObjNum/GetObjectByType/Remove*, P2) ────
 
@@ -591,10 +591,10 @@ def remove_related_objects(main, kind: str) -> int:
 
 # ── POD / Clustering (scPOST POD operator, P3) ─────────────────────────
 
-def pod_analysis(file_set, var: str, n_modes: int = 10):
+def pod_analysis(file_set, var: str, n_modes: int = 10, cache=None):
     """POD decomposition of *var* across a cycle FileSet."""
     from .model.pod import pod_analysis as _f
-    return _f(file_set, var, n_modes)
+    return _f(file_set, var, n_modes, cache)
 
 
 def register_pod_modes(file_set, ff0, var: str, n_modes: int = 5):

@@ -645,19 +645,21 @@ def set_variable_title(ff, name, title):
     vi.title = title
     return vi
 
-def register_var_all_cycles(file_set, name, expr):
+def register_var_all_cycles(file_set, name, expr, cache=None):
     """Register *expr* on every cycle file of a FileSet (CreateVarALLCYC).
 
-    Returns [(cycle, VarInfo), ...] for the files that loaded and
-    registered successfully; each FieldFile keeps its own copy.
+    Members are loaded through :func:`fv.model.fileset.load_member` so a
+    shared ``{path: FieldFile}`` cache can reuse already parsed files.
+    Load/parse/registration errors propagate instead of being silently
+    skipped (P2.5).  Returns [(cycle, VarInfo), ...]; each FieldFile
+    keeps its own copy.
     """
-    from .dataset import load_file
+    from .fileset import load_member
     out = []
     for m in getattr(file_set, "members", []) or []:
-        try:
-            ff = load_file(m.path)
-            vi = register_variable(ff, name, expr)
-            out.append((int(m.cycle), vi))
-        except Exception:
+        ff = load_member(file_set, m.cycle, cache=cache)
+        if ff is None:
             continue
+        vi = register_variable(ff, name, expr)
+        out.append((int(m.cycle), vi))
     return out
