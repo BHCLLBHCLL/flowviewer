@@ -1286,10 +1286,12 @@ class FlowviewerApplication:
     # ── object creation (scPOST CreateObject* family, P0-1) ───────────────
 
     def _object_tree(self):
-        """Lazily-built MainObject tree (bridge GUI first, else headless)."""
-        gui = _bridge_gui()
-        if gui is not None and getattr(gui, "main_object", None) is not None:
-            return gui.main_object
+        """Lazily-built MainObject tree (always the COM-owned tree).
+
+        The COM layer keeps its own object tree independent of any attached
+        GUI; methods that genuinely need the live GUI tree (SaveSTA) read
+        ``_bridge_gui()`` explicitly.
+        """
         if self._main is None:
             from .model.objects import MainObject
             self._main = MainObject.from_field_file(self._need_ff(), magic=False)
