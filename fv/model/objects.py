@@ -605,6 +605,9 @@ class GraphObject(PostObject):
     files: list = field(default_factory=list)
     curve_label: str = ""                  # 6: arc-length X source
     title_text: str = ""
+    variables: list = field(default_factory=list)   # R1.5 multi-series
+    show_legend: bool = True               # R1.5
+    log_scale: bool = False                # R1.5
 
 @dataclass
 class TimeSeriesObject(PostObject):

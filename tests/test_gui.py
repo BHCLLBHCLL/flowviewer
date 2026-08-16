@@ -4445,3 +4445,39 @@ def test_r14_colorbar_parametrized_labels():
     assert sb.GetNumberOfLabels() == 5
     c = sb.GetLabelTextProperty().GetColor()
     assert abs(c[0] - 1.0) < 1e-9 and abs(c[1]) < 1e-9
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_r15_graph_multi_series():
+    """R1.5: collect_multi_series returns one series per variable."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import GraphObject
+    from fv.render.graph import collect_multi_series, collect_series
+    ff = load_file(FPH)
+    g = GraphObject(index=1, variable="PRES", variables=["PRES", "TURK"])
+    series = collect_multi_series(g, ff0=ff)
+    assert len(series) == 2
+    labels = [s[2] for s in series]
+    assert "PRES" in labels and "TURK" in labels
+    # single-variable fallback still works
+    g2 = GraphObject(index=2, variable="PRES")
+    assert len(collect_multi_series(g2, ff0=ff)) == 1
+    xs, ys, var = collect_series(g2, ff0=ff)
+    assert var == "PRES"
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_r15_graph_save(tmp_path):
+    """R1.5: save_graph writes a PNG via matplotlib (Agg)."""
+    try:
+        import matplotlib  # noqa: F401
+    except Exception:
+        pytest.skip("matplotlib unavailable")
+    from fv.model.dataset import load_file
+    from fv.model.objects import GraphObject
+    from fv.render.graph import save_graph
+    ff = load_file(FPH)
+    g = GraphObject(index=1, variable="PRES")
+    out = tmp_path / "graph.png"
+    assert save_graph(g, str(out), ff0=ff) is True
+    assert out.exists() and out.stat().st_size > 0
