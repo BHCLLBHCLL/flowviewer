@@ -319,10 +319,13 @@ def export_surface_obj(ff, filename: str, obj=None) -> bool:
     """Write the boundary surface as Wavefront OBJ (4, FBX-neutral).
 
     FBX has no native VTK writer; OBJ is the neutral interchange format
-    most FBX converters accept.
+    most FBX converters accept.  Since P2-4 the OBJ also carries per-vertex
+    normals and a planar UV map (``vn``/``vt`` + ``v/vt/vn`` faces) so the
+    mesh can be re-lit and textured in DCC / FBX pipelines.
     """
     if not _HAS_VTK:
         return False
+    import vtk
     from .surface import build_surface_polydata
     from ..model.objects import SurfaceObject
     obj = obj or SurfaceObject(index=1)
@@ -330,17 +333,52 @@ def export_surface_obj(ff, filename: str, obj=None) -> bool:
     if pd is None or pd.GetNumberOfCells() == 0:
         return False
     try:
+        # P2-4: per-vertex normals + planar UV mapping
+        norms = vtk.vtkPolyDataNormals()
+        norms.SetInputData(pd)
+        norms.ComputePointNormalsOn()
+        norms.ComputeCellNormalsOff()
+        norms.SplittingOff()
+        norms.Update()
+        npd = norms.GetOutput()
+        normals = npd.GetPointData().GetNormals()
+        uv = vtk.vtkTextureMapToPlane()
+        uv.SetInputData(npd)
+        uv.SetAutomaticPlaneGeneration(1)
+        uv.Update()
+        tcoords = uv.GetOutput().GetPointData().GetTCoords()
+
         with open(filename, "w", encoding="utf-8") as f:
             f.write("# flowviewer OBJ export\n")
-            for i in range(pd.GetNumberOfPoints()):
+            npts = pd.GetNumberOfPoints()
+            for i in range(npts):
                 x, y, z = pd.GetPoint(i)
                 f.write(f"v {x} {y} {z}\n")
+            if tcoords is not None:
+                for i in range(npts):
+                    u, vv = tcoords.GetTuple2(i)
+                    f.write(f"vt {u} {vv}\n")
+            if normals is not None:
+                for i in range(npts):
+                    nx, ny, nz = normals.GetTuple3(i)
+                    f.write(f"vn {nx} {ny} {nz}\n")
+            has_uv = tcoords is not None
+            has_nn = normals is not None
             for i in range(pd.GetNumberOfCells()):
                 cell = pd.GetCell(i)
                 ids = cell.GetPointIds()
-                verts = [str(ids.GetId(k) + 1)
-                         for k in range(ids.GetNumberOfIds())]
-                f.write("f " + " ".join(verts) + "\n")
+                parts = []
+                for k in range(ids.GetNumberOfIds()):
+                    vid = ids.GetId(k) + 1
+                    if has_uv and has_nn:
+                        parts.append(f"{vid}/{vid}/{vid}")
+                    elif has_uv:
+                        parts.append(f"{vid}/{vid}")
+                    elif has_nn:
+                        parts.append(f"{vid}//{vid}")
+                    else:
+                        parts.append(str(vid))
+                f.write("f " + " ".join(parts) + "\n")
         return True
     except OSError:
         return False

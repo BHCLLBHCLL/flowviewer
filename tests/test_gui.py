@@ -2914,6 +2914,18 @@ def test_volume_volume_region_filter():
     assert 0 < ug_f.GetNumberOfCells() < ug_all.GetNumberOfCells()
 
 
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+def test_volume_transfer_3point_ramp():
+    """P2-4: volume opacity transfer uses a 3-point ramp."""
+    from fv.model.objects import VolumeObject
+    from fv.render.volume import _transfer_functions
+    obj = VolumeObject(index=1)
+    obj.colorbar = "Rainbow"
+    ctf, otf = _transfer_functions(obj, 0.0, 1.0, 1.0)
+    assert otf.GetSize() == 3          # low / mid / high control points
+    assert ctf.GetSize() >= 2
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_open_async_loads_file(qapp):
     """P0.6: launch_load parses on a worker thread and calls back."""
@@ -3691,6 +3703,20 @@ def test_export_obj(tmp_path):
     txt = out.read_text(encoding="utf-8")
     assert txt.startswith("# flowviewer OBJ export")
     assert "v " in txt and "f " in txt  # HEXAHEDRON
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+def test_export_obj_normals_uv(tmp_path):
+    """P2-4: OBJ export carries per-vertex normals and planar UVs."""
+    from fv.model.dataset import load_file
+    from fv.render.export import export_surface_obj
+    ff = load_file(FPH)
+    out = tmp_path / "model2.obj"
+    assert export_surface_obj(ff, str(out)) is True
+    txt = out.read_text(encoding="utf-8")
+    assert "vn " in txt and "vt " in txt
+    assert any(ln.startswith("f ") and "/" in ln
+               for ln in txt.splitlines())  # v/vt/vn faces
 
 
 def test_camera_dialog(qapp):

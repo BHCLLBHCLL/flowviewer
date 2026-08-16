@@ -132,13 +132,15 @@ def _transfer_functions(obj, lo: float, hi: float, opacity: float):
     """Colour/opacity transfer functions from object parameters (P1.1).
 
     Colours follow the object's colorbar palette (Rainbow default, Gray /
-    Invert honoured via :func:`fv.render.colorbar.build_lut`) instead of a
-    hard-coded 4-stop ramp; opacity ramps low→high for a depth cue, with
+    Invert honoured via :func:`fv.render.colorbar.build_lut`) at the
+    colorbar gradation instead of a hard-coded 8-stop ramp; opacity uses a
+    3-point ramp (low → mid → high, P2-4) for a smoother depth cue, with
     the floor lowered for Transparent / Sampled draw types.
     """
     from .colorbar import build_lut
     palette = (getattr(obj, "colorbar", "") or "").strip() or "Rainbow"
-    lut = build_lut(gradation=8, color_map=palette)
+    grad = int(getattr(obj, "gradation", 0) or 0) or 256
+    lut = build_lut(gradation=grad, color_map=palette)
     ctf = vtk.vtkColorTransferFunction()
     span = (hi - lo) or 1.0
     n = lut.GetNumberOfTableValues()
@@ -150,7 +152,10 @@ def _transfer_functions(obj, lo: float, hi: float, opacity: float):
                        or (getattr(obj, "draw_type", "") or ""
                            in ("Transparent", "Sampled"))
                        else 0.6)
+    mid_frac = float(getattr(obj, "opacity_mid", 0.75) or 0.75)
+    # P2-4: 3-point opacity ramp (low → mid → high) instead of 2 stops
     otf.AddPoint(lo, floor)
+    otf.AddPoint(lo + 0.5 * span, max(floor, opacity * min(1.0, mid_frac)))
     otf.AddPoint(hi, opacity)
     return ctf, otf
 
