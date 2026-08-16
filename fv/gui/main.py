@@ -218,6 +218,11 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 lambda label: self.on_delete_object(label))
             self.object_tree.duplicate_requested.connect(
                 lambda label: self.on_duplicate_object(label))
+        if getattr(self.object_tree, "rename_requested", None) is not None:
+            self.object_tree.rename_requested.connect(
+                lambda label: self.on_rename_object(label))
+            self.object_tree.lock_requested.connect(
+                lambda label: self.on_toggle_lock(label))
 
         # scPOST Control Window: tree (upper) + Draw grip + tiled settings
         self.property_host = PropertyHost(self)
@@ -358,6 +363,13 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             lambda _=False: self.on_delete_object(), QKeySequence.Delete)
         add(m, "Duplicate Object",
             lambda _=False: self.on_duplicate_object(), "Ctrl+D")
+        m.addSeparator()
+        add(m, "Delete Selected",
+            lambda _=False: self.on_delete_selected())
+        add(m, "Hide Selected",
+            lambda _=False: self.on_hide_selected(True))
+        add(m, "Show Selected",
+            lambda _=False: self.on_hide_selected(False))
 
         # Display
         m = mb.addMenu("Display")
@@ -1004,6 +1016,10 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if obj is None:
             self.status.showMessage("Delete: no object selected", 2000)
             return
+        if getattr(obj, "locked", False):
+            self.status.showMessage(
+                f"{label} is locked — unlock first", 3000)
+            return
         self._snapshot_children()  # undo checkpoint (R0.3)
         self.main_object.children.remove(obj)
         # Drop the label from any folder membership
@@ -1047,6 +1063,78 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self._refresh_gl()
         self.object_tree.load_main(self.main_object)
         self.message_win.log(f"Duplicated {label} -> {clone.label}")
+
+    def on_rename_object(self, label=None) -> None:
+        """Tree context menu: rename an object's title (R1.2)."""
+        if self.main_object is None:
+            return
+        if label is None:
+            label = self.object_tree.selected_object_label()
+        obj = self._resolve_object(label)
+        if obj is None:
+            self.status.showMessage("Rename: no object selected", 2000)
+            return
+        from PyQt5.QtWidgets import QInputDialog
+        new, ok = QInputDialog.getText(
+            self, "Rename Object", "Title:",
+            text=getattr(obj, "title", "") or obj.kind.capitalize())
+        if ok and new.strip():
+            self._apply_rename(obj, new.strip())
+
+    def _apply_rename(self, obj, new_title: str) -> str:
+        """Set an object title and refresh the tree (R1.2); returns label."""
+        if new_title == (getattr(obj, "title", "") or obj.kind.capitalize()):
+            return obj.label
+        self._snapshot_children()
+        obj.title = new_title
+        self.object_tree.load_main(self.main_object)
+        self.message_win.log(f"Renamed -> {obj.label}")
+        return obj.label
+
+    def on_toggle_lock(self, label=None) -> None:
+        """Tree context menu: toggle an object's lock flag (R1.2)."""
+        if self.main_object is None:
+            return
+        if label is None:
+            label = self.object_tree.selected_object_label()
+        obj = self._resolve_object(label)
+        if obj is None:
+            self.status.showMessage("Lock: no object selected", 2000)
+            return
+        obj.locked = not bool(getattr(obj, "locked", False))
+        self.object_tree.load_main(self.main_object)
+        state = "locked" if obj.locked else "unlocked"
+        self.message_win.log(f"{obj.label} {state}")
+        self.status.showMessage(f"{obj.label} {state}", 3000)
+
+    def on_delete_selected(self) -> None:
+        """Edit > Delete Selected: remove rubber-band-selected objects (R1.2)."""
+        labels = sorted(getattr(self, "_selected_labels", set()))
+        if not labels:
+            self.status.showMessage("Delete Selected: nothing selected", 2000)
+            return
+        for label in labels:
+            self.on_delete_object(label)
+        self._selected_labels = set()
+
+    def on_hide_selected(self, hide: bool = True) -> None:
+        """Edit > Hide/Show Selected: batch-toggle visibility (R1.2)."""
+        labels = list(getattr(self, "_selected_labels", set()))
+        if not labels:
+            self.status.showMessage("No selection", 2000)
+            return
+        self._snapshot_children()
+        for label in labels:
+            obj = self._resolve_object(label)
+            if obj is not None:
+                obj.visible = not hide
+        self.scene.build(self.dataset, main=self.main_object)
+        if self._enable_3d:
+            self.scene.fit()
+            self._refresh_gl()
+        self.object_tree.load_main(self.main_object)
+        self.message_win.log(
+            f"{'Hid' if hide else 'Showed'} {len(labels)} selected object(s)")
 
     def _open_camera_dialog(self) -> None:
         """Option > Camera / tree Camera: camera settings (5b)."""
@@ -1591,8 +1679,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             iren.SetInteractorStyle(vtkInteractorStyleRubberBandZoom())
             self.message_win.log("Mouse: Rubber-band zoom")
         elif mode == "select":
-            self.message_win.log("Mouse: Select (not yet wired)", "WARN")
-            self._set_trackball_style(iren)
+            self._set_select_style(iren)
         else:
             self._set_trackball_style(iren)
             self.message_win.log(
@@ -1607,6 +1694,46 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 vtk.vtkInteractorStyleTrackballCamera)
         self._trackball_style = vtkInteractorStyleTrackballCamera()
         iren.SetInteractorStyle(self._trackball_style)
+
+    def _set_select_style(self, iren) -> None:
+        """R1.2: rubber-band pick style — drag to select objects."""
+        if vtk is None:
+            self._set_trackball_style(iren)
+            return
+        try:
+            from vtkmodules.vtkInteractionStyle import (
+                vtkInteractorStyleRubberBandPick)
+        except Exception:
+            vtkInteractorStyleRubberBandPick = vtk.vtkInteractorStyleRubberBandPick
+        self._area_picker = vtk.vtkAreaPicker()
+        iren.SetPicker(self._area_picker)
+        style = vtkInteractorStyleRubberBandPick()
+        iren.SetInteractorStyle(style)
+        style.AddObserver("SelectionChangedEvent", self._on_area_selection)
+        self._select_style = style
+        self.message_win.log("Mouse: Select — drag to select objects")
+
+    def _on_area_selection(self, caller, event) -> None:
+        """R1.2: rubber band released — collect the picked objects."""
+        if getattr(self, "_area_picker", None) is None:
+            return
+        props = self._area_picker.GetProp3Ds()
+        selected = set()
+        if props is not None:
+            n = props.GetNumberOfItems()
+            props.InitTraversal()
+            for _ in range(n):
+                prop = props.GetNextProp3D()
+                if prop is None:
+                    break
+                owner = self.scene._actor_object.get(prop)
+                if owner is not None and owner[1] is not None:
+                    selected.add(getattr(owner[1], "label", id(owner[1])))
+        self._selected_labels = selected
+        n = len(selected)
+        self.status.showMessage(f"Selected {n} object(s)", 4000)
+        self.message_win.log(
+            f"Selected {n} object(s): " + (", ".join(sorted(selected)) or "(none)"))
 
     # ── showEvent delayed interactor init ─────────────────────────────────
 

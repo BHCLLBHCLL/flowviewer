@@ -281,6 +281,33 @@ class Scene:
             return None, None
         return tuple(float(v) for v in picker.GetPickPosition()), owner
 
+    def area_pick(self, x0: int, y0: int, x1: int, y1: int) -> list:
+        """Return ``[(kind, obj), …]`` whose actors fall in the display
+        rectangle ``(x0,y0)-(x1,y1)`` (R1.2 rubber-band selection).
+
+        Uses ``vtkAreaPicker`` so only visible props are collected; each
+        picked prop is resolved back through :attr:`_actor_object`. Order is
+        deduplicated by object label (first actor wins).
+        """
+        if not self.enable_3d or self.renderer is None:
+            return []
+        picker = vtk.vtkAreaPicker()
+        picker.AreaPick(x0, y0, x1, y1, self.renderer)
+        props = picker.GetProp3Ds()
+        if props is None:
+            return []
+        seen: dict = {}
+        n = props.GetNumberOfItems()
+        props.InitTraversal()
+        for _ in range(n):
+            prop = props.GetNextProp3D()
+            if prop is None:
+                break
+            owner = self._actor_object.get(prop)
+            if owner is not None and owner[1] is not None:
+                seen.setdefault(getattr(owner[1], "label", id(owner[1])), owner)
+        return list(seen.values())
+
     # ── Automove animation driver (P3.10) ────────────────────────────────
 
     def _remove_layer_prefix(self, prefix: str) -> None:

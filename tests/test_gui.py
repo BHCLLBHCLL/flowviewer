@@ -4343,3 +4343,47 @@ def test_r11_pick_vars_mapping(qapp):
     pl = PlaneObject(index=1, pick_scalar=True, pick_scalar_var="PRES",
                      pick_vector=True, pick_vector_var="VEL")
     assert w._pick_vars(pl) == ("PRES", "VEL", True, True)
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_r12_lock_and_rename(qapp):
+    """R1.2: lock blocks delete; toggle unlocks; rename updates title."""
+    w = _make(qapp, FPH)
+    assert w.main_object is not None and w.main_object.children
+    obj = w.main_object.children[0]
+    label = obj.label
+    n_before = len(w.main_object.children)
+    # lock blocks delete
+    obj.locked = True
+    w.on_delete_object(label)
+    assert len(w.main_object.children) == n_before
+    assert obj.locked is True
+    # toggle unlock
+    w.on_toggle_lock(label)
+    assert obj.locked is False
+    # rename -> title changes, index preserved
+    new_label = w._apply_rename(obj, "RenamedObj")
+    assert obj.title == "RenamedObj"
+    assert new_label == f"RenamedObj ({obj.index})"
+    # rename to identical title is a no-op
+    assert w._apply_rename(obj, "RenamedObj") == new_label
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_r12_hide_selected(qapp):
+    """R1.2: hide/show selected toggles visibility."""
+    w = _make(qapp, FPH)
+    obj = w.main_object.children[0]
+    obj.visible = True
+    w._selected_labels = {obj.label}
+    w.on_hide_selected(True)
+    assert obj.visible is False
+    w.on_hide_selected(False)
+    assert obj.visible is True
+
+
+def test_r12_area_pick_degrades_headless():
+    """R1.2: area_pick returns [] without a live renderer."""
+    from fv.render.scene import Scene
+    s = Scene(enable_3d=False)
+    assert s.area_pick(0, 0, 10, 10) == []

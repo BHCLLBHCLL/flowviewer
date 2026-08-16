@@ -28,6 +28,7 @@ class PostObject:
     index: int = 1                     # Surface (1) → index 1
     visible: bool = True
     title: str = ""
+    locked: bool = False               # R1.2: locked objects refuse edit/delete
 
     @property
     def label(self) -> str:

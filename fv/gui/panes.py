@@ -149,6 +149,8 @@ class ObjectTree(QTreeWidget if _HAS_QT else object):
     # label — context-menu / Edit operations on tree objects (R0.2)
     delete_requested = pyqtSignal(str) if _HAS_QT else None
     duplicate_requested = pyqtSignal(str) if _HAS_QT else None
+    rename_requested = pyqtSignal(str) if _HAS_QT else None   # R1.2
+    lock_requested = pyqtSignal(str) if _HAS_QT else None     # R1.2
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -354,7 +356,7 @@ class ObjectTree(QTreeWidget if _HAS_QT else object):
         return items[0].text(0) if items else ""
 
     def _on_context_menu(self, pos) -> None:
-        """Right-click on an object row: Delete / Duplicate (R0.2)."""
+        """Right-click on an object row: Delete / Duplicate / Rename / Lock."""
         if not _HAS_QT:
             return
         from PyQt5.QtWidgets import QMenu
@@ -365,14 +367,27 @@ class ObjectTree(QTreeWidget if _HAS_QT else object):
         kind = self._object_kinds.get(label, "")
         if kind not in self._RENDERABLE_KINDS or kind == "camera":
             return  # startup/global nodes are not deletable objects
+        # R1.2: resolve the object to reflect its current lock state
+        obj = None
+        main = getattr(self.parent(), "main_object", None)
+        if main is not None:
+            obj = next((o for o in getattr(main, "children", [])
+                        if getattr(o, "label", None) == label), None)
+        locked = bool(getattr(obj, "locked", False))
         menu = QMenu(self)
         act_del = menu.addAction("Delete Object")
         act_dup = menu.addAction("Duplicate Object")
+        act_ren = menu.addAction("Rename Object…")
+        act_lock = menu.addAction("Unlock Object" if locked else "Lock Object")
         chosen = menu.exec_(self.viewport().mapToGlobal(pos))
         if chosen is act_del and self.delete_requested is not None:
             self.delete_requested.emit(label)
         elif chosen is act_dup and self.duplicate_requested is not None:
             self.duplicate_requested.emit(label)
+        elif chosen is act_ren and self.rename_requested is not None:
+            self.rename_requested.emit(label)
+        elif chosen is act_lock and self.lock_requested is not None:
+            self.lock_requested.emit(label)
 
     def _on_item_changed(self, item, column) -> None:
         if column != 0 or self.visibility_changed is None:
