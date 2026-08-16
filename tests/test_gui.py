@@ -1799,6 +1799,46 @@ def test_mirror_copy_surface():
     assert build_mirror_actors(ff, mir2, siblings=[surf]) == {}
 
 
+def test_mirror_periodical_inherit_source_field():
+    """R0.5: mirror/periodical copies inherit the source contour field."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import (MirrorCopyObject, PeriodicalCopyObject,
+                                  SurfaceObject)
+    from fv.render.mirror import build_mirror_actors
+    from fv.render.periodical import build_periodical_actors
+    ff = load_file(FPH)
+    surf = SurfaceObject(index=1)
+    surf.show_contour = True
+    surf.contour_var = "PRES"
+
+    mir = MirrorCopyObject(index=1)
+    mir.source_label = "Surface (1)"
+    out = build_mirror_actors(ff, mir, siblings=[surf])
+    assert "mirror" in out
+    data = out["mirror"].GetMapper().GetInput()
+    arr = data.GetCellData().GetArray("PRES")
+    assert arr is not None
+    rng = arr.GetRange()
+    m = out["mirror"].GetMapper()
+    assert abs(m.GetScalarRange()[0] - rng[0]) < 1e-9
+    assert abs(m.GetScalarRange()[1] - rng[1]) < 1e-9
+
+    per = PeriodicalCopyObject(index=1)
+    per.source_label = "Surface (1)"
+    per.copies = 4
+    out2 = build_periodical_actors(ff, per, siblings=[surf])
+    assert len(out2) == 3
+    m2 = next(iter(out2.values())).GetMapper()
+    assert abs(m2.GetScalarRange()[0] - rng[0]) < 1e-9
+    assert abs(m2.GetScalarRange()[1] - rng[1]) < 1e-9
+
+    # Source contour off -> flat colour fallback (no scalar attached)
+    surf.show_contour = False
+    out3 = build_mirror_actors(ff, mir, siblings=[surf])
+    assert out3["mirror"].GetMapper().GetInput().GetCellData().GetArray(
+        "PRES") is None
+
+
 def test_time_series_max_min_parsers(tmp_path):
     """TM/OT CSV parsers read cycle/time and min/max rows (P2.10)."""
     from fv.model.tsmm import parse_max_min, parse_time_series

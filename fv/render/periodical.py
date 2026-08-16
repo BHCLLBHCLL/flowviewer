@@ -32,15 +32,17 @@ def build_periodical_actors(ff: FieldFile, obj, siblings=None) -> dict:
     if not sources:
         return {}
     from .surface import build_surface_polydata
+    from .mirror import _field_mapper, _source_scalar
     axis = (getattr(obj, "axis", "Z") or "Z").upper()
     d = {"X": (1.0, 0.0, 0.0), "Y": (0.0, 1.0, 0.0), "Z": (0.0, 0.0, 1.0)}[axis]
     ap = getattr(obj, "axis_point", (0.0, 0.0, 0.0))
     copies = max(2, int(getattr(obj, "copies", 6) or 6))
     out = {}
     for si, src in enumerate(sources):
-        pd, cc, _ = build_surface_polydata(ff, src)
+        pd, cc, fi = build_surface_polydata(ff, src)
         if pd is None or pd.GetNumberOfCells() == 0:
             continue
+        var = _source_scalar(ff, src, pd, cc, fi)
         for k in range(1, copies):
             angle = 360.0 * k / copies
             t = vtk.vtkTransform()
@@ -54,12 +56,15 @@ def build_periodical_actors(ff: FieldFile, obj, siblings=None) -> dict:
             mapper = vtk.vtkPolyDataMapper()
             mapper.SetInputConnection(tf.GetOutputPort())
             mapper.SetScalarModeToUseCellData()
+            _field_mapper(mapper, tf.GetOutput(), var)
             actor = vtk.vtkActor()
             actor.SetMapper(mapper)
-            try:
-                actor.GetProperty().SetColor(*getattr(obj, "color", (0.4, 0.4, 0.4)))
-            except (TypeError, IndexError):
-                actor.GetProperty().SetColor(0.4, 0.4, 0.4)
+            if var is None:
+                try:
+                    actor.GetProperty().SetColor(
+                        *getattr(obj, "color", (0.4, 0.4, 0.4)))
+                except (TypeError, IndexError):
+                    actor.GetProperty().SetColor(0.4, 0.4, 0.4)
             if getattr(obj, "transparent", False):
                 actor.GetProperty().SetOpacity(0.5)
             prefix = str(si) + "_" if len(sources) > 1 else ""
