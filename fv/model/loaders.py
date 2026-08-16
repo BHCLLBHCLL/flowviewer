@@ -40,12 +40,18 @@ def probe_format(path: str) -> str:
         return "pph"
     if suf == "cgns":
         try:
+            from ..crdl.cgns_adf import is_cgns_adf
+            if is_cgns_adf(str(p)):
+                return "cgns-adf"
+        except Exception:  # pragma: no cover
+            pass
+        try:
             import h5py
             if h5py.is_hdf5(str(p)):
                 return "cgns-hdf5"
-            return "cgns-adf"
         except ImportError:  # pragma: no cover - h5py absent
             return "cgns"
+        return "cgns-adf"
     if suf in ("fph", "gph", "emt"):
         return "fph"      # EMT is a Cradle binary result, fph-family
     if suf in ("fld", "ifld"):

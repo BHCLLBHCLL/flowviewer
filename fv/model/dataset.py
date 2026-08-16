@@ -121,9 +121,18 @@ def cgns_load(filepath: str) -> FieldFile:
     """CGNS-HDF5 loader (P1.2): mesh + fields -> FieldFile(kind='cgns')."""
     from ..crdl.cgns import read_cgns
     path = Path(filepath)
-    mesh = read_cgns(str(path))
+    mesh = None
+    try:
+        import h5py
+        if h5py.is_hdf5(str(path)):
+            mesh = read_cgns(str(path))
+    except Exception:  # pragma: no cover - h5py absent or file rejected
+        mesh = None
     if mesh is None:
-        raise ValueError(f"not a readable CGNS-HDF5 file: {filepath}")
+        from ..crdl.cgns_adf import read_cgns_adf
+        mesh = read_cgns_adf(str(path))
+    if mesh is None:
+        raise ValueError(f"not a readable CGNS (HDF5/ADF) file: {filepath}")
     ff = FieldFile(path=str(path), kind="cgns")
     ff.vertices = mesh["vertices"]
     ff.n_vertices = mesh["n_vertices"]
