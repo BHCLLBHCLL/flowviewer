@@ -386,6 +386,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         add(m, "Show All", self.on_show_all_objects)
         add(m, "Hide All", self.on_hide_all_objects)
         add(m, "Variable Registration…", self.on_variable_registration)
+        add(m, "Edit Color Table…", self.on_edit_color_table)
 
         # View
         m = mb.addMenu("View")
@@ -1256,6 +1257,19 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         from .dialogs import EnvironmentDialog
         dlg = EnvironmentDialog(self)
         dlg.exec_()
+
+    def on_edit_color_table(self) -> None:
+        """Display → Edit Color Table…: control-point colormap editor (R3.7)."""
+        from .dialogs import ColorTableDialog
+        from ..render import colorbar as cb
+        cbar = getattr(self.global_window, "colorbar", None)
+        name = getattr(cbar, "color_map", "Rainbow") or "Rainbow"
+        points = cb.colormap_control_points(name)
+        dlg = ColorTableDialog(name, points, parent=self)
+        if dlg.exec_():
+            self.message_win.log(
+                f"Color table '{dlg.result_name}' registered")
+            self.on_redraw()
 
     def on_diagnostics(self) -> None:
         """Option → Diagnostics: dump internal state to the message log."""

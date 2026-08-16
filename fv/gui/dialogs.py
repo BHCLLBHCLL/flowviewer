@@ -12,7 +12,7 @@ try:
     from PyQt5.QtWidgets import (
         QCheckBox, QComboBox, QDialog, QFileDialog, QFrame, QGridLayout,
         QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QPushButton,
-        QSplitter, QVBoxLayout, QWidget,
+        QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
     )
     _HAS_QT = True
 except Exception:  # pragma: no cover - headless
@@ -961,3 +961,108 @@ class CompareDialog(QDialog):
                     f"  {var}: min={st['min']:.4g}  max={st['max']:.4g}  "
                     f"mean={st['mean']:.4g}  rms={st['rms']:.4g}")
         return "\n".join(lines)
+
+
+
+class ColorTableDialog(QDialog if _HAS_QT else object):
+    """R3.7: color-table editor (control-point add/remove + CSV import/export)."""
+
+    def __init__(self, name: str = "Custom", points=None, parent=None):
+        super().__init__(parent)
+        self.result_name = str(name or "Custom")
+        self.result_points = None
+        if not _HAS_QT:
+            return
+        from ..render.colorbar import (colormap_control_points,
+                                       normalize_control_points)
+        self.setWindowTitle("Edit Color Table")
+        self.resize(540, 420)
+        lay = QVBoxLayout(self)
+        lay.addWidget(QLabel("Colormap name:", self))
+        self.edit_name = QLineEdit(self.result_name, self)
+        lay.addWidget(self.edit_name)
+
+        self.table = QTableWidget(0, 4, self)
+        self.table.setHorizontalHeaderLabels(["t", "R", "G", "B"])
+        self.table.horizontalHeader().setStretchLastSection(True)
+        lay.addWidget(self.table)
+
+        pts = normalize_control_points(points) if points else             colormap_control_points(self.result_name)
+        self._set_points(pts)
+
+        row = QHBoxLayout()
+        for label, slot in (("Add", self._on_add), ("Remove", self._on_remove),
+                            ("Import CSV…", self._on_import),
+                            ("Export CSV…", self._on_export)):
+            b = QPushButton(label, self)
+            b.clicked.connect(slot)
+            row.addWidget(b)
+        row.addStretch(1)
+        lay.addLayout(row)
+
+        btns = QHBoxLayout()
+        btns.addStretch(1)
+        ok = QPushButton("OK", self)
+        ok.clicked.connect(self._on_ok)
+        cancel = QPushButton("Cancel", self)
+        cancel.clicked.connect(self.reject)
+        btns.addWidget(ok)
+        btns.addWidget(cancel)
+        lay.addLayout(btns)
+
+    def _set_points(self, pts) -> None:
+        self.table.setRowCount(0)
+        for t, (r, g, b) in pts:
+            self._append_row(t, r, g, b)
+
+    def _append_row(self, t, r, g, b) -> None:
+        i = self.table.rowCount()
+        self.table.insertRow(i)
+        for j, v in enumerate((f"{t:.4g}", f"{r:.4g}", f"{g:.4g}", f"{b:.4g}")):
+            self.table.setItem(i, j, QTableWidgetItem(v))
+
+    def _read_points(self):
+        from ..render.colorbar import normalize_control_points
+        pts = []
+        for i in range(self.table.rowCount()):
+            try:
+                t = float(self.table.item(i, 0).text())
+                r = float(self.table.item(i, 1).text())
+                g = float(self.table.item(i, 2).text())
+                b = float(self.table.item(i, 3).text())
+            except (ValueError, AttributeError):
+                continue
+            pts.append((t, (r, g, b)))
+        return normalize_control_points(pts)
+
+    def _on_add(self) -> None:
+        self._append_row(0.5, 0.5, 0.5, 0.5)
+
+    def _on_remove(self) -> None:
+        rows = sorted({i.row() for i in self.table.selectedIndexes()},
+                      reverse=True)
+        for i in rows:
+            self.table.removeRow(i)
+
+    def _on_import(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import Color Table", "", "CSV files (*.csv)")
+        if not path:
+            return
+        from ..render.colorbar import load_colormap_csv
+        self._set_points(load_colormap_csv(path))
+
+    def _on_export(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Color Table", "colortable.csv", "CSV files (*.csv)")
+        if not path:
+            return
+        from ..render.colorbar import save_colormap_csv
+        save_colormap_csv(path, self._read_points())
+
+    def _on_ok(self) -> None:
+        from ..render.colorbar import register_colormap
+        self.result_name = self.edit_name.text().strip() or "Custom"
+        self.result_points = self._read_points()
+        register_colormap(self.result_name, self.result_points)
+        self.accept()

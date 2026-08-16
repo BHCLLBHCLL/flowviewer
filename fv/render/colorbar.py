@@ -12,6 +12,7 @@ pipeline can hand it to each contour mapper.
 
 from typing import Optional
 
+import csv
 import numpy as np
 
 try:
@@ -157,3 +158,103 @@ def apply_to_mapper(mapper, obj, range_: Optional[tuple] = None) -> None:
         lo = float(getattr(obj, "min", 0.0))
         hi = max(float(getattr(obj, "max", 1.0)), lo + 1e-12)
         mapper.SetScalarRange(lo, hi)
+
+
+
+# ── R3.7 color-table editor: control points + CSV ──────────────────────────
+
+def normalize_control_points(points):
+    """Sort/clamp/dedupe control points ``[(t, (r, g, b)), ...]`` and force
+    the ``[0, 1]`` endpoints so the table always spans the full range."""
+    pts = []
+    for t, rgb in points:
+        r, g, b = rgb
+        t = min(1.0, max(0.0, float(t)))
+        r = min(1.0, max(0.0, float(r)))
+        g = min(1.0, max(0.0, float(g)))
+        b = min(1.0, max(0.0, float(b)))
+        pts.append((t, (r, g, b)))
+    dedup = {}
+    for t, c in pts:
+        dedup[round(t, 9)] = (t, c)
+    pts = sorted(dedup.values(), key=lambda p: p[0])
+    if not pts:
+        pts = [(0.0, (0.0, 0.0, 1.0)), (1.0, (1.0, 0.0, 0.0))]
+    if pts[0][0] > 0.0:
+        pts.insert(0, (0.0, pts[0][1]))
+    if pts[-1][0] < 1.0:
+        pts.append((1.0, pts[-1][1]))
+    return pts
+
+
+def add_control_point(points, t, rgb):
+    """Return a normalized table with ``(t, rgb)`` inserted."""
+    return normalize_control_points(list(points) + [(t, rgb)])
+
+
+def remove_control_point(points, t):
+    """Return a normalized table without the control point nearest ``t``."""
+    keep = [(tt, c) for tt, c in points if abs(tt - float(t)) > 1e-9]
+    return normalize_control_points(keep)
+
+
+def register_colormap(name, points):
+    """Register a custom named colormap from control points (R3.7)."""
+    key = str(name).strip().lower()
+    _COLORMAPS[key] = normalize_control_points(points)
+    ColorbarRegistry.reset()
+    return key
+
+
+def unregister_colormap(name):
+    """Remove a custom colormap (built-ins are kept)."""
+    key = str(name).strip().lower()
+    builtin = {"rainbow", "spectrum", "jet", "hot", "cool",
+               "turbo", "viridis", "parula"}
+    if key in _COLORMAPS and key not in builtin:
+        del _COLORMAPS[key]
+        ColorbarRegistry.reset()
+        return True
+    return False
+
+
+def list_colormaps():
+    """All selectable colormap names (built-ins + custom)."""
+    names = set(_COLORMAPS.keys())
+    names.update(("gray", "grey", "invert", "reverse"))
+    return sorted(names)
+
+
+def colormap_control_points(name):
+    """Control points for a named colormap (rainbow fallback)."""
+    key = str(name).strip().lower()
+    return _COLORMAPS.get(key, _COLORMAPS["rainbow"])
+
+
+def load_colormap_csv(path):
+    """Import control points from a CSV (``t,r,g,b`` per row; header skipped)."""
+    pts = []
+    with open(path, newline="", encoding="utf-8") as fh:
+        for row in csv.reader(fh):
+            if not row or not str(row[0]).strip():
+                continue
+            try:
+                t = float(row[0])
+            except ValueError:
+                continue  # header / non-numeric row
+            if len(row) >= 4:
+                pts.append((t, (float(row[1]), float(row[2]), float(row[3]))))
+            else:
+                pts.append((t, (t, t, t)))  # gray ramp from a single value
+    return normalize_control_points(pts)
+
+
+def save_colormap_csv(path, points):
+    """Export control points to a CSV (``t,r,g,b`` with a header row)."""
+    pts = normalize_control_points(points)
+    with open(path, "w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(["t", "r", "g", "b"])
+        for t, (r, g, b) in pts:
+            w.writerow([f"{t:.6g}", f"{r:.6g}", f"{g:.6g}", f"{b:.6g}"])
+    return str(path)

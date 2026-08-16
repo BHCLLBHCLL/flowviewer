@@ -5032,3 +5032,71 @@ def test_r36_gui_multi_fileset_sync(qapp, tmp_path):
     assert len(w.filesets) == 2
     w._close_current_files()
     assert w.filesets == []
+
+
+
+def test_r37_color_table_control_points():
+    """R3.7: control points normalize/add/remove with clamped endpoints."""
+    from fv.render.colorbar import (add_control_point, normalize_control_points,
+                                    remove_control_point)
+    pts = [(0.0, (0.0, 0.0, 1.0)), (1.0, (1.0, 0.0, 0.0))]
+    p = add_control_point(pts, 0.5, (0.5, 0.5, 0.5))
+    assert [t for t, _ in p] == [0.0, 0.5, 1.0]
+    p2 = add_control_point(pts, 2.0, (1.0, 1.0, 1.0))
+    assert p2[-1][0] == 1.0
+    p3 = remove_control_point(p, 0.5)
+    assert [t for t, _ in p3] == [0.0, 1.0]
+    assert normalize_control_points([]) == [(0.0, (0.0, 0.0, 1.0)),
+                                             (1.0, (1.0, 0.0, 0.0))]
+
+
+def test_r37_color_table_csv_roundtrip(tmp_path):
+    """R3.7: control points round-trip through CSV; header/gray handled."""
+    from fv.render.colorbar import load_colormap_csv, save_colormap_csv
+    pts = [(0.0, (0.0, 0.0, 0.0)), (0.5, (1.0, 0.0, 0.0)),
+           (1.0, (1.0, 1.0, 1.0))]
+    out = tmp_path / "ct.csv"
+    save_colormap_csv(str(out), pts)
+    assert out.exists()
+    loaded = load_colormap_csv(str(out))
+    assert [round(t, 6) for t, _ in loaded] == [0.0, 0.5, 1.0]
+    dat = tmp_path / "gray.csv"
+    dat.write_text("t\n0\n1\n", encoding="utf-8")
+    g = load_colormap_csv(str(dat))
+    assert g[0][1] == (0.0, 0.0, 0.0) and g[-1][1] == (1.0, 1.0, 1.0)
+
+
+def test_r37_color_table_register():
+    """R3.7: register/list/unregister custom colormaps."""
+    from fv.render import colorbar as cb
+    key = cb.register_colormap("r37test",
+                               [(0.0, (0.0, 0.0, 0.0)),
+                                (1.0, (1.0, 1.0, 1.0))])
+    assert key == "r37test"
+    assert "r37test" in cb.list_colormaps()
+    assert cb.colormap_control_points("r37test") == [(0.0, (0.0, 0.0, 0.0)),
+                                                      (1.0, (1.0, 1.0, 1.0))]
+    assert cb.unregister_colormap("r37test") is True
+    assert "r37test" not in cb.list_colormaps()
+    assert cb.unregister_colormap("rainbow") is False  # built-in kept
+
+
+@pytest.mark.skipif(not _HAS_QT, reason="PyQt5 unavailable")
+def test_r37_color_table_dialog(qapp):
+    """R3.7: ColorTableDialog edits control points and registers the map."""
+    from fv.gui.dialogs import ColorTableDialog
+    from fv.render import colorbar as cb
+    dlg = ColorTableDialog("r37dlg", [(0.0, (0.0, 0.0, 1.0)),
+                                      (1.0, (1.0, 0.0, 0.0))])
+    assert dlg.table.rowCount() == 2
+    dlg._on_add()
+    assert dlg.table.rowCount() == 3
+    assert len(dlg._read_points()) == 3
+    dlg.table.selectRow(dlg.table.rowCount() - 1)
+    dlg._on_remove()
+    assert dlg.table.rowCount() == 2
+    dlg.edit_name.setText("r37dlg")
+    dlg._on_ok()
+    assert dlg.result_name == "r37dlg"
+    assert "r37dlg" in cb.list_colormaps()
+    cb.unregister_colormap("r37dlg")
