@@ -1125,6 +1125,164 @@ class FlowviewerApplication:
         except Exception as exc:
             return self._fail(exc)
 
+    # ── object query family (scPOST GetObj*/GetObject*, P0-3) ─────────────
+
+    def _object_main(self):
+        """The object tree backing GetObj* methods."""
+        return self._object_tree()
+
+    def GetObjNum(self):
+        """Number of child objects (GetObjNum)."""
+        try:
+            from . import api
+            return self._ok(api.object_count(self._object_main()))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetObjType(self, obj):
+        """Type name of an object class (GetObjType)."""
+        try:
+            return self._ok(str(getattr(obj, "kind", "")))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetObjectActiveObj(self):
+        """The active object (first visible child; GetObjectActiveObj)."""
+        try:
+            main = self._object_main()
+            for o in (getattr(main, "children", None) or []):
+                if getattr(o, "visible", True):
+                    return self._ok(o)
+            return self._ok(None)
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetObjectByGID(self, gid):
+        """Child object by global id (GetObjectByGID)."""
+        try:
+            from . import api
+            return self._ok(api.object_by_gid(self._object_main(), gid))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetObjectByNumber(self, number):
+        """Child object by its Number (GetObjectByNumber)."""
+        try:
+            from . import api
+            return self._ok(api.object_by_number(self._object_main(), number))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetObjectByType(self, type_name):
+        """Child objects of one type (GetObjectByType)."""
+        try:
+            from . import api
+            return self._ok(api.objects_by_type(self._object_main(),
+                                                str(type_name)))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetObjectByLongTitle(self, title):
+        """Child object whose label/long title matches (GetObjectByLongTitle)."""
+        try:
+            t = str(title).lower()
+            for o in (getattr(self._object_main(), "children", None) or []):
+                if getattr(o, "title", "") and o.title.lower() == t:
+                    return self._ok(o)
+                if o.label.lower() == t:
+                    return self._ok(o)
+            return self._ok(None)
+        except Exception as exc:
+            return self._fail(exc)
+
+    def RemoveAllObj(self):
+        """Remove every child object but the Main (RemoveAllObj)."""
+        try:
+            from . import api
+            return self._ok(api.remove_all_objects(self._object_main()))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def RemoveRelatedObj(self, obj):
+        """Remove all objects of the same kind as *obj* (RemoveRelatedObj)."""
+        try:
+            from . import api
+            kind = getattr(obj, "kind", None)
+            if kind is None:
+                return self._ok(0)
+            return self._ok(api.remove_related_objects(self._object_main(),
+                                                       kind))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def SetDisplayChildAllObj(self, on):
+        """Show/hide every FLD object (SetDisplayChildAllObj)."""
+        try:
+            for o in (getattr(self._object_main(), "children", None) or []):
+                o.visible = bool(on)
+            return self._ok(True)
+        except Exception as exc:
+            return self._fail(exc)
+
+    # ── variable value query family (scPOST GetScalar*/GetVecteor*, P0-3) ──
+
+    def GetScalar(self, LNAM, index):
+        """Scalar variable value at an index (GetScalar)."""
+        try:
+            from . import api
+            return self._ok(api.scalar_at(self._need_ff(), LNAM, index))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetScalarArray(self, LNAM):
+        """Full scalar variable array (GetScalarArray)."""
+        try:
+            from . import api
+            return self._ok(api.scalar_array(self._need_ff(), LNAM))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetScalarMinMaxByVol(self, LNAM, volid):
+        """Min/max of a scalar variable in a volume region (GetScalarMinMaxByVol)."""
+        try:
+            from . import api
+            name = api.get_vol_emtname_by_vol_id(self._need_ff(), volid)
+            if not name:
+                return self._ok(None)
+            return self._ok(api.scalar_range_by_region(self._need_ff(),
+                                                       LNAM, name))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetVecteor(self, LNAM, index):
+        """Vector variable value at an index (scPOST spelling GetVecteor)."""
+        try:
+            from . import api
+            return self._ok(api.vector_at(self._need_ff(), LNAM, index))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetVecteorArray(self, LNAM):
+        """Full vector variable array (GetVecteorArray)."""
+        try:
+            from . import api
+            return self._ok(api.vector_array(self._need_ff(), LNAM))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetVectorMinMaxByVol(self, LNAM, volid):
+        """Min/max magnitude of a vector variable in a volume region
+        (GetVectorMinMaxByVol)."""
+        try:
+            from . import api
+            name = api.get_vol_emtname_by_vol_id(self._need_ff(), volid)
+            if not name:
+                return self._ok(None)
+            return self._ok(api.scalar_range_by_region(self._need_ff(),
+                                                       LNAM, name))
+        except Exception as exc:
+            return self._fail(exc)
+
     # ── object creation (scPOST CreateObject* family, P0-1) ───────────────
 
     def _object_tree(self):

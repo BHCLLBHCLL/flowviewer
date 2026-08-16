@@ -4723,6 +4723,36 @@ def test_r24_variable_at_point_fld():
 
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_p03_object_and_var_query():
+    """P0-3: COM object query + variable value query families."""
+    from fv.com import FlowviewerApplication
+    app = FlowviewerApplication()
+    app.open_file(FPH)
+    # object query family
+    assert app.GetObjNum() == 0
+    s = app.CreateObjectSurface("S1")
+    pt = app.CreateObjectPoints("P1")
+    assert app.GetObjNum() == 2
+    assert app.GetObjType(s) == "surface"
+    assert app.GetObjectByNumber(1).kind == "surface"
+    assert [o.title for o in app.GetObjectByType("surface")] == ["S1"]
+    assert app.GetObjectByLongTitle("P1") is pt
+    assert app.GetObjectActiveObj() is not None
+    # variable value query family
+    var = "PRES" if "PRES" in app.variable_names else app.variable_names[0]
+    assert isinstance(app.GetScalar(var, 0), float)
+    assert len(app.GetScalarArray(var)) > 0
+    v = app.GetVecteor("VEL", 0) if "VELX" in app.variable_names else None
+    if v is not None:
+        assert len(v) == 3
+        arr = app.GetVecteorArray("VEL")
+        assert arr.shape[1] == 3
+    # RemoveAllObj clears the tree
+    app.RemoveAllObj()
+    assert app.GetObjNum() == 0
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_p02_createvar_family():
     """P0-2: COM CreateVar*/DeleteVar/SetVarTitle registration family."""
     from fv.com import FlowviewerApplication
