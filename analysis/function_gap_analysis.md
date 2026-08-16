@@ -1,5 +1,9 @@
 # flowviewer 功能差距全面分析（2026-08-16，第七轮评估）
 
+> **最新状态（2026-08-17 第十轮评估）见文末 §7**：本报告梯队一至四及
+> 第八/九轮改进（P0–P3、R0–R3.7）已全部落地，整体端到端深度刷新至 **~85%**；
+> §1–§6 保留为第七轮历史基线。
+
 > 分析日期：2026-08-16（会话执行）
 > 对比基准：Cradle CFD 2025.2 scPOST（VB 接口 41 个公开类 + FLD File 类 125 方法面）
 > 分析对象：`fv/` 63 文件、18,195 行、31 种 PostObject、29 个 render 模块、11 个 crdl 解码器
@@ -158,3 +162,130 @@ Turbo 完整叶片气动后处理套件深化（本轮 P1.3 只做渲染云图�
   P1/P2 决定与 scPOST 的渲染与数据代差能否消除。
 
 > 执行状态：本报告为分析基线，改进计划见 DEV_PLAN §26；完成情况将随执行更新。
+
+---
+
+## 7. 第十轮评估：第九轮 R0–R3.7 落地后完整度刷新（2026-08-17）
+
+> 基线：提交 `58395a8`（第九轮 R0.1–R3.7 共 32 个功能提交全部落地）
+> 规模：fv/ 66 文件、23,572 行、31 种 PostObject、~30 个 render 模块、
+> 12 个 crdl 解码器、15 个测试文件 318 个测试函数（pytest.ini 默认排除 slow marker）
+> 方法：3 个并行子代理（GUI 交互逐项核实 / API 面逐方法重算 / 渲染数据剩余差距审计）；
+> 子代理检索索引陈旧导致 3 处误报（视频导出入口、RubberBand 框选、Measure 端点拾取），
+> 经人工直读源码证实**均已实现**（main.py L353/L853、L1787–L1839、L1930/L1992）。
+
+### 7.1 分维度完整度 × 深度清单
+
+| 维度 | 完整度 | 深度 | 现状与主要残留缺口 |
+|---|---|---|---|
+| 对象面（41 VB 类） | ~100% | ~90% | 31 kind 全部 Create 可达、STA 全 kind 往返、框选/右键/undo/Measure 拾取全接线；残留：pick 探针仅覆盖 5/30 kind（main.py L1757–1792）、Draw Window settings 仍 NYI（L1346） |
+| 数据格式面 | ~85% | ~80% | FLD/FPH/GPH/PPH 深；CGNS HDF5（MIXED/多 zone/结构化）+ 纯 Python ADF 读写、XDMF temporal、.op2（pyNastran）、Nastran 文本均落地；缺 Marc .t16/.t19 二进制（marc.py L5 明示 out of scope）、iFLD 实为整读后裁剪非真局部盘读（ifld.py L56） |
+| 数据 API（FLDFile 125 法） | **48.8%**（61/125，严格 43.2%） | — | R2 六处语义偏差 4 处全修、2 处 ByRef 改元组（语义保持）；ov 几何族 13/13、MAT/VOL/RGN 族 19/16 超配 |
+| 自动化（Application 62 法） | **45.2%**（28/62） | — | COM→GUI 桥真实挂钩（AnimationStart 驱动时间线 com.py:1082、UpdateAll 触发重绘:1260）；12 处签名微偏差，其中 2 处真语义错（ShellExecute 为 no-op com.py:1189、GetTickCountEx 时基错 com.py:1143） |
+| 渲染层 | ~95% | ~85% | 体渲染参数化传递函数、光照 sheen、相机 SLERP、8 色表 + CSV 编辑器、Turbo 真实叶片壁面（n_θ 分侧 + pitch 自相关）、Text3D 锚定、多段渐变全落地；残留见 7.4 |
+| 交互/GUI | ~95% | ~88% | 时间线 interpolate_at 已接线（main.py:1532/1578）、多 FileSet Sync、RubberBand 框选 + Delete Selected、视频导出菜单→ffmpeg；残留：pick 覆盖面、Mouse 3-Button 模式与 1-Button 同为 trackball（main.py:399） |
+| 导出/生态 | ~80% | ~75% | PNG/JPG/BMP/TIF/STL/OBJ/VRML/glTF/STA/帧序列/视频（ogv/avi/MP4）；缺 FBX（无 VTK writer）、CradleViewer 专有格式、OBJ 无法线/UV（export.py L318–346） |
+| 性能 | ~75% | ~70% | ugrid 缓存已生效（plane.py L134–147）；残留：FieldFile 缓存无 LRU 上限（fileset.py L193–273）、单次 load 触发 2–5 次 open（dataset.py）、ugrid 逐单元 Python 循环、动画帧整链重建（scene.py L385–432） |
+| 质量/测试 | ~85% | — | 318 测试、全仓 0 TODO/FIXME、`_nyi` 仅剩 1 处真实（Draw Window）；失衡：239/318 挤在 test_gui.py，POD/compare/tsmm 无独立测试文件 |
+
+**整体端到端实用深度：~85%**（第九轮基线 75–80% → +7pp；r9 计划预期的 90%+ 被
+API 覆盖率 47.6% 与若干数据深度项拉低）。
+
+**已反超 scPOST 的区域**：cycle 运行时全族直通 Python、interpolate_at 小数帧插值、
+Turbo 壁面 PS/SS 分侧、POD、纯 Python ADF 读写、Compare 差场统计、颜色表编辑器。
+
+### 7.2 对 r9 报告（function_gap_analysis_r9.md）的结论修正
+
+| r9 断点编号 | r9 断言 | 第十轮核实 |
+|---|---|---|
+| （R3.2 遗留） | 视频导出后端完成但 GUI 入口缺失 | 已有 File→Export Animation Video…（main.py:353 → on_export_animation_video:853，ffmpeg 编码） |
+| （R1.2 遗留） | Select/RubberBand 框选完全未接线 | 已实现（main.py:1787–1839 vtkInteractorStyleRubberBandPick + _on_area_selection；Edit→Delete Selected:1176） |
+| （R1.3 遗留） | Measure 端点点击拾取未接线 | 已接线（_on_vtk_pick → _try_fill_measure_pick，main.py:1930/1992） |
+| §1 | 端到端深度 75–80% | 上调至 **~85%** |
+
+### 7.3 API 覆盖率重算（对照 vb_fldfile.txt / vb_application.txt）
+
+| 类 | scPOST 方法数 | 严格对齐 | 部分对齐 | 缺失 | 覆盖率 |
+|---|---|---|---|---|---|
+| FLDFile（125 法 + 2 属性） | 125 | 54 | 7 | 64 | **48.8%**（属性 2/2） |
+| Application（62 法 + 5 属性） | 62 | 25 | 3 | 34 | **45.2%**（属性 2/5） |
+
+- **六处语义偏差核实**：SetCycOpeMode 八模式（fileset.py:136–146）、
+  PrepareMinMaxPos 三参（com.py:1100）、GetOverlappingRegionCount 数区域（api.py:856）、
+  LocalXYZ2GlobalXYZ 读文件坐标系（api.py:794）四处全修；GetBoundingBox / GetMATIDofVOL
+  因 Python COM 不支持 ByRef 改返回元组（语义正确）。
+- **剩余缺失集中三大块**（api/model 层实现现成，仅缺 COM 包装，占缺失总量的 35/98）：
+  22 个 CreateObject*（model 层类全有）、8 个变量注册族（api 层函数全有）、
+  7 个对象查询族 + 6 个变量值查询族（api 层函数全有）；另有 4 个 CreateObjectFLD 加载族。
+- **12 处已实现方法签名微偏差**，其中真语义错 2 处需修：
+  ShellExecute（headless no-op，未真调 Windows shell）、GetTickCountEx
+  （返回 time.monotonic 自 app 启动，scPOST 语义为开机时基）。
+
+### 7.4 剩余差距清单（按严重度，源码证据）
+
+**高**
+
+| 项 | 证据 |
+|---|---|
+| oilflow 对 FLD hex 未做崩溃规避（streamline/pathline 均有数值回退，唯 oilflow 直接 vtkStreamTracer） | oilflow.py L71–91 |
+
+**中**
+
+| 项 | 证据 |
+|---|---|
+| varreg `mag()` 恒等返回：`mag(grad(PRES))` 等 (n,3) 参数表达式被误注册为 VECTOR，静默错 | varreg.py L232–233 |
+| div/rot 硬编码 X/Y/Z 后缀命名约定，U/V/W 等命名无法工作 | varreg.py L207–216 |
+| FLD face_id 反查返回空/(-1,-1)（GetNodesOfFace 族对 FLD 失效，格式无显式 face 表） | topology.py L59–63、L133–136 |
+| Marc .t16/.t19 二进制未实现（Marc 工程主流结果载体） | marc.py L5 |
+| FLD 流线/路径线为 KD-tree 最近邻采样（非真单元插值），per-seed per-step Python 循环 | streamline.py L145–262、pathline.py L174–236 |
+| iFLD Trimming 为「后处理裁剪」，上游仍整文件读入（与 Trimming Open 承诺不符） | ifld.py L56–162、dataset.py:302 |
+| FieldFile 缓存无 LRU/上限，Timeline/POD 期间全 cycle 变量常驻内存 | fileset.py L193–273、dataset.py:31 |
+| 单次 load_file 触发 2–5 次独立 open（网络盘放大开销） | dataset.py L115/302/309/423/433 |
+| ugrid 逐单元 Python 循环构建，百万单元级 FLD 卡顿；动画帧整链推倒重建 | plane.py L170–227、scene.py L385–432 |
+| 视频仅 OggTheora/AVI/ffmpeg-MP4 链路；OBJ 无法线/材质/UV；FBX/CradleViewer 无 | export.py L253–346 |
+| pick 探针仅 5/30 kind（plane/surface/isosurface/volume/streamline） | main.py L1757–1792 |
+| COM：ShellExecute no-op、GetTickCountEx 时基错；POD 丢弃时间系数 U、仅标量场 | com.py:1189/1143、pod.py:37–69 |
+| CGNS ADF 全文一次性入内存（大文件峰值高）、仅取第一个 CGNSBase_t | cgns_adf.py L145/463 |
+
+**低**
+
+体渲染不透明度仅 2 控制点 + gradation=8 硬编码（volume.py:131–155）；
+tsmm 仅 CSV 解析无时间线集成；compare 仅绝对差/最近邻映射；
+nastran.py docstring 漂移（称 .op2 out of scope，实际已实现）；
+测试结构失衡（239/318 在 test_gui.py）；Draw Window settings NYI（main.py:1346）。
+
+### 7.5 第十一轮改进计划
+
+**P0 薄封装速赢（一轮可完成，性价比最高）**
+
+1. COM 层暴露已有能力 ~43 方法：22 CreateObject* + 8 变量注册族 + 7 对象查询族 +
+   6 变量值查询族（api/model 实现现成）→ FLDFile 覆盖率 48.8%→**~75%**，
+   跨过「常用 VBS 脚本可移植」门槛。
+2. 修 2 处真语义错：ShellExecute 真调 Windows shell；GetTickCountEx 改开机时基。
+3. oilflow FLD 崩溃规避：对齐 streamline 的数值积分回退路径（唯一「高」严重度渲染项）。
+4. varreg `mag()` 真取模 + div/rot 支持显式三分量参数（`div(UX,UY,UZ)`）。
+
+**P1 数据深度**：FLD face 反查表（cell_conn 建 hex 面索引）；FieldFile 缓存 LRU 化 +
+单次 open 跨 mesh/fields/meta 复用；iFLD 真局部盘读（节级裁剪）；Marc .t16/.t19
+（需先获样例文件）。
+
+**P2 渲染/性能深度**：FLD 流线/路径线真单元插值（vtkStaticCellLocator 或形函数）；
+ugrid 批量插入（vtkCellArray.InsertNextCell）；动画帧只重切平面（增量 cut 链）；
+OBJ 补法线/UV；体渲染不透明度多点 ramp。
+
+**P3 按需立项**：FBX/CradleViewer（assimp）；POD 时间系数导出 + Clustering；
+测试结构重组（拆 test_gui 巨文件，补 test_pod/test_compare/test_tsmm）。
+
+**预期收益**：P0 后整体 ~88%、API 覆盖 FLDFile ~75% / Application ~55%；
+P1+P2 后进入 **90%+** 区间；剩余差距主要是 Marc 二进制与生态格式（FBX/CradleViewer）
+这类需外部资源的大项。
+
+### 7.6 总评
+
+第九轮 32 个提交真实有效：第七轮报告的全部贯通断裂（梯队一）与渲染/数据代差
+（梯队二/三）已闭合，COM→GUI 桥、点探针插值、SaveVariableOutput、Turbo 真实叶片
+表面等深度项落地。项目已从第七轮的「覆盖 100%、可达深度 65–70%」推进到
+**「覆盖 ~100%、端到端深度 ~85%」**。剩余差距性质再次变化：不再是功能缺失或接线断裂，
+而是 **API 覆盖广度（薄封装即可提升）+ 少数数据/渲染深度项（oilflow FLD、FLD face 表、
+流线真插值）+ 生态大项（Marc 二进制、FBX/CradleViewer）**。按 P0→P2 推进可在
+1–2 轮内进入 90%+ 区间。
