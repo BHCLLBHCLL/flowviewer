@@ -1058,7 +1058,8 @@ class TimeSeriesDialog(ObjectSettingsPanel):
     def _load(self) -> None:
         from PyQt5.QtWidgets import QFileDialog
         path, _ = QFileDialog.getOpenFileName(
-            self, "Open Time Series", "", "CSV (*.csv *.tm)")
+            self, "Open Time Series", "",
+            "Time Series (*.csv *.tm);;All files (*)")
         if path:
             self.file.setText(path);
             self._refresh_info()
@@ -1069,10 +1070,14 @@ class TimeSeriesDialog(ObjectSettingsPanel):
         if not path or not Path(path).exists():
             self.info.setText("No file loaded");
             return
-        from ..model.tsmm import parse_time_series
-        cyc, tim = parse_time_series(path)
-        self.info.setText(f"{len(cyc)} steps, cycle {cyc[0] if cyc else '-'} → "
-                         f"{cyc[-1] if cyc else '-'}")
+        from ..model.tsmm import load_time_series
+        data = load_time_series(path)
+        extra = f", {len(data.series)} series" if data.series else ""
+        probes = f", {len(data.probes)} probes" if data.probes else ""
+        self.info.setText(
+            f"{len(data.cycles)} steps, cycle "
+            f"{data.cycles[0] if data.cycles else '-'} → "
+            f"{data.cycles[-1] if data.cycles else '-'}{extra}{probes}")
 
     def apply_to(self, obj) -> None:
         if not _HAS_QT:
@@ -1080,8 +1085,12 @@ class TimeSeriesDialog(ObjectSettingsPanel):
         obj.file = self.file.text()
         from pathlib import Path
         if obj.file and Path(obj.file).exists():
-            from ..model.tsmm import parse_time_series
-            obj.cycles, obj.times = parse_time_series(obj.file)
+            from ..model.tsmm import load_time_series
+            data = load_time_series(obj.file)
+            obj.cycles, obj.times = data.cycles, data.times
+            obj.series = data.series
+            obj.probes = data.probes
+            obj.columns = data.columns
 
 
 class MaxMinDialog(ObjectSettingsPanel):
@@ -1112,7 +1121,8 @@ class MaxMinDialog(ObjectSettingsPanel):
     def _load(self) -> None:
         from PyQt5.QtWidgets import QFileDialog
         path, _ = QFileDialog.getOpenFileName(
-            self, "Open Max and Min", "", "CSV (*.csv *.ot)")
+            self, "Open Max and Min", "",
+            "MaxMin (*.csv *.ot);;All files (*)")
         if path:
             self.file.setText(path);
             self._refresh_info()
@@ -1123,11 +1133,13 @@ class MaxMinDialog(ObjectSettingsPanel):
         if not path or not Path(path).exists():
             self.info.setText("No file loaded");
             return
-        from ..model.tsmm import parse_max_min
-        vals = parse_max_min(path)
+        from ..model.tsmm import load_max_min
+        data = load_max_min(path)
         lines = [f"{n}: {v[0]:.6g} … {v[1]:.6g}" for n, v in
-                 sorted(vals.items())[:6]]
-        self.info.setText("\n".join(lines) or "No rows");
+                 sorted(data.values.items())[:6]]
+        if len(data.history) > 1:
+            lines.append(f"({len(data.history)} cycles)")
+        self.info.setText("\n".join(lines) or "No rows")
 
     def apply_to(self, obj) -> None:
         if not _HAS_QT:
@@ -1135,8 +1147,11 @@ class MaxMinDialog(ObjectSettingsPanel):
         obj.file = self.file.text()
         from pathlib import Path
         if obj.file and Path(obj.file).exists():
-            from ..model.tsmm import parse_max_min
-            obj.values = parse_max_min(obj.file)
+            from ..model.tsmm import load_max_min
+            data = load_max_min(obj.file)
+            obj.values = data.values
+            obj.history = data.history
+            obj.cycles = data.cycles
 
 class GraphDialog(ObjectSettingsPanel):
     """Graph — Variable / X mode / Plot (P2.2)."""

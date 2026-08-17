@@ -629,13 +629,16 @@ class GraphObject(PostObject):
 
 @dataclass
 class TimeSeriesObject(PostObject):
-    """Cycle/time series imported from a CSV (scPOST Time Series, P2.10)."""
+    """Cycle/time series imported from CSV / TSER (scPOST Time Series)."""
 
     kind: str = "timeseries"
     title: str = "Time Series"
     file: str = ""
     cycles: list = field(default_factory=list)
     times: list = field(default_factory=list)
+    series: dict = field(default_factory=dict)   # name -> [values]
+    probes: list = field(default_factory=list)   # [(name, x, y, z), ...]
+    columns: list = field(default_factory=list)
 
 
 @dataclass
@@ -646,6 +649,8 @@ class MaxMinObject(PostObject):
     title: str = "Max and Min"
     file: str = ""
     values: dict = field(default_factory=dict)   # var -> (min, max)
+    history: list = field(default_factory=list)  # per-cycle {var: (min, max)}
+    cycles: list = field(default_factory=list)
 
 
 @dataclass

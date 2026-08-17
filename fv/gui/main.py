@@ -162,6 +162,8 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._load_workers = []             # keep LoadWorker/QThread alive (P0.6)
         self._undo_stack = []               # P2.8 deep-copied children lists
         self._redo_stack = []
+        self._ts_lookup = {}                # cycle -> time from Time Series
+        self._ts_data = None
 
         from ..render.scene import Scene
         self.scene = Scene(enable_3d=enable_3d)
@@ -1495,6 +1497,14 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if getattr(obj, "kind", "") == "drawwindow":
             self._apply_draw_window(obj)
             return
+        if getattr(obj, "kind", "") == "timeseries":
+            self._apply_timeseries_timeline(obj)
+            return
+        if getattr(obj, "kind", "") == "maxmin":
+            n = len(getattr(obj, "values", {}) or {})
+            self.message_win.log(f"Max and Min: {n} variables")
+            self.status.showMessage(f"Max and Min: {n} variables", 3000)
+            return
         if self.dataset is None or self.main_object is None:
             return
         if self.scene._field_file is not None:
@@ -1537,6 +1547,29 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self._refresh_gl()
         self.message_win.log("Draw: applied Draw Window")
         self.status.showMessage("Draw: Draw Window", 3000)
+
+    def _apply_timeseries_timeline(self, obj) -> None:
+        """Drive the Timeline Window from an imported TSER / CSV table."""
+        cycles = list(getattr(obj, "cycles", []) or [])
+        times = list(getattr(obj, "times", []) or [])
+        self._ts_lookup = {int(c): t for c, t in zip(cycles, times)}
+        self._ts_data = obj
+        if not cycles:
+            self.message_win.log("Time Series: no rows")
+            return
+        lo, hi = int(min(cycles)), int(max(cycles))
+        # Prefer TSER range when no multi-member FileSet is loaded.
+        if not self.fileset or len(self.fileset) <= 1:
+            self.timeline.set_range(lo, hi)
+            self.timeline.set_step(lo)
+        t0 = times[0] if times else None
+        if t0 is not None:
+            self.timeline.edit_time.setText(self.timeline.format_time(t0))
+        nser = len(getattr(obj, "series", {}) or {})
+        extra = f", {nser} series" if nser else ""
+        self.message_win.log(
+            f"Time Series: {len(cycles)} steps ({lo}..{hi}){extra}")
+        self.status.showMessage(f"Time Series {len(cycles)} steps", 3000)
 
     def _create_object(self, kind: Optional[str]) -> None:
         """Create menu / toolbar: instantiate an object under the Main node."""
@@ -1662,6 +1695,13 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
     def _on_timeline_step(self, step: int) -> None:
         self._cycle_label.setText(f"Cycle {step}")
+        ts_time = self._ts_lookup.get(int(step))
+        if ts_time is not None:
+            self.timeline.edit_time.setText(self.timeline.format_time(ts_time))
+            if self.dataset is not None:
+                from pathlib import Path
+                self.scene.set_overlay(
+                    Path(self.dataset.path).name, int(step), ts_time)
         if self.dataset is None or self.main_object is None:
             return
         # Cycle / Time mode → load the corresponding sequence member's data
@@ -1741,6 +1781,17 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
     def _on_timeline_time_request(self, t: float) -> None:
         """Time mode: physical time -> bracketing members -> interpolate."""
+        if self._ts_lookup and (not self.fileset or len(self.fileset) <= 1):
+            best = None
+            best_dt = None
+            for cyc, tt in self._ts_lookup.items():
+                dt = abs(float(tt) - float(t))
+                if best_dt is None or dt < best_dt:
+                    best, best_dt = cyc, dt
+            if best is not None:
+                self.timeline.set_step(int(best))
+                self._on_timeline_step(int(best))
+                return
         if not self.fileset or not self.main_object:
             return
         members = self.fileset.members
