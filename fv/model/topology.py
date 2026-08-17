@@ -33,6 +33,64 @@ def node_xyz(ff, node_id):
     return tuple(float(x) for x in v[i])
 
 
+def node_neighbours(ff, node_id) -> list:
+    """Nodes sharing an edge with *node_id* (GetNextNodes).
+
+    Edges are taken from the face polygons (consecutive vertex pairs), so
+    the result is exact for FPH links and FLD cells alike.  The
+    node→nodes adjacency is built once and cached on the FieldFile.
+    """
+    adj = getattr(ff, "_node_adj", None)
+    if adj is None:
+        adj = [set() for _ in range(int(getattr(ff, "n_vertices", 0)))]
+        if getattr(ff, "poly", False):
+            ld = ff.link_data
+            fn = np.asarray(ld["face_nodes"], dtype=np.int64)
+            off = np.asarray(ld["face_offsets"], dtype=np.int64)
+            for f in range(len(off) - 1):
+                lo, hi = int(off[f]), int(off[f + 1])
+                ring = fn[lo:hi]
+                for k in range(len(ring)):
+                    a, b = int(ring[k]), int(ring[k - 1])
+                    adj[a].add(b)
+                    adj[b].add(a)
+        else:
+            n = int(getattr(ff, "n_cells", 0))
+            faces = getattr(ff, "faces", None)
+            if faces:
+                # FLD NGON: use the face rings directly (exact edges)
+                off = _fld_offset(ff)
+                for ring in faces:
+                    r = [int(x) - off for x in ring]
+                    for k in range(len(r)):
+                        a, b = r[k], r[k - 1]
+                        adj[a].add(b)
+                        adj[b].add(a)
+            else:
+                for c in range(n):
+                    for face in _fld_cell_faces_raw(ff, c):
+                        for k in range(len(face)):
+                            a, b = face[k], face[k - 1]
+                            adj[a].add(b)
+                            adj[b].add(a)
+        try:
+            ff._node_adj = adj  # cache (FieldFile is a plain dataclass)
+        except Exception:
+            pass
+    i = int(node_id)
+    if i < 0 or i >= len(adj):
+        raise IndexError("node_id out of range")
+    return sorted(adj[i])
+
+
+def _fld_cell_faces_raw(ff, cell_id):
+    """Raw vertex groups of one FLD cell for edge extraction."""
+    faces = faces_of_cell(ff, cell_id)
+    if getattr(ff, "poly", False):
+        return [face_nodes(ff, f) for f in faces]
+    return [[int(x) for x in f if int(x) >= 0] for f in faces]
+
+
 def _fph_face_nodes(ff, face_id):
     ld = ff.link_data
     fn = np.asarray(ld["face_nodes"], dtype=np.int64)

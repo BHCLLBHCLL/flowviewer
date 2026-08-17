@@ -208,6 +208,265 @@ class ConnectionPoint:
                 continue
 
 
+class MessageWindowClass:
+    """COM Message Window (scPOST MessageWindow class, r12.1).
+
+    Wraps the attached GUI message pane when present; otherwise keeps an
+    in-process message list so headless COM scripts still get the log.
+    """
+
+    _public_methods_ = ["AddMessage", "GetMessages", "Clear",
+                        "SaveLogFile"]
+    _public_attrs_ = ["Count"]
+
+    def __init__(self, app):
+        self._app = app
+        self._messages = []
+
+    def AddMessage(self, msg, level="INFO"):
+        """Append a message line (shown in the GUI message window)."""
+        line = str(msg)
+        self._messages.append((str(level), line))
+        gui = _bridge_gui()
+        msg_win = getattr(gui, "message_win", None) if gui else None
+        if msg_win is not None and hasattr(msg_win, "log"):
+            try:
+                msg_win.log(line, str(level))
+            except Exception:
+                pass
+        return True
+
+    def GetMessages(self):
+        """All recorded message lines as [(level, text), ...]."""
+        return list(self._messages)
+
+    def Clear(self):
+        """Clear the message list (and the GUI pane when attached)."""
+        self._messages = []
+        gui = _bridge_gui()
+        msg_win = getattr(gui, "message_win", None) if gui else None
+        if msg_win is not None and hasattr(msg_win, "clear"):
+            try:
+                msg_win.clear()
+            except Exception:
+                pass
+        return True
+
+    def SaveLogFile(self, path):
+        """Write the recorded messages to *path* (one line each)."""
+        try:
+            with open(str(path), "w", encoding="utf-8") as fh:
+                for level, text in self._messages:
+                    fh.write(f"[{level}] {text}\n")
+            return True
+        except Exception:
+            return False
+
+    @property
+    def Count(self):
+        return len(self._messages)
+
+
+class GlobalWindowClass:
+    """COM Global Window (scPOST GlobalWindow class, r12.1).
+
+    Holds the process-wide Colorbar / Gradation / Camera / Light global
+    objects; forwards to the attached GUI's global window, falling back
+    to a headless model instance.
+    """
+
+    _public_methods_ = ["GetColorbar", "GetGradation", "GetCamera",
+                        "GetLight", "SetLight"]
+
+    def __init__(self, app):
+        self._app = app
+        self._model = None
+
+    def _gw(self):
+        gui = _bridge_gui()
+        gw = getattr(gui, "global_window", None) if gui else None
+        if gw is not None:
+            return gw
+        if self._model is None:
+            from .model.objects import GlobalWindow
+            self._model = GlobalWindow()
+        return self._model
+
+    def GetColorbar(self):
+        """The global Colorbar object (or None)."""
+        return self._gw().colorbar
+
+    def GetGradation(self):
+        """The global Gradation object (or None)."""
+        return self._gw().gradation
+
+    def GetCamera(self):
+        """The global Camera object (or None)."""
+        return self._gw().camera
+
+    def GetLight(self):
+        """The global Light object (or None)."""
+        return self._gw().light
+
+    def SetLight(self, brightness=None, color=None, position=None):
+        """Set global-light parameters, creating the Light when absent."""
+        from .model.objects import LightObject
+        light = self._gw().light
+        if light is None:
+            light = LightObject()
+            self._gw().light = light
+        if brightness is not None:
+            light.brightness = max(0.0, min(2.0, float(brightness)))
+        if color is not None:
+            light.color = tuple(float(c) for c in color)
+        if position is not None:
+            light.position = tuple(float(p) for p in position)
+        return light
+
+
+class DrawWindowClass:
+    """COM Draw Window (scPOST DrawWindow class, r12.1).
+
+    Represents the drawing window; when a GUI is attached its render
+    window is driven directly, headless COM keeps window state only.
+    """
+
+    _public_methods_ = ["Refresh", "GetRenderWindow", "IsVisible",
+                        "SetVisible", "Screenshot"]
+    _public_attrs_ = ["Visible"]
+
+    def __init__(self, app):
+        self._app = app
+        self._visible = True
+
+    def Refresh(self):
+        """Repaint the drawing window (renderer Render when attached)."""
+        gui = _bridge_gui()
+        if gui is not None:
+            try:
+                if getattr(gui, "renderer", None) is not None:
+                    gui.renderer.GetRenderWindow().Render()
+                elif hasattr(gui, "on_redraw"):
+                    gui.on_redraw()
+            except Exception:
+                pass
+        return True
+
+    def GetRenderWindow(self):
+        """The vtkRenderWindow when a GUI is attached, else None."""
+        gui = _bridge_gui()
+        widget = getattr(gui, "vtk_widget", None) if gui else None
+        return widget.GetRenderWindow() if widget is not None else None
+
+    def IsVisible(self):
+        return bool(self._visible)
+
+    def SetVisible(self, visible):
+        self._visible = bool(visible)
+        gui = _bridge_gui()
+        if gui is not None and hasattr(gui, "setVisible"):
+            try:
+                gui.setVisible(bool(visible))
+            except Exception:
+                pass
+        return True
+
+    def Screenshot(self, path):
+        """Save a PNG of the drawing window (needs attached GUI)."""
+        rw = self.GetRenderWindow()
+        if rw is None:
+            return False
+        try:
+            from .render.export import snapshot_png
+            return bool(snapshot_png(rw.GetRenderers().GetFirstRenderer(),
+                                     str(path)))
+        except Exception:
+            return False
+
+    @property
+    def Visible(self):
+        return self._visible
+
+
+class SaveBitmapsClass:
+    """COM Camera object (scPOST savebitmaps class, r12.1).
+
+    Bitmap-series recorder: registers output paths and saves drawing-
+    window snapshots (used per animation frame).
+    """
+
+    _public_methods_ = ["AddBitmap", "SaveBitmaps", "GetCount", "Clear"]
+
+    def __init__(self, app):
+        self._app = app
+        self._paths = []
+
+    def AddBitmap(self, path):
+        """Register the next bitmap output path."""
+        self._paths.append(str(path))
+        return len(self._paths)
+
+    def SaveBitmaps(self):
+        """Snapshot the drawing window to every registered path."""
+        saved = 0
+        for p in list(self._paths):
+            if self._app._draw_window.Screenshot(p):
+                saved += 1
+        return saved
+
+    def GetCount(self):
+        return len(self._paths)
+
+    def Clear(self):
+        self._paths = []
+        return True
+
+
+class EnvironmentClass:
+    """COM Environment object (scPOST Environment class, r12.1).
+
+    Key/value view over the application environment: the display /
+    backup / mouse-operation settings exposed by the Set* family.
+    """
+
+    _public_methods_ = ["GetValue", "SetValue", "GetAll", "Reset"]
+
+    def __init__(self, app):
+        self._app = app
+
+    _ENV_KEYS = (
+        "display_axis", "display_fld", "display_title_cycle",
+        "display_title_path", "display_title_time", "display_obj_name",
+        "display_logo", "display_hint", "display_draw_mode",
+        "use_undo_buffer", "use_autosave", "beep_all",
+        "no_default_obj", "no_progress_bar", "no_next_elements",
+        "not_reduce_riddge", "operate_object_enabled",
+        "operation_type", "user_control", "write_back_to_env_file",
+    )
+
+    def GetValue(self, key):
+        """One environment flag by key (""-valued keys return None)."""
+        return self._app._flags.get(str(key))
+
+    def SetValue(self, key, value):
+        """Set one environment flag; unknown keys are rejected."""
+        k = str(key)
+        if k not in self._ENV_KEYS:
+            return False
+        self._app._flags[k] = bool(value)
+        return True
+
+    def GetAll(self):
+        """The whole environment as a {key: value} dict."""
+        return {k: self._app._flags.get(k)
+                for k in self._ENV_KEYS if k in self._app._flags}
+
+    def Reset(self):
+        """Restore the default environment (SetDefaultAll)."""
+        self._app.SetDefaultAll(0)
+        return True
+
+
 class FlowviewerApplication:
     """COM-exposed flowviewer Application object (7c).
 
@@ -250,6 +509,10 @@ class FlowviewerApplication:
         "GetAdjacentElementOfFace", "GetAreaOfFace", "GetVolumeOfElement",
         "GetElementsOfVolumeRegion", "GetNodesOfVolumeRegion",
         "GetNodesOfSurfaceRegion",
+        # adjacency / region tables (r12.1)
+        "GetNextNodes", "GetElemBySurf", "GetSurfaceArray",
+        "GetSurfaceArray2", "GetVolumeArray2", "GetCurCycOpeNum",
+        "GetLatestStaPath",
         "GetMATNbyMATID", "GetMATIDbyMATN", "GetMATemtnamebyMATID",
         "GetMATIDbyMATemtname", "GetMATNumOfVOL", "GetMATNOfElement",
         "GetVOLemtnameAsArray", "GetVOLemtnamebyVOLID", "GetVOLIDbyElement",
@@ -281,11 +544,23 @@ class FlowviewerApplication:
         "SetMessageLevel", "OpenMessageLogFile",
         "CloseMessageLogFile", "UpdateAll",
         "AnimationFrame", "AnimationSecond",
+        # Application window / config family (r12.1, scPOST 100%)
+        "GetDrawWindow", "GetGlobalWindow", "GetMessageWindow",
+        "CreateDrawWnd", "GetDockableWindow", "Dock",
+        "GetObjectActiveFLD", "GetObjectFLDbyID",
+        "AlignObjectsAlongAnotherObject", "AlignObjectsAlongPane",
+        "DefineVar", "DropFile", "GetCurNP", "GetDisplayLOGO",
+        "GetEnvInfo", "ObjectNameDisplay", "PikaPika", "SetBeepAll",
+        "SetDefaultAll", "SetDisplayDrawMode", "SetDisplayHint",
+        "SetDisplayLOGO", "SetNoControls", "SetNoDefaultObj",
+        "SetNoNextElements", "SetNoProgressBar", "SetNotReduceRiddge",
+        "SetOperateObjectEnabled", "SetOperationType",
     ]
     _public_attrs_ = [
         "version", "file_path", "kind", "n_cells", "n_vertices",
         "cycle", "time", "variable_names", "has_file",
         "ErrorCode", "ErrorString",
+        "UserControl", "Visible", "WriteBackToEnvFile",
     ]
     _readonly_attrs_ = [
         "version", "file_path", "kind", "n_cells", "n_vertices",
@@ -298,6 +573,7 @@ class FlowviewerApplication:
         self._fs = None          # FileSet behind open_sequence
         self._rt = None          # CycleRuntime over _fs
         self._main = None        # object tree from ApplySTA
+        self._sta_path = None    # last applied STA (GetLatestStaPath)
         self._err_code = 0
         self._err_str = "OK"
         self._start_time = None
@@ -310,9 +586,24 @@ class FlowviewerApplication:
             "display_title_time": True, "display_obj_name": False,
             "use_undo_buffer": True, "use_autosave": False,
             "minmax_pos": False, "split_view": 0, "animating": False,
+            # r12.1: scPOST Set*/window state
+            "display_logo": False, "display_hint": True,
+            "display_draw_mode": False, "beep_all": False,
+            "no_default_obj": False, "no_progress_bar": False,
+            "no_next_elements": False, "not_reduce_riddge": False,
+            "operate_object_enabled": True, "operation_type": "1",
+            "no_controls": False, "user_control": False,
+            "write_back_to_env_file": True, "visible": False,
         }
+        self._defined_vars = []   # DefineVar STA commands
         self._lock = threading.RLock()
         self._cp = ConnectionPoint(self)
+        # r12.1 window classes
+        self._message_window = MessageWindowClass(self)
+        self._global_window = GlobalWindowClass(self)
+        self._draw_window = DrawWindowClass(self)
+        self._savebitmaps = SaveBitmapsClass(self)
+        self._environment = EnvironmentClass(self)
         if _HAS_COM:
             try:
                 import pythoncom as _pc
@@ -334,6 +625,42 @@ class FlowviewerApplication:
     def ErrorString(self):
         """Error message of the last method call."""
         return self._err_str
+
+    # ── scPOST Application properties (r12.1) ─────────────────────────────
+
+    @property
+    def UserControl(self):
+        """Program-control flag: True keeps Postprocessor alive at script
+        end (UserControl)."""
+        return self._flags["user_control"]
+
+    @UserControl.setter
+    def UserControl(self, value):
+        self._flags["user_control"] = bool(value)
+
+    @property
+    def Visible(self):
+        """Main-window visibility flag (Visible; default False)."""
+        return self._flags["visible"]
+
+    @Visible.setter
+    def Visible(self, value):
+        self._flags["visible"] = bool(value)
+        gui = _bridge_gui()
+        if gui is not None and hasattr(gui, "setVisible"):
+            try:
+                gui.setVisible(bool(value))
+            except Exception:
+                pass
+
+    @property
+    def WriteBackToEnvFile(self):
+        """Overwrite the environment file at termination (default True)."""
+        return self._flags["write_back_to_env_file"]
+
+    @WriteBackToEnvFile.setter
+    def WriteBackToEnvFile(self, value):
+        self._flags["write_back_to_env_file"] = bool(value)
 
     def _ok(self, value):
         self._err_code, self._err_str = 0, "OK"
@@ -498,7 +825,10 @@ class FlowviewerApplication:
             rt = api.cycle_runtime(fs)
             with self._lock:
                 self._fs, self._rt = fs, rt
-                self._ff = load_member(fs, 1, cache=rt.cache)
+                # cycle id 1 = first member (its stored cycle number,
+                # which is not necessarily 1)
+                self._ff = load_member(fs, fs.members[0].cycle,
+                                       cache=rt.cache)
             self._cp.fire("on_open", str(path))
             return self._ok(len(fs))
         except Exception as exc:
@@ -830,6 +1160,85 @@ class FlowviewerApplication:
         except Exception as exc:
             return self._fail(exc)
 
+    # ── adjacency / region-table queries (r12.1: ex10/ex9 VBS samples) ────
+
+    def GetNextNodes(self, node, nextnodes=None):
+        """Neighbour node ids of *node* (GetNextNodes).
+
+        scPOST fills the ByRef ``nextnodes`` VARIANT and returns the
+        count; the Python COM layer returns the id list itself (its
+        length is the scPOST return value).  ``nextnodes`` is accepted
+        and ignored for call-shape compatibility.
+        """
+        try:
+            from . import api
+            return self._ok(api.get_next_nodes(self._need_ff(), node))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetElemBySurf(self, ngfb):
+        """Element owning boundary face *ngfb* (GetElemBySurf)."""
+        try:
+            from . import api
+            return self._ok(api.get_elem_by_surf(self._need_ff(), ngfb))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetSurfaceArray(self, size=None, names=None):
+        """Registered surface-region table (GetSurfaceArray).
+
+        scPOST fills ByRef ``size`` / ``names`` and returns BOOL; the
+        Python COM layer returns ``[(name, [face_id, ...]), ...]`` so
+        both the names and the per-region face ids are available.
+        """
+        try:
+            from . import api
+            return self._ok(api.surface_region_table(self._need_ff()))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetSurfaceArray2(self, ngfb, num=None, names=None):
+        """Surface-region names containing face *ngfb* (GetSurfaceArray2).
+
+        scPOST fills ByRef ``num`` / ``names``; the Python COM layer
+        returns the name list itself.
+        """
+        try:
+            from . import api
+            return self._ok(api.get_surface_regions_of_face(
+                self._need_ff(), ngfb))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetVolumeArray2(self, elem, num=None, names=None):
+        """Volume-region names containing element *elem* (GetVolumeArray2).
+
+        scPOST fills ByRef ``num`` / ``names``; the Python COM layer
+        returns the name list itself.
+        """
+        try:
+            from . import api
+            return self._ok(api.get_volume_regions_of_element(
+                self._need_ff(), elem))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetCurCycOpeNum(self):
+        """Files in the current cycle-operation list (GetCurCycOpeNum)."""
+        try:
+            from . import api
+            return self._ok(api.get_cur_cyc_ope_num(self._need_rt()))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetLatestStaPath(self):
+        """Full path of the last applied STA file (GetLatestStaPath).
+
+        Empty string when no STA has been applied yet (scPOST returns a
+        NULL string in that case).
+        """
+        return self._ok(self._sta_path or "")
+
     # ── MAT / VOL / RGN lookup family (scPOST 互查族, R2.3) ───────────────
 
     def GetMATNbyMATID(self, matid):
@@ -1020,6 +1429,7 @@ class FlowviewerApplication:
             if main is None:
                 raise ValueError("not a status file: %r" % filepath)
             self._main = main
+            self._sta_path = str(filepath)
             return self._ok(True)
         except Exception as exc:
             return self._fail(exc)
@@ -1545,8 +1955,10 @@ class FlowviewerApplication:
         """Read an FLD file referring an STA file (CreateObjectFLDbySTA)."""
         try:
             from . import api
-            return self._ok(self._open_fld_result(api.open_file(str(path)),
-                                                  sta_path=sta_path))
+            res = self._open_fld_result(api.open_file(str(path)),
+                                        sta_path=sta_path)
+            self._sta_path = str(sta_path)
+            return self._ok(res)
         except Exception as exc:
             return self._fail(exc)
 
@@ -1682,6 +2094,265 @@ class FlowviewerApplication:
     def ObjectNameArrange(self):
         """Rearrange the object-name balloons (ObjectNameArrange)."""
         return True
+
+    # ── scPOST Application window / config family (r12.1, 100% surface) ──
+
+    _ALIGN_POSITIONS = ("left", "horizontal center", "right", "top",
+                        "vertical center", "bottom")
+    _MOUSE_OPERATION_TYPES = ("1", "2", "3C", "3", "A", "B", "C", "D",
+                              "E", "F", "G")
+
+    def GetDrawWindow(self):
+        """The DrawWindow class (GetDrawWindow)."""
+        return self._ok(self._draw_window)
+
+    def GetGlobalWindow(self):
+        """The GlobalWindow class holding the Global objects."""
+        return self._ok(self._global_window)
+
+    def GetMessageWindow(self):
+        """The MessageWindow class."""
+        return self._ok(self._message_window)
+
+    def CreateDrawWnd(self, ocx=None):
+        """Create the draw window (CreateDrawWnd).
+
+        scPOST passes an OCX dispatch for split-window callbacks; the
+        flowviewer draw window is part of the main window, so the flag
+        is recorded and the DrawWindow class is returned.
+        """
+        self._flags["draw_window_created"] = True
+        return self._ok(self._draw_window)
+
+    def GetDockableWindow(self, wtype):
+        """Window handle of MAINWINDOW/DRAWWINDOW/MESSAGEWINDOW/
+        CONTROLWINDOW (GetDockableWindow); 0 when headless."""
+        gui = _bridge_gui()
+        name = str(wtype or "").upper()
+        if gui is None or not hasattr(gui, "winId"):
+            return self._ok(0)
+        try:
+            if name in ("MAINWINDOW", "DRAWWINDOW", ""):
+                return self._ok(int(gui.winId()))
+            if name == "MESSAGEWINDOW":
+                msg_win = getattr(gui, "message_win", None)
+                return self._ok(int(msg_win.winId())
+                                if msg_win is not None else 0)
+        except Exception:
+            pass
+        return self._ok(0)          # CONTROLWINDOW: no separate pane
+
+    def Dock(self, myClassType, toWndName="", to_mu=1, to_rate=0.5):
+        """Dock a window into another (Dock); always 0 (recorded only —
+        the flowviewer layout is fixed)."""
+        self._flags["dock"] = (str(myClassType), str(toWndName),
+                               int(to_mu), float(to_rate))
+        return 0
+
+    def GetObjectActiveFLD(self):
+        """The active FLDFile (GetObjectActiveFLD).
+
+        The flowviewer Application merges the scPOST Application and
+        FLDFile roles into one object, so the active FLD is this same
+        instance; its metadata dict is returned for scripting."""
+        try:
+            self._need_ff()
+            return self._ok(self._metadata())
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetObjectFLDbyID(self, fid):
+        """FLDFile by id (GetObjectFLDbyID); flowviewer holds one FLD at
+        a time so only id 0 is valid."""
+        try:
+            if int(fid) != 0:
+                raise ValueError(
+                    "flowviewer holds a single FLD; only id 0 exists")
+            self._need_ff()
+            return self._ok(self._metadata())
+        except Exception as exc:
+            return self._fail(exc)
+
+    def AlignObjectsAlongAnotherObject(self, position):
+        """Align selected objects along the last-selected object
+        (AlignObjectsAlongAnotherObject).  Needs a GUI selection."""
+        pos = str(position or "").lower()
+        if pos not in self._ALIGN_POSITIONS:
+            return self._fail(ValueError(
+                "position must be one of %s" %
+                ", ".join(self._ALIGN_POSITIONS)))
+        gui = _bridge_gui()
+        handler = getattr(gui, "align_objects_along_object", None) \
+            if gui else None
+        if handler is None:
+            return self._ok(False)   # no GUI selection to align
+        try:
+            return self._ok(bool(handler(pos)))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def AlignObjectsAlongPane(self, position):
+        """Align selected objects along the pane / clipping frame
+        (AlignObjectsAlongPane).  Needs a GUI selection."""
+        pos = str(position or "").lower()
+        if pos not in self._ALIGN_POSITIONS:
+            return self._fail(ValueError(
+                "position must be one of %s" %
+                ", ".join(self._ALIGN_POSITIONS)))
+        gui = _bridge_gui()
+        handler = getattr(gui, "align_objects_along_pane", None) \
+            if gui else None
+        if handler is None:
+            return self._ok(False)
+        try:
+            return self._ok(bool(handler(pos)))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def DefineVar(self, varname):
+        """Register a user STA command (DefineVar); returns its id."""
+        name = str(varname or "")
+        if not name:
+            return self._fail(ValueError("empty varname"))
+        if name in self._defined_vars:
+            return self._ok(self._defined_vars.index(name))
+        self._defined_vars.append(name)
+        return self._ok(len(self._defined_vars) - 1)
+
+    def DropFile(self, path):
+        """Emulate drag & drop (DropFile): FLD-family files open, STA
+        files apply onto the current field; anything else fails."""
+        try:
+            p = str(path)
+            low = p.lower()
+            if low.endswith(".sta"):
+                return self._ok(bool(self.ApplySTA(p)))
+            from .model.dataset import load_file
+            ff = load_file(p)
+            if not (getattr(ff, "n_vertices", 0) or
+                    getattr(ff, "n_cells", 0)):
+                raise ValueError("no mesh in %r" % p)
+            gui = _bridge_gui()
+            if gui is not None and hasattr(gui, "_load_field_file"):
+                gui._load_field_file(p)
+                return self._ok(True)
+            with self._lock:
+                self._ff = ff
+            self._cp.fire("on_open", p)
+            return self._ok(True)
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetCurNP(self):
+        """Processing parallel number (GetCurNP); flowviewer is
+        single-threaded, always 1."""
+        return self._ok(1)
+
+    def GetDisplayLOGO(self):
+        """Whether the company logo is displayed (GetDisplayLOGO)."""
+        return self._ok(bool(self._flags["display_logo"]))
+
+    def GetEnvInfo(self):
+        """Start-up environment info string (GetEnvInfo)."""
+        import platform
+        import sys
+        try:
+            return self._ok(
+                "flowviewer %s / Python %s / %s" %
+                (VERSION, sys.version.split()[0],
+                 platform.platform(True)))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def ObjectNameDisplay(self, show):
+        """Show/hide object-name balloons (ObjectNameDisplay)."""
+        self._set_flag("display_obj_name", int(show) != 0)
+        return 0
+
+    def PikaPika(self, mode):
+        """Direct light-preset button (PikaPika): 1 weak / 2 bright /
+        3 Evaluation / 4 Metalic / 5 Shick / 6 Glossy."""
+        try:
+            m = int(mode)
+            if not 1 <= m <= 6:
+                raise ValueError("mode must be 1..6")
+            brightness = {1: 0.6, 2: 1.4, 3: 1.0, 4: 1.0, 5: 1.2,
+                          6: 1.3}[m]
+            light = self._global_window.SetLight(brightness=brightness)
+            light.title = "Light (%d)" % m
+            return self._ok(True)
+        except Exception as exc:
+            return self._fail(exc)
+
+    def SetBeepAll(self, use):
+        """Enable/disable all beeps (SetBeepAll)."""
+        return self._set_flag("beep_all", use)
+
+    def SetDefaultAll(self, mode):
+        """Reset every setting to default (SetDefaultAll); mode must
+        be 0."""
+        if int(mode) != 0:
+            return self._fail(ValueError("mode must be 0"))
+        self._flags.update({
+            "display_axis": True, "display_fld": True,
+            "display_title_cycle": True, "display_title_path": True,
+            "display_title_time": True, "display_obj_name": False,
+            "display_logo": False, "display_hint": True,
+            "display_draw_mode": False, "use_undo_buffer": True,
+            "use_autosave": False, "beep_all": False,
+            "no_default_obj": False, "no_progress_bar": False,
+            "no_next_elements": False, "not_reduce_riddge": False,
+            "operate_object_enabled": True, "operation_type": "1",
+            "no_controls": False, "user_control": False,
+            "write_back_to_env_file": True, "visible": False,
+        })
+        return self._ok(True)
+
+    def SetDisplayDrawMode(self, show):
+        """Show/hide the draw mode in the drawing window."""
+        return self._set_flag("display_draw_mode", show)
+
+    def SetDisplayHint(self, show):
+        """Show/hide hints (SetDisplayHint)."""
+        return self._set_flag("display_hint", show)
+
+    def SetDisplayLOGO(self, show):
+        """Show/hide the logo (SetDisplayLOGO)."""
+        return self._set_flag("display_logo", show)
+
+    def SetNoControls(self):
+        """Shrink the app window to the desktop corner (SetNoControls)."""
+        self._flags["no_controls"] = True
+        return True
+
+    def SetNoDefaultObj(self, nouse):
+        """Suppress default-object creation (SetNoDefaultObj)."""
+        return self._set_flag("no_default_obj", nouse)
+
+    def SetNoNextElements(self, ondisk):
+        """Store neighbouring-element data on disk (SetNoNextElements)."""
+        return self._set_flag("no_next_elements", ondisk)
+
+    def SetNoProgressBar(self, nouse):
+        """Hide the file-reading progress bar (SetNoProgressBar)."""
+        return self._set_flag("no_progress_bar", nouse)
+
+    def SetNotReduceRiddge(self, enabled):
+        """Disable outline thinning (SetNotReduceRiddge)."""
+        return self._set_flag("not_reduce_riddge", enabled)
+
+    def SetOperateObjectEnabled(self, enabled):
+        """Enable/disable the operate object (SetOperateObjectEnabled)."""
+        return self._set_flag("operate_object_enabled", enabled)
+
+    def SetOperationType(self, name):
+        """Select the mouse-operation system (SetOperationType): "1",
+        "2", "3C", "3", "A".."G"."""
+        t = str(name or "").strip().upper()
+        if t not in self._MOUSE_OPERATION_TYPES:
+            return self._ok(False)
+        self._flags["operation_type"] = t
+        return self._ok(True)
 
     # ── application misc (scPOST R2.6) ─────────────────────────────────
 

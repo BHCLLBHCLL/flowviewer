@@ -1,8 +1,8 @@
 # flowviewer 功能差距全面分析（2026-08-16，第七轮评估）
 
-> **最新状态（2026-08-17 第十二轮 P0 执行后）见文末 §8.7**：第十二轮 P0 四项
-> 全部落地，FLD File COM 覆盖率 84.0%→**93.4%**、Application 43.5%→**53.2%**，
-> 整体端到端深度 **~90%**；§8.1–8.6 为第十一轮评估基线。
+> **最新状态（2026-08-17 第十二轮 P1 执行后）见文末 §8.8**：COM 覆盖率
+> FLDFile 93.4%→**100%**（106/106）、Application 53.2%→**100%**（62/62），
+> 整体端到端深度 **~91%**；§8.1–8.6 为第十一轮评估基线、§8.7 为 P0 记录。
 
 > 分析日期：2026-08-16（会话执行）
 > 对比基准：Cradle CFD 2025.2 scPOST（VB 接口 41 个公开类 + FLD File 类 125 方法面）
@@ -428,4 +428,28 @@ FLDFile 达 84.0%。项目处于**「覆盖 ~100%、端到端深度 ~89%」**。
 （r12p0 系列：FLD 开变体真文件往返、Compare 零差、视角/视口校验、
 诚实失败路径）全过。
 
-**整体端到端深度：~90%**（API 广度项大幅收敛后达成 8.5 节预期上沿）。
+### 8.8 第十二轮 P1 执行记录（2026-08-17，COM 覆盖 100%）
+
+对照 vb_fldfile.txt / vb_application.txt Method List 与 D:/training/cradle
+scflow/st 官方 VBS 样例（ex9/ex10），补齐全部剩余 COM 表面：
+
+| 计划项 | 内容 | 状态 |
+|---|---|---|
+| P1-1 | FLD 7 方法：GetNextNodes（节点邻接，topology.node_neighbours 带缓存）、GetElemBySurf（面→所属单元）、GetSurfaceArray（表面区域表 (name, face_ids)）、GetSurfaceArray2（面→区域名）、GetVolumeArray2（单元→体区域名）、GetCurCycOpeNum（周期操作列表长度）、GetLatestStaPath（最后应用 STA 路径，ApplySTA/bySTA 写入） | ✅ |
+| P1-2 | Application 29 方法 + 3 属性：窗口族 GetDrawWindow/GetGlobalWindow/GetMessageWindow/CreateDrawWnd/GetDockableWindow/Dock；FLD 对象族 GetObjectActiveFLD/GetObjectFLDbyID；对齐族 AlignObjectsAlongAnotherObject/AlongPane（6 位置词校验，无 GUI 诚实 False）；DefineVar/DropFile（FLD 开、STA 应用、垃圾拒绝）/GetCurNP/GetDisplayLOGO/GetEnvInfo/ObjectNameDisplay/PikaPika（1–6 亮度预设直打 GlobalWindow Light）/SetBeepAll/SetDefaultAll（flags 全复位）/SetDisplayDrawMode/Hint/LOGO/SetNoControls/SetNoDefaultObj/SetNoNextElements/SetNoProgressBar/SetNotReduceRiddge/SetOperateObjectEnabled/SetOperationType（1/2/3C/3/A–G 校验）；属性 UserControl/Visible/WriteBackToEnvFile 读写 | ✅ |
+| P1-3 | 5 个窗口类：MessageWindowClass（AddMessage/GetMessages/Clear/SaveLogFile，桥接 GUI 消息窗）、GlobalWindowClass（Colorbar/Gradation/Camera/Light + SetLight）、DrawWindowClass（Refresh/GetRenderWindow/Screenshot）、SaveBitmapsClass（位图系列登记/保存）、EnvironmentClass（flags 键值视图 + Reset） | ✅ |
+| P1-4 | 修复：api.py `_face_count`/`surface_region_table` 缺 numpy 导入（上一轮遗留 NameError）；Region 字段名 `face_ids`；**open_sequence 用周期号 1 而非首成员周期号加载 → `_ff` 为 None 的预存 bug** | ✅ |
+
+**覆盖率实测**（`_tmp_cov.py`，Method List 区间止于 Contents）：
+
+| 类 | r12 P0 后 | r12 P1 后 |
+|---|---|---|
+| FLDFile（106 法） | 93.4%（99/106） | **100.0%（106/106）** |
+| Application（62 法） | 53.2%（33/62） | **100.0%（62/62）** |
+
+**回归**：新增 3 个 COM 测试（r121 系列：FPH 邻接/区域表/ErrorCode 通道、
+序列 GetCurCycOpeNum + STA 路径、窗口类 + 29 方法 + 3 属性 + DropFile/
+Environment）全过；64 项真文件冒烟（FPH 多面体 + FLD NGON + 序列）零失败。
+
+**整体端到端深度：~91%**（COM 双类覆盖面 100% 后，剩余差距集中在
+ShellExecute 沙箱、FBX/CradleViewer 外部格式、Draw Window settings UI）。

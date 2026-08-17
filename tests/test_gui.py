@@ -5158,3 +5158,134 @@ def test_r12p0_scene_export_honest_fail():
     assert app.SaveGLTF("out.gltf") is None and app.ErrorCode != 0
     assert app.SaveFBX("out.fbx") is None and "FBX" in app.ErrorString
     assert app.SaveCradleViewer("out.cvw") is None
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_r121_fld_adjacency_region_tables():
+    """r12.1: GetNextNodes/GetElemBySurf/GetSurfaceArray(2)/GetVolumeArray2."""
+    from fv.com import FlowviewerApplication
+    app = FlowviewerApplication()
+    app.open_file(FPH)
+
+    nn = app.GetNextNodes(0, None)              # ByRef VARIANT shape kept
+    assert isinstance(nn, list) and len(nn) > 0
+    assert app.ErrorCode == 0
+
+    elem = app.GetElemBySurf(0)
+    assert isinstance(elem, int) and elem >= 0
+
+    tbl = app.GetSurfaceArray(None, None)
+    assert tbl and isinstance(tbl[0], tuple) and len(tbl[0]) == 2
+    names = app.GetSurfaceArray2(tbl[0][1][0], None, None)
+    assert tbl[0][0] in names
+
+    assert isinstance(app.GetVolumeArray2(elem, None, None), list)
+
+    # out-of-range face id -> ErrorCode channel
+    assert app.GetElemBySurf(10 ** 9) is None and app.ErrorCode != 0
+    assert app.GetSurfaceArray2(10 ** 9, None, None) is None
+
+    # GetCurCycOpeNum needs a sequence; GetLatestStaPath starts empty
+    assert app.GetCurCycOpeNum() is None and app.ErrorCode != 0
+    assert app.GetLatestStaPath() == ""
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_r121_fld_cyc_openum_latest_sta(tmp_path):
+    """r12.1: GetCurCycOpeNum over a sequence; GetLatestStaPath after STA."""
+    from fv import api
+    from fv.com import FlowviewerApplication
+    from fv.model.objects import MainObject
+
+    app = FlowviewerApplication()
+    n = app.open_sequence(FPH)
+    assert n > 0 and app.GetCurCycOpeNum() == n
+
+    main = MainObject.from_field_file(app._ff, magic=True)
+    sta = tmp_path / "r121.sta"
+    assert api.save_sta(main, str(sta))
+    assert app.ApplySTA(str(sta)) is True
+    assert app.GetLatestStaPath() == str(sta)
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_r121_application_windows_and_config():
+    """r12.1: window classes + the 29 Application methods + properties."""
+    from fv.com import FlowviewerApplication
+    app = FlowviewerApplication()
+    app.open_file(FPH)
+
+    # window classes
+    dw = app.GetDrawWindow()
+    assert dw is not None and dw.IsVisible() is True
+    gw = app.GetGlobalWindow()
+    assert gw is not None and gw.GetLight() is None
+    light = gw.SetLight(brightness=1.5)
+    assert light.brightness == 1.5 and gw.GetLight() is light
+    mw = app.GetMessageWindow()
+    assert mw.AddMessage("hi") is True
+    assert mw.Count == 1 and mw.GetMessages() == [("INFO", "hi")]
+    assert app.CreateDrawWnd(None) is dw
+    assert app.GetDockableWindow("MAINWINDOW") == 0   # headless
+    assert app.Dock("PLANE", "CTRL", 2, 0.5) == 0
+    assert app._savebitmaps.AddBitmap("x.png") == 1
+    assert app._savebitmaps.SaveBitmaps() == 0        # headless: no shot
+    assert app._savebitmaps.Clear() is True
+
+    # FLD object access
+    act = app.GetObjectActiveFLD()
+    assert act["n_cells"] > 0
+    assert app.GetObjectFLDbyID(0) == act
+    app.GetObjectFLDbyID(1)
+    assert app.ErrorCode != 0
+
+    # config family
+    assert app.GetCurNP() == 1
+    assert app.GetDisplayLOGO() is False
+    assert app.SetDisplayLOGO(True) is True and app.GetDisplayLOGO() is True
+    assert "flowviewer" in app.GetEnvInfo()
+    assert app.ObjectNameDisplay(1) == 0
+    assert app.PikaPika(2) is True and gw.GetLight().brightness == 1.4
+    app.PikaPika(9)
+    assert app.ErrorCode != 0
+    assert app.AlignObjectsAlongAnotherObject("left") is False  # no GUI
+    app.AlignObjectsAlongAnotherObject("diagonal")
+    assert app.ErrorCode != 0
+    assert app.AlignObjectsAlongPane("top") is False
+    assert app.DefineVar("MYCMD") == 0
+    assert app.DefineVar("OTHER") == 1
+    assert app.DefineVar("MYCMD") == 0
+    assert app.SetBeepAll(True) is True
+    assert app.SetDefaultAll(0) is True and app.GetDisplayLOGO() is False
+    app.SetDefaultAll(1)
+    assert app.ErrorCode != 0
+    assert app.SetDisplayDrawMode(True) is True
+    assert app.SetDisplayHint(False) is True
+    assert app.SetNoControls() is True
+    assert app.SetNoDefaultObj(True) is True
+    assert app.SetNoNextElements(True) is True
+    assert app.SetNoProgressBar(True) is True
+    assert app.SetNotReduceRiddge(True) is True
+    assert app.SetOperateObjectEnabled(False) is True
+    assert app.SetOperationType("3c") is True
+    assert app.SetOperationType("X") is False
+
+    # properties (UserControl / Visible / WriteBackToEnvFile)
+    app.UserControl = True
+    assert app.UserControl is True
+    app.Visible = True
+    assert app.Visible is True
+    app.WriteBackToEnvFile = False
+    assert app.WriteBackToEnvFile is False
+
+    # DropFile opens a real file, rejects junk
+    assert app.DropFile(FPH) is True
+    assert app.DropFile("no_such.bin") is None and app.ErrorCode != 0
+
+    # Environment object view
+    env = app._environment
+    assert env.SetValue("beep_all", True) is True
+    assert env.GetValue("beep_all") is True
+    assert env.SetValue("nope", 1) is False
+    assert isinstance(env.GetAll(), dict)
+

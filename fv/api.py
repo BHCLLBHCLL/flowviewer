@@ -1120,6 +1120,102 @@ def get_nodes_of_surface_region(ff, surface_name) -> list:
     return topology.nodes_of_surface_region(ff, surface_name)
 
 
+# ── adjacency / region-table queries (r12.1 COM 100%, from official
+#    STpost VBS samples ex10/ex9 and the VB reference) ───────────────────
+
+def get_next_nodes(ff, node_id) -> list:
+    """Neighbour node ids sharing an edge with *node_id* (GetNextNodes)."""
+    from .model import topology
+    return topology.node_neighbours(ff, int(node_id))
+
+
+def get_elem_by_surf(ff, ngfb) -> int:
+    """Element owning boundary face *ngfb* (GetElemBySurf).
+
+    Returns the owner cell of the face, or -1 when the face id is out of
+    range / the file stores no face table.
+    """
+    from .model import topology
+    f = int(ngfb)
+    n_faces = _face_count(ff)
+    if n_faces and not (0 <= f < n_faces):
+        raise IndexError("face id out of range")
+    owner, _neigh = topology.cells_of_face(ff, f)
+    return owner
+
+
+def _face_count(ff) -> int:
+    import numpy as np
+    if getattr(ff, "poly", False):
+        ld = ff.link_data
+        return int(len(np.asarray(ld["face_offsets"])) - 1)
+    faces = getattr(ff, "faces", None)
+    return len(faces) if faces else 0
+
+
+def surface_region_table(ff) -> list:
+    """Registered surface regions as [(name, [face_id, ...]), ...]
+    (GetSurfaceArray)."""
+    import numpy as np
+    out = []
+    for r in ff.boundary_regions():
+        ids = getattr(r, "face_ids", None)
+        if ids is None:
+            ids = getattr(r, "ids", [])
+        out.append((r.name, [int(x) for x in np.asarray(ids,
+                                                        dtype=np.int64)]))
+    return out
+
+
+def volume_region_table(ff) -> list:
+    """Registered volume regions as [(name, [cell_id, ...]), ...]
+    (companion of GetSurfaceArray for volume regions)."""
+    import numpy as np
+    from .model import topology
+    n = int(getattr(ff, "n_cells", 0))
+    out = []
+    for name in volume_region_names(ff):
+        mask = topology._region_cell_mask(ff, name)
+        ids = ([int(c) for c in np.nonzero(mask)[0]]
+               if len(mask) == n else [])
+        out.append((name, ids))
+    return out
+
+
+def get_surface_regions_of_face(ff, ngfb) -> list:
+    """Names of surface regions containing face *ngfb* (GetSurfaceArray2)."""
+    f = int(ngfb)
+    n_faces = _face_count(ff)
+    if n_faces and not (0 <= f < n_faces):
+        raise IndexError("face id out of range")
+    out = []
+    for name, ids in surface_region_table(ff):
+        if f in ids:
+            out.append(name)
+    return out
+
+
+def get_volume_regions_of_element(ff, elem) -> list:
+    """Volume-region names containing element *elem* (GetVolumeArray2)."""
+    from .model import topology
+    c = int(elem)
+    if not (0 <= c < int(getattr(ff, "n_cells", 0))):
+        raise IndexError("element id out of range")
+    out = []
+    for name in volume_region_names(ff):
+        mask = topology._region_cell_mask(ff, name)
+        if len(mask) == getattr(ff, "n_cells", 0) and mask[c]:
+            out.append(name)
+    return out
+
+
+def get_cur_cyc_ope_num(rt) -> int:
+    """Number of files in the current cycle-operation list
+    (GetCurCycOpeNum); 0 when no sequence is open."""
+    fs = getattr(rt, "fs", None)
+    return len(fs.members) if fs is not None else 0
+
+
 # ── MAT / VOL / RGN lookup family (scPOST 互查族, R2.3) ────────────────
 
 def _mat_ids(ff) -> list:
