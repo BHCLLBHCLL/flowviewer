@@ -422,7 +422,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         # Option
         m = mb.addMenu("Option")
         add(m, "Mouse 1-Button Mode",
-            lambda: self._set_mouse_mode("trackball"))
+            lambda: self._set_mouse_mode("onebutton"))
         add(m, "Mouse 2-Button Mode",
             lambda: self._set_mouse_mode("rubber"))
         add(m, "Mouse 3-Button Mode",
@@ -1872,13 +1872,16 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
     def _set_mouse_mode(self, mode: str) -> None:
         self._mouse_mode = mode
-        self._op_label.setText(mode.capitalize())
+        labels = {"onebutton": "1-Button", "trackball": "3-Button",
+                  "rubber": "2-Button", "select": "Select"}
+        self._op_label.setText(labels.get(mode, mode.capitalize()))
         for act, name in (
             (self._act_trackball, "trackball"),
             (self._act_rubber, "rubber"),
             (self._act_select, "select"),
         ):
-            act.setChecked(mode == name)
+            act.setChecked(mode == name or (
+                name == "trackball" and mode == "onebutton"))
         if not self._enable_3d or self.vtk_widget is None or not self._iren_ready:
             return
         iren = self.vtk_widget.GetRenderWindow().GetInteractor()
@@ -1890,13 +1893,17 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 vtkInteractorStyleRubberBandZoom = (
                     vtk.vtkInteractorStyleRubberBandZoom)
             iren.SetInteractorStyle(vtkInteractorStyleRubberBandZoom())
-            self.message_win.log("Mouse: Rubber-band zoom")
+            self.message_win.log("Mouse: 2-Button rubber-band zoom")
         elif mode == "select":
             self._set_select_style(iren)
+        elif mode == "onebutton":
+            self._set_onebutton_style(iren)
+            self.message_win.log(
+                "Mouse: 1-Button — L-rotate / Shift+L-pan / Ctrl+L-zoom")
         else:
             self._set_trackball_style(iren)
             self.message_win.log(
-                "Mouse: Trackball — L-rotate / M-pan / R-zoom")
+                "Mouse: 3-Button — L-rotate / M-pan / R-zoom")
 
     def _set_trackball_style(self, iren) -> None:
         try:
@@ -1907,6 +1914,47 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 vtk.vtkInteractorStyleTrackballCamera)
         self._trackball_style = vtkInteractorStyleTrackballCamera()
         iren.SetInteractorStyle(self._trackball_style)
+
+    def _set_onebutton_style(self, iren) -> None:
+        """scPOST 1-Button: left-drag rotate, Shift+left pan, Ctrl+left zoom."""
+        if vtk is None:
+            self._set_trackball_style(iren)
+            return
+        try:
+            from vtkmodules.vtkInteractionStyle import (
+                vtkInteractorStyleTrackballCamera)
+        except Exception:
+            vtkInteractorStyleTrackballCamera = (
+                vtk.vtkInteractorStyleTrackballCamera)
+
+        class _OneButtonStyle(vtkInteractorStyleTrackballCamera):
+            def OnLeftButtonDown(self):
+                ir = self.GetInteractor()
+                if ir is not None and ir.GetControlKey():
+                    self.StartDolly()
+                elif ir is not None and ir.GetShiftKey():
+                    self.StartPan()
+                else:
+                    self.StartRotate()
+
+            def OnLeftButtonUp(self):
+                st = self.GetState()
+                if st == 4:       # VTKIS_DOLLY
+                    self.EndDolly()
+                elif st == 2:     # VTKIS_PAN
+                    self.EndPan()
+                else:
+                    self.EndRotate()
+
+            def OnRightButtonDown(self):
+                return
+
+            def OnMiddleButtonDown(self):
+                return
+
+        style = _OneButtonStyle()
+        self._trackball_style = style
+        iren.SetInteractorStyle(style)
 
     def _set_select_style(self, iren) -> None:
         """R1.2: rubber-band pick style — drag to select objects."""
@@ -2097,6 +2145,29 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             scalar_on = bool(scalar_var)
             vector_var = getattr(obj, "vector_var", "") or ""
             vector_on = bool(vector_var)
+        elif kind == "point":
+            scalar_var = getattr(obj, "probe_scalar_var", "") or ""
+            vector_var = getattr(obj, "probe_vector_var", "") or ""
+            scalar_on = bool(getattr(obj, "probe_scalar", True) and scalar_var)
+            vector_on = bool(getattr(obj, "probe_vector", False) and vector_var)
+        elif kind in ("bar", "curve", "turbo", "ufo", "graph"):
+            scalar_var = getattr(obj, "variable", "") or ""
+            scalar_on = bool(scalar_var)
+        else:
+            # Remaining kinds: first non-empty displayed field attribute.
+            for attr in ("contour_var", "scalar_var", "color_var",
+                         "variable", "probe_scalar_var"):
+                v = getattr(obj, attr, "") or ""
+                if v:
+                    scalar_var = v
+                    scalar_on = True
+                    break
+            for attr in ("vector_var", "probe_vector_var"):
+                v = getattr(obj, attr, "") or ""
+                if v:
+                    vector_var = v
+                    vector_on = True
+                    break
         return scalar_var, vector_var, scalar_on, vector_on
 
     def _try_fill_measure_pick(self, point) -> bool:

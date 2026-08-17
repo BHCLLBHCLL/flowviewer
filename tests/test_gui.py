@@ -4205,6 +4205,39 @@ def test_r11_pick_vars_mapping(qapp):
                      pick_vector=True, pick_vector_var="VEL")
     assert w._pick_vars(pl) == ("PRES", "VEL", True, True)
 
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_r13_pick_vars_remaining_kinds(qapp):
+    """Pick probe covers point/bar/curve/turbo/ufo/graph (not just 9 kinds)."""
+    from fv.model.objects import (BarObject, CurveObject, GraphObject,
+                                  PointObject, TurboObject, UFOObject)
+    w = _make(qapp, FPH)
+    pt = PointObject(index=1, probe_scalar=True, probe_scalar_var="PRES",
+                     probe_vector=True, probe_vector_var="VEL")
+    assert w._pick_vars(pt) == ("PRES", "VEL", True, True)
+    bar = BarObject(index=1, variable="PRES")
+    assert w._pick_vars(bar) == ("PRES", "", True, False)
+    crv = CurveObject(index=1, variable="PRES")
+    assert w._pick_vars(crv)[0] == "PRES"
+    tb = TurboObject(index=1, variable="PRES")
+    assert w._pick_vars(tb)[0] == "PRES"
+    ufo = UFOObject(index=1, variable="PRES")
+    assert w._pick_vars(ufo)[0] == "PRES"
+    gr = GraphObject(index=1, variable="PRES")
+    assert w._pick_vars(gr)[0] == "PRES"
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_r13_mouse_1_vs_3_button(qapp):
+    """Option menu 1-Button and 3-Button are distinct modes."""
+    w = _make(qapp, FPH)
+    w._set_mouse_mode("onebutton")
+    assert w._mouse_mode == "onebutton"
+    w._set_mouse_mode("trackball")
+    assert w._mouse_mode == "trackball"
+    w._set_mouse_mode("rubber")
+    assert w._mouse_mode == "rubber"
+
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_r12_lock_and_rename(qapp):
     """R1.2: lock blocks delete; toggle unlocks; rename updates title."""
