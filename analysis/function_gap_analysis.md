@@ -451,6 +451,7 @@ scflow/st 官方 VBS 样例（ex9/ex10），补齐全部剩余 COM 表面：
 **回归**：新增 3 个 COM 测试（r121 系列：FPH 邻接/区域表/ErrorCode 通道、
 序列 GetCurCycOpeNum + STA 路径、窗口类 + 29 方法 + 3 属性 + DropFile/
 Environment）全过；64 项真文件冒烟（FPH 多面体 + FLD NGON + 序列）零失败。
+全量套件终判 **348 passed + 1 skipped**（2026-08-18，0d7dfb5/05da721 对齐 3 处顺序依赖断言：ShellExecute 失败语义、GetLight 默认灯、GetDockableWindow 双态返回码）。
 
 **整体端到端深度：~91%**（COM 双类覆盖面 100% 后，剩余差距集中在
 ShellExecute 沙箱、FBX/CradleViewer 外部格式、Draw Window settings UI）。
