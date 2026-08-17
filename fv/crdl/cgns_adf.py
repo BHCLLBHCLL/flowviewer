@@ -87,9 +87,10 @@ def _decode_array(data_type, dims, payload, fmt):
         raise ValueError("ADF data payload shorter than dims")
     payload = payload[:need]
     if kind == "bytes":
-        return payload
+        return bytes(payload)
     prefix = {"B": ">", "L": "<"}.get(fmt, "=")
     arr = np.frombuffer(payload, dtype=prefix + kind, count=n)
+    arr = np.array(arr, copy=True)
     return arr.reshape(dims) if len(dims) > 1 else arr
 
 
@@ -141,12 +142,25 @@ def _read_data(data, data_type, dims, nchunks, ptr, fmt):
 
 
 def read_adf(path):
-    """Parse an ADF file into an AdfNode tree (root = first node)."""
+    """Parse an ADF file into an AdfNode tree (root = first node).
+
+    The file is memory-mapped so large databases are not copied into a
+    Python ``bytes`` object before the node walk.  Array payloads are
+    copied out of the map so the result survives after the file closes.
+    """
+    import mmap
     with open(path, "rb") as f:
-        data = f.read()
+        data = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+        try:
+            return _parse_adf(data, path)
+        finally:
+            data.close()
+
+
+def _parse_adf(data, path):
     if len(data) < 186 or data[32:36] != b"AdF0":
         raise ValueError(path + ": not an ADF database")
-    fmt = chr(data[100])
+    fmt = chr(data[100] if isinstance(data[100], int) else ord(data[100]))
     if fmt not in ("B", "L", "N"):
         raise ValueError(path + ": unsupported numeric format " + repr(fmt))
     root_abs = _ptr_abs(data, 134)
@@ -461,9 +475,13 @@ def read_cgns_adf(path):
     except Exception:
         return None
     bases = [n for n in root.children.values() if n.label == "CGNSBase_t"]
-    base = bases[0] if bases else root
-    zones = _cgns_zones(base)
-    if not zones:
+    if not bases:
+        bases = [root]
+    zone_jobs = []  # (base, zone)
+    for base in bases:
+        for zone in _cgns_zones(base):
+            zone_jobs.append((base, zone))
+    if not zone_jobs:
         return None
     all_verts = []
     all_conn = []
@@ -472,8 +490,10 @@ def read_cgns_adf(path):
     zone_nv = []
     zone_nc = []
     surface_regions = []
+    volume_regions = []
     vert_offset = 0
-    for zone in zones:
+    multi_base = len(bases) > 1
+    for base, zone in zone_jobs:
         if _zone_type(zone) == "Structured":
             out = _structured_adf(zone)
             if out is None:
@@ -498,7 +518,11 @@ def read_cgns_adf(path):
         zone_nv.append(n_v)
         zone_nc.append(n_c)
         for n, ids in _bcs_adf(zone):
+            if multi_base:
+                n = "%s/%s" % (base.name, n)
             surface_regions.append((n, ids))
+        vol_name = ("%s/%s" % (base.name, zone.name)) if multi_base else zone.name
+        volume_regions.append(vol_name)
         vert_offset += n_v
     if not all_verts:
         return None
@@ -538,6 +562,7 @@ def read_cgns_adf(path):
             fields[fname] = (node_arr, "node")
         elif cell_arr.size:
             fields[fname] = (cell_arr, "cell")
+    first_base, first_zone = zone_jobs[0]
     return {
         "vertices": vertices,
         "cell_conn": cell_conn,
@@ -546,8 +571,9 @@ def read_cgns_adf(path):
         "n_cells": total_c,
         "fields": fields,
         "surface_regions": surface_regions,
-        "volume_regions": [z.name for z in zones],
-        "zone_name": zones[0].name,
-        "base_name": base.name,
+        "volume_regions": volume_regions,
+        "zone_name": first_zone.name,
+        "base_name": ",".join(b.name for b in bases),
+        "n_bases": len(bases),
         "adf": True,
     }

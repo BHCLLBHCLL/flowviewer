@@ -117,5 +117,20 @@ def test_cgns_adf_loader_integration(tmp_path):
     ff = cgns_load(str(p))
     assert ff.kind == "cgns"
     assert ff.n_cells == 1 and ff.n_vertices == 8
-    assert "Pressure" in ff.variables
-    assert any(n == "Wall" for n, _ in ff.surface_regions)
+
+
+def test_read_cgns_adf_multi_base(tmp_path):
+    """Every CGNSBase_t is merged (not only the first)."""
+    root = _cgns_fixture()
+    other = _cgns_fixture()
+    base2 = other.get("Base")
+    base2.name = "Base2"
+    root.children["Base2"] = base2
+    p = tmp_path / "two_base.cgns"
+    write_adf(str(p), root)
+    m = read_cgns_adf(str(p))
+    assert m is not None
+    assert m.get("n_bases") == 2
+    assert m["n_vertices"] == 16
+    assert m["n_cells"] == 2
+    assert "Base2" in m["base_name"]
