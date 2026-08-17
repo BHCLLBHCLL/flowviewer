@@ -1989,6 +1989,25 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             scalar_on = bool(scalar_var)
             vector_var = getattr(obj, "vector_var", "") or ""
             vector_on = bool(vector_var)
+        elif kind in ("cylinder", "circle"):   # r12 P0-3: contour/vector tabs
+            if getattr(obj, "show_contour", False):
+                scalar_var = getattr(obj, "contour_var", "") or ""
+                scalar_on = bool(scalar_var)
+            if getattr(obj, "show_vector", False):
+                vector_var = getattr(obj, "vector_var", "") or ""
+                vector_on = bool(vector_var)
+        elif kind == "particle":               # r12 P0-3: scalar/vector tabs
+            if getattr(obj, "show_scalar", False):
+                scalar_var = getattr(obj, "scalar_var", "") or ""
+                scalar_on = bool(scalar_var)
+            if getattr(obj, "show_vector", False):
+                vector_var = getattr(obj, "vector_var", "") or ""
+                vector_on = bool(vector_var)
+        elif kind == "pathline":               # r12 P0-3: color/vector vars
+            scalar_var = getattr(obj, "color_var", "") or ""
+            scalar_on = bool(scalar_var)
+            vector_var = getattr(obj, "vector_var", "") or ""
+            vector_on = bool(vector_var)
         return scalar_var, vector_var, scalar_on, vector_on
 
     def _try_fill_measure_pick(self, point) -> bool:

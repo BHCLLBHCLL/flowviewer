@@ -1,7 +1,9 @@
 """Nastran (.nas/.bdf) text mesh reader (D2).
 
 Parses free-field GRID / CHEXA / CTETRA / CPENTA / CPYRAM cards into
-the mesh-dict shape.  Results (.op2/.f06) are out of scope.
+the mesh-dict shape.  Binary results (.op2) are read by fv.crdl.op2 via
+pyNastran (displacements / eigenvectors / solid stresses); .f06 text
+summaries remain out of scope.
 """
 
 from __future__ import annotations

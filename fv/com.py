@@ -259,6 +259,13 @@ class FlowviewerApplication:
         "GetVariableInfo", "GetVariableMin", "GetVariableMax",
         # status / export
         "SaveSTA", "ApplySTA", "SaveSTL", "SaveVariableOutput",
+        "SaveVRML", "SaveGLTF", "SaveFBX", "SaveCradleViewer",
+        # compare / viewpoint (r12 P0-1)
+        "Compare", "GetCurCycle", "GetBaseScale",
+        "GetViewPoint", "SetViewPoint", "SetViewPort",
+        # FLD open variants (r12 P0-2)
+        "CreateObjectFLD", "CreateObjectFLD2", "CreateObjectFLDbySTA",
+        "CreateObjectFld_TRIM", "IsThisFldValid", "Quit",
         # application state (Set* family + animation)
         "SetDisplayAxis", "SetDisplayFLD", "SetDisplayTitleCycle",
         "SetDisplayTitlePath", "SetDisplayTitleTime", "SetDisplayObjName",
@@ -393,6 +400,12 @@ class FlowviewerApplication:
     def quit(self):
         """Alias of close (scPOST VBS compatibility)."""
         self.close()
+
+    def Quit(self):
+        """Exit the post-processor (scPOST Quit); releases the loaded
+        file (fires on_close).  The scPOST-spelled alias of quit()."""
+        self.close()
+        return True
 
     def release(self):
         """Release the file and drop all event sinks."""
@@ -1019,6 +1032,174 @@ class FlowviewerApplication:
         except Exception as exc:
             return self._fail(exc)
 
+    def _export_scene(self, fname, writer_name):
+        """Shared scene-export path for VRML / glTF (needs a render window)."""
+        gui = _bridge_gui()
+        rw = None
+        if gui is not None and getattr(gui, "vtk_widget", None) is not None:
+            rw = gui.vtk_widget.GetRenderWindow()
+        if rw is None:
+            raise ValueError(
+                "%s needs a running GUI (scene render window); "
+                "headless COM has no scene" % fname)
+        from .render.export import export_scene_vrml, export_scene_gltf
+        fn = {"SaveVRML": export_scene_vrml,
+              "SaveGLTF": export_scene_gltf}[fname]
+        ok = fn(rw, str(writer_name))
+        if not ok:
+            raise IOError("scene export failed: %s" % writer_name)
+        return True
+
+    def SaveVRML(self, filepath):
+        """Export the whole scene as VRML (SaveVRML; needs attached GUI)."""
+        try:
+            return self._ok(self._export_scene("SaveVRML", filepath))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def SaveGLTF(self, filepath):
+        """Export the whole scene as glTF (SaveGLTF; needs attached GUI)."""
+        try:
+            return self._ok(self._export_scene("SaveGLTF", filepath))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def SaveFBX(self, filepath):
+        """FBX export (SaveFBX) - no VTK FBX writer; reported via ErrorCode."""
+        return self._fail(NotImplementedError(
+            "FBX export is not available (no VTK FBX writer)"))
+
+    def SaveCradleViewer(self, filepath):
+        """CradleViewer export (SaveCradleViewer) - proprietary format, NYI."""
+        return self._fail(NotImplementedError(
+            "CradleViewer format is proprietary and not supported"))
+
+    def Compare(self, other_path, var=None):
+        """Compare the current FLD with another file (Compare).
+
+        scPOST opens the comparison dialog; the COM layer returns the
+        ``compare_summary`` statistics directly (common variables, per
+        variable min/max diff).  With *var* returns the single-variable
+        ``compare_stats`` result.
+        """
+        try:
+            from .model.dataset import load_file
+            from .model.compare import compare_summary, compare_stats
+            a = self._need_ff()
+            b = load_file(str(other_path))
+            if var:
+                res = compare_stats(a, b, str(var))
+                if res is None:
+                    raise ValueError("no common variable %r" % var)
+                return self._ok(res)
+            return self._ok(compare_summary(a, b))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetCurCycle(self):
+        """Current cycle number of the loaded file (GetCurCycle)."""
+        try:
+            ff = self._need_ff()
+            cyc = getattr(ff, "cycle", None)
+            return self._ok(0 if cyc is None else int(cyc))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetBaseScale(self):
+        """Scale factor of the main object display (GetBaseScale)."""
+        try:
+            from .model.objects import MainObject
+            ff = self._need_ff()
+            gui = _bridge_gui()
+            main = getattr(gui, "main_object", None) if gui else None
+            if main is None:
+                main = self._main
+            scale = getattr(main, "scale", None) if main is not None else None
+            return self._ok(1.0 if scale is None else float(scale))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def GetViewPoint(self):
+        """Camera viewpoint (GetViewPoint) as a pose set.
+
+        Returns ``{position, focal_point, view_up, parallel,
+        parallel_scale}`` of the active camera when a GUI is attached;
+        headless returns the stored SetViewPoint pose (magic default if
+        never set).
+        """
+        try:
+            self._need_ff()
+            gui = _bridge_gui()
+            renderer = getattr(gui, "renderer", None) if gui else None
+            if renderer is not None:
+                cam = renderer.GetActiveCamera()
+                if cam is not None:
+                    return self._ok({
+                        "position": tuple(cam.GetPosition()),
+                        "focal_point": tuple(cam.GetFocalPoint()),
+                        "view_up": tuple(cam.GetViewUp()),
+                        "parallel": bool(cam.GetParallelProjection()),
+                        "parallel_scale": float(cam.GetParallelScale()),
+                    })
+            pose = self._flags.get("view_point")
+            if pose is None:
+                raise ValueError("no viewpoint available (GUI not attached "
+                                 "and SetViewPoint never called)")
+            return self._ok(dict(pose))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def SetViewPoint(self, position, focal_point=None, view_up=None):
+        """Set the camera viewpoint (SetViewPoint).
+
+        ``position`` is (x, y, z); optional ``focal_point`` / ``view_up``
+        complete the pose.  Applied to the attached GUI camera; headless
+        stores the pose for GetViewPoint / later apply.
+        """
+        try:
+            self._need_ff()
+            pos = tuple(float(v) for v in position)
+            if len(pos) != 3:
+                raise ValueError("position must be (x, y, z)")
+            pose = {"position": pos, "view_up": (0.0, 1.0, 0.0),
+                    "focal_point": (0.0, 0.0, 0.0), "parallel": False}
+            if focal_point is not None:
+                pose["focal_point"] = tuple(float(v)
+                                            for v in focal_point)
+            if view_up is not None:
+                pose["view_up"] = tuple(float(v) for v in view_up)
+            self._flags["view_point"] = pose
+            gui = _bridge_gui()
+            renderer = getattr(gui, "renderer", None) if gui else None
+            if renderer is not None:
+                from .render.camera import apply_pose
+                apply_pose(renderer, pose)
+            return self._ok(True)
+        except Exception as exc:
+            return self._fail(exc)
+
+    def SetViewPort(self, xmin, ymin, xmax, ymax):
+        """Location of the clipping frame (SetViewPort) in normalised
+        [0,1] coords; sets the attached renderer viewport, headless
+        stores the rect."""
+        try:
+            rect = tuple(float(v) for v in (xmin, ymin, xmax, ymax))
+            if not all(0.0 <= v <= 1.0 for v in rect) or \
+                    rect[0] >= rect[2] or rect[1] >= rect[3]:
+                raise ValueError("viewport must be 0<=x0<x1<=1, 0<=y0<y1<=1")
+            self._flags["view_port"] = rect
+            gui = _bridge_gui()
+            renderer = getattr(gui, "renderer", None) if gui else None
+            if renderer is not None:
+                renderer.SetViewport(*rect)
+                try:
+                    gui.vtk_widget.GetRenderWindow().Render()
+                except Exception:
+                    pass
+            return self._ok(True)
+        except Exception as exc:
+            return self._fail(exc)
+
     def SaveVariableOutput(self, path, items="all"):
         """Save a variable output file (SaveVariableOutput).
 
@@ -1323,6 +1504,86 @@ class FlowviewerApplication:
             return self._ok({"path": ff.path, "kind": getattr(ff, "kind", ""),
                              "n_cells": ff.n_cells,
                              "n_vertices": ff.n_vertices})
+        except Exception as exc:
+            return self._fail(exc)
+
+    # ── FLD open variants (scPOST CreateObjectFLD family, r12 P0-2) ───────
+
+    def _open_fld_result(self, ff, sta_path=None):
+        """Adopt a freshly opened FieldFile and build the COM result."""
+        with self._lock:
+            self._ff = ff
+        if sta_path:
+            from . import api
+            main = api.apply_sta(ff, str(sta_path))
+            if main is None:
+                raise ValueError("not a status file: %r" % sta_path)
+            self._main = main
+        return {"path": ff.path, "kind": getattr(ff, "kind", ""),
+                "n_cells": ff.n_cells, "n_vertices": ff.n_vertices}
+
+    def CreateObjectFLD(self, path):
+        """Read an FLD file and get the FLD class (CreateObjectFLD)."""
+        try:
+            from . import api
+            return self._ok(self._open_fld_result(api.open_file(str(path))))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def CreateObjectFLD2(self, path):
+        """Read an FLD file using a hash table (CreateObjectFLD2).
+
+        flowviewer always indexes nodes/elements by id maps; identical to
+        CreateObjectFLD here (hash-table mode is a scPOST internal)."""
+        try:
+            from . import api
+            return self._ok(self._open_fld_result(api.open_file(str(path))))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def CreateObjectFLDbySTA(self, path, sta_path):
+        """Read an FLD file referring an STA file (CreateObjectFLDbySTA)."""
+        try:
+            from . import api
+            return self._ok(self._open_fld_result(api.open_file(str(path)),
+                                                  sta_path=sta_path))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def CreateObjectFld_TRIM(self, path, xmin=None, xmax=None,
+                             ymin=None, ymax=None, zmin=None, zmax=None):
+        """Load an FLD selectively (CreateObjectFld_TRIM).
+
+        The six optional bounds select the spatial region kept during the
+        parse (iFLD partial load); None keeps that side untrimmed."""
+        try:
+            from .model.dataset import ifld_load
+            parts = ((xmin, ymin, zmin), (xmax, ymax, zmax))
+            if all(b is None for b in parts[0] + parts[1]):
+                bounds = None
+            else:
+                fill = (float("-inf"), float("inf"))
+                bounds = tuple(fill[i % 2] if b is None else float(b)
+                               for i, b in enumerate((xmin, xmax, ymin,
+                                                      ymax, zmin, zmax)))
+            ff = ifld_load(str(path), bounds=bounds)
+            return self._ok(self._open_fld_result(ff))
+        except Exception as exc:
+            return self._fail(exc)
+
+    def IsThisFldValid(self, path):
+        """Whether the file is a loadable FLD-family file (IsThisFldValid).
+
+        A parse that yields no mesh at all counts as invalid (the FLD
+        parser returns an empty FieldFile instead of raising)."""
+        try:
+            from .model import dataset as _ds
+            try:
+                ff = _ds.load_file(str(path))
+            except Exception:
+                return self._ok(False)
+            return self._ok(bool(getattr(ff, "kind", "")) and
+                            (ff.n_vertices > 0 or ff.n_cells > 0))
         except Exception as exc:
             return self._fail(exc)
 

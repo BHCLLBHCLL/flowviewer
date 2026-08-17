@@ -1,8 +1,8 @@
 # flowviewer 功能差距全面分析（2026-08-16，第七轮评估）
 
-> **最新状态（2026-08-17 第十轮评估）见文末 §7**：本报告梯队一至四及
-> 第八/九轮改进（P0–P3、R0–R3.7）已全部落地，整体端到端深度刷新至 **~85%**；
-> §1–§6 保留为第七轮历史基线。
+> **最新状态（2026-08-17 第十二轮 P0 执行后）见文末 §8.7**：第十二轮 P0 四项
+> 全部落地，FLD File COM 覆盖率 84.0%→**93.4%**、Application 43.5%→**53.2%**，
+> 整体端到端深度 **~90%**；§8.1–8.6 为第十一轮评估基线。
 
 > 分析日期：2026-08-16（会话执行）
 > 对比基准：Cradle CFD 2025.2 scPOST（VB 接口 41 个公开类 + FLD File 类 125 方法面）
@@ -289,3 +289,143 @@ P1+P2 后进入 **90%+** 区间；剩余差距主要是 Marc 二进制与生态�
 而是 **API 覆盖广度（薄封装即可提升）+ 少数数据/渲染深度项（oilflow FLD、FLD face 表、
 流线真插值）+ 生态大项（Marc 二进制、FBX/CradleViewer）**。按 P0→P2 推进可在
 1–2 轮内进入 90%+ 区间。
+
+---
+
+## 8. 第十一轮评估：第十轮 P0–P3 落地后完整度刷新（2026-08-17）
+
+> 基线：提交 `67a55cd`（第十轮计划 P0-1–P3-2 共 16 个功能提交全部落地，工作区干净）
+> 规模：fv/ 66 文件、24,635 行；18 个测试文件 334 个测试函数
+> 方法：git log 逐提交核对 + com.py 方法面（静态 def + 动态生成 CreateObject*）
+> 对照 vb_fldfile.txt / vb_application.txt Method List 脚本重算覆盖率；
+> 残留项逐条 grep/直读源码核实。
+
+### 8.1 第十轮计划执行核对（16/16 落地）
+
+| 计划项 | 提交 | 状态 |
+|---|---|---|
+| P0-1 COM 22 CreateObject* + 树挂接 | c0159a1 | ✅ 21 动态生成 + CreateObjectNeutral 静态 |
+| P0-2 CreateVar*/DeleteVar/SetVarTitle 族 | a111fca | ✅ |
+| P0-3 对象查询 7 族 + 变量值查询 6 族 | 3d9a2f8 | ✅ |
+| P0-4 ShellExecute 真调 + GetTickCountEx 开机时基 | ff889ef | ✅ 2 处真语义错关闭 |
+| P0-5 oilflow FLD 数值回退 | f117e28 | ✅ 唯一「高」严重度渲染项关闭 |
+| P0-6 varreg mag() 真取模 + div/rot 三分量 | 9f828c2 | ✅ |
+| P0 cleanup COM 对象树独立于 GUI 桥 | 57c6a47 | ✅ |
+| P1-1 FLD NGON face 反查 | 8426352 | ✅ GetNodesOfFace 族对 FLD 生效 |
+| P1-2 FieldFile LRU + 单 open 复用 | 7d4e717 | ✅ 内存与网络盘开销双降 |
+| P1-3 iFLD 真局部加载 | bd2003b | ✅ 解析期空间裁剪（非后处理裁剪） |
+| P2-1 FLD 流线/迹线/油流真 hex 插值 | c9bf854 | ✅ KD-tree 最近邻采样淘汰 |
+| P2-2 批量 FLD ugrid 构建 | 8e5032e + e4ec65a | ✅ 含窄列混合单元越界修复 |
+| P2-3 动画帧只重切平面 | 462c5e1 | ✅ 增量 cut 链 |
+| P2-4 OBJ 法线/UV + 体渲染 3 点不透明度 | 3d6e14a | ✅ |
+| P3-1 POD 时间系数导出 + k-means 聚类 | f1886de | ✅ U 矩阵 + 质心场注册 |
+| P3-2 测试拆分 test_pod/test_compare/test_tsmm | 67a55cd | ✅ test_gui 254→244，3 个独立套件 |
+
+### 8.2 分维度完整度 × 深度清单（第十一轮）
+
+| 维度 | 完整度 | 深度 | 较 r10 变化 | 现状与主要残留缺口 |
+|---|---|---|---|---|
+| 对象面（41 VB 类） | ~100% | ~90% | — | 31 kind Create/STA/框选/undo 全通；COM 树挂接后脚本可建 21 种对象；残留 pick 探针 5/30 kind（main.py L1956–1992）、Draw Window settings NYI（L1348） |
+| 数据格式面 | ~85% | ~82% | +2pp | iFLD 真局部盘读落地；缺 Marc .t16/.t19 二进制（需样例）、CGNS ADF 全文一次性入内存（cgns_adf.py L145） |
+| 数据 API（FLDFile 106 法） | **84.0%**（89/106） | — | **+35pp** | P0 三族封装直达；缺失 17：SaveFBX/SaveVRML/SaveGLTF/SaveCradleViewer（后 2 render 层已有）、GetViewPoint/SetViewPoint/SetViewPort、GetSurfaceArray(2)/GetVolumeArray2、Compare、GetBaseScale、GetCurCycle、GetCurCycOpeNum、GetElemBySurf、GetLatestStaPath、GetNextNodes |
+| 自动化（Application 62 法） | **43.5%**（27/62 严格） | — | — | P0 只修语义错未扩面；+5 语义等价不同名（quit≈Quit、open 族≈CreateObjectFLD 族）宽松 51.6%；缺失集中 CreateObjectFLD 4 变体、DrawWindow/Dock/GlobalWindow 窗口族、16 个 Set* 修饰族、PikaPika 等冷门项 |
+| 渲染层 | ~95% | ~87% | +2pp | oilflow FLD 回退关闭最后一个渲染断点；流线族真插值 + 体渲染 3 点 ramp + OBJ 法线/UV 落地；残留：FBX 无 writer、体渲染采样仍是截断式 |
+| 交互/GUI | ~95% | ~88% | — | 无新断裂；Mouse 3-Button 模式与 1-Button 同为 trackball（main.py L399）仍在 |
+| 导出/生态 | ~82% | ~78% | +3pp | OBJ 法线/UV 补齐；缺 FBX（无 VTK writer）、CradleViewer 专有格式 |
+| 性能 | ~85% | ~82% | **+12pp** | LRU + 单 open 复用 + 批量 ugrid + 动画增量 cut 四项落地；残留：百万单元级 FLD 首帧仍在秒级 |
+| 质量/测试 | ~88% | — | +3pp | 334 测试（18 文件），POD/compare/tsmm 独立成套；全量回归 252 passed + 1 skipped + 1 环境相关失败（ShellExecute 被沙箱拦截） |
+
+**整体端到端实用深度：~89%**（r10 85% → +4pp；7.5 节「P0 后 ~88%」预期达成并略超，
+因 P1/P2 性能与渲染项同轮落地）。
+
+**已反超 scPOST 的区域**（较 r10 新增 2 项）：POD 时间系数 + k-means 聚类、
+iFLD 真局部盘读；原有 cycle 运行时直通、interpolate_at、Turbo PS/SS 分侧、
+纯 Python ADF 读写、Compare 差场、颜色表编辑器继续领先。
+
+### 8.3 API 覆盖率重算口径说明
+
+| 类 | scPOST 方法数 | 覆盖 | 覆盖率 | 口径 |
+|---|---|---|---|---|
+| FLDFile | 106 | 89 | **84.0%** | vb_fldfile.txt Method List 严格同名（含 21 动态生成 CreateObject*） |
+| Application | 62 | 27（+5 等价） | **43.5%**（宽松 51.6%） | vb_application.txt Method List 严格同名 |
+
+r10 记载 FLDFile「61/125 = 48.8%」：125 基数含签名描述 token 污染；
+本轮清洗为 106 个真实方法名后重算。同口径下 r10 基线约 55/106 = 51.9%，
+本轮 +34pp 主要来自 P0-1/2/3 三族薄封装（34 个方法名）。
+
+### 8.4 剩余差距清单（按严重度，源码证据）
+
+**高**：无。
+
+**中**
+
+| 项 | 证据 |
+|---|---|
+| Marc .t16/.t19 二进制未实现（Marc 工程主流结果载体，需先获样例文件） | marc.py L5 |
+| pick 探针仅 5/30 kind（plane/surface/isosurface/volume/streamline） | main.py L1956–1992 |
+| COM SaveVRML/SaveGLTF/SaveFBX/SaveCradleViewer 未包装（前 2 render 层已有） | com.py、export.py |
+| Application 侧 CreateObjectFLD 4 变体无同名包装（open 族语义等价） | com.py |
+| CGNS ADF 全文一次性入内存（大文件峰值高）、仅取第一个 CGNSBase_t | cgns_adf.py L145/463 |
+| tsmm 仅 CSV 解析无时间线集成 | tsmm.py |
+| compare 仅绝对差/最近邻映射 | compare.py |
+
+**低**
+
+Draw Window settings NYI（main.py:1348）；nastran.py docstring 漂移（L4 称
+.op2 out of scope，实际 op2.py 已实现）；Application 16 个 Set* 修饰族 +
+PikaPika/ObjectNameDisplay 等冷门项；体渲染采样截断式；视频仅
+OggTheora/AVI/ffmpeg-MP4；Mouse 3-Button=trackball。
+
+### 8.5 第十二轮改进计划
+
+**P0 薄封装速赢**
+
+1. COM SaveVRML/SaveGLTF 包装（render 层现成）+ GetViewPoint/SetViewPoint/
+   SetViewPort（相机 API 现成）+ Compare（model.compare 现成）→ FLDFile 84%→**~90%**。
+2. Application 同名包装：quit→Quit 别名、open 族→CreateObjectFLD 4 变体 →
+   Application 43.5%→**~56%**。
+3. pick 探针扩面（particle/pathline/isosurface 外的 vector 类对象复用
+   `_pick_vars` 模式，纯查表接线）。
+4. nastran.py docstring 修正（零风险文档债）。
+
+**P1 数据深度**：Marc .t16/.t19（阻塞项：样例文件）；CGNS ADF 流式/懒解析。
+
+**P2 按需**：GetSurfaceArray/GetVolumeArray2 表查询族；体渲染跨步采样；
+FBX（assimp 外部依赖）；Draw Window settings。
+
+**维持不做**：PikaPika 等纯修饰项、VR 实机、scConverter 附属工具。
+
+**预期收益**：P0 后整体 ~90%、FLDFile ~90% / Application ~56%；
+剩余差距集中于 Marc 二进制与 FBX/CradleViewer 两个外部资源依赖大项。
+
+### 8.6 总评
+
+第十轮计划 16 项全部落地且质量真实：高严重度渲染断点清零、性能四项
+（LRU/单 open/批量 ugrid/增量 cut）系统性落地、COM 覆盖率口径清洗后
+FLDFile 达 84.0%。项目处于**「覆盖 ~100%、端到端深度 ~89%」**。
+剩余差距已高度收敛：API 薄封装（一轮可清）、pick 扩面（纯接线）、
+以及 Marc 二进制与 FBX 两个需外部资源的生态大项。第十二轮 P0 完成后
+可触及 90% 区间上沿。
+
+### 8.7 第十二轮 P0 执行记录（2026-08-17）
+
+| 计划项 | 内容 | 状态 |
+|---|---|---|
+| P0-1 | COM：SaveVRML/SaveGLTF（经桥接 GUI 场景导出，无 GUI 走 ErrorCode）、SaveFBX/SaveCradleViewer（诚实报未实现）、Compare（compare_summary/stats 直返）、GetViewPoint/SetViewPoint（相机 pose 往返，桥接时驱动真相机）、SetViewPort（裁剪框=renderer viewport）、GetCurCycle、GetBaseScale | ✅ 10 方法 |
+| P0-2 | COM：Quit 别名、CreateObjectFLD/FLD2/bySTA/Fld_TRIM（TRIM 接 ifld_load 真局部盘读，None 边界以 ±inf 填充）、IsThisFldValid（空 mesh 判无效） | ✅ 6 方法 |
+| P0-3 | pick 探针 5→9 kind：cylinder/circle（contour+vector 模式）、particle（scalar+vector 模式）、pathline（color_var+vector 模式），纯 `_pick_vars` 查表 | ✅ main.py |
+| P0-4 | nastran.py docstring 修正（.op2 已由 op2.py 实现） | ✅ |
+
+**覆盖率实测**（脚本对照 vb_fldfile/vb_application Method List）：
+
+| 类 | r11 基线 | r12 P0 后 | 剩余缺失 |
+|---|---|---|---|
+| FLDFile（106 法） | 84.0% | **93.4%**（99/106） | GetCurCycOpeNum、GetElemBySurf、GetLatestStaPath、GetNextNodes、GetSurfaceArray、GetSurfaceArray2、GetVolumeArray2（表/邻接查询族） |
+| Application（62 法） | 43.5% | **53.2%**（33/62） | 窗口族（CreateDrawWnd/Dock/GlobalWindow/MessageWindow）、16 个 Set* 修饰族、PikaPika 等冷门项 |
+
+**回归**：338 测试全量，335 passed + 1 skipped + 1 环境失败（ShellExecute
+被 DSH 沙箱拦截，第十轮已知预存）+ 2 deselected；新增 4 个 COM 测试
+（r12p0 系列：FLD 开变体真文件往返、Compare 零差、视角/视口校验、
+诚实失败路径）全过。
+
+**整体端到端深度：~90%**（API 广度项大幅收敛后达成 8.5 节预期上沿）。

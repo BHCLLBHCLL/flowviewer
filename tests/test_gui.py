@@ -5064,3 +5064,97 @@ def test_r34_text_actor_3d():
     assert tuple(a.GetPosition()) == (1.0, 2.0, 3.0)
     a2 = text_actor(TextObject(text="Hi"))
     assert a2.IsA("vtkTextActor")
+# ── r12 P0: COM FLD-open variants / compare / viewpoint (new) ──────────────
+
+@pytest.mark.skipif(not Path(FLD).exists(), reason="FLD sample not present")
+def test_r12p0_create_object_fld_variants(tmp_path):
+    """r12 P0-2: CreateObjectFLD/FLD2/bySTA/TRIM open like scPOST."""
+    from fv import api
+    from fv.com import FlowviewerApplication
+    from fv.model.objects import MainObject
+
+    app = FlowviewerApplication()
+    res = app.CreateObjectFLD(FLD)
+    assert res and res["n_vertices"] > 0
+    assert app.file_path.lower().endswith(".fld")
+
+    res2 = app.CreateObjectFLD2(FLD)          # hash-table variant == plain
+    assert res2["n_vertices"] == res["n_vertices"]
+
+    # bySTA: save a status file, then open FLD referring it
+    main = MainObject.from_field_file(app._ff, magic=True)
+    sta = tmp_path / "r12.sta"
+    assert api.save_sta(main, str(sta))
+    res3 = app.CreateObjectFLDbySTA(FLD, str(sta))
+    assert res3 and app._main is not None
+
+    # TRIM: partial load keeps fewer vertices than the full file
+    lo = app._ff  # full FLD already loaded via CreateObjectFLD2
+    n_full = lo.n_vertices
+    v = lo.vertices
+    box = (float(v[:, 0].min()), float(v[:, 0].max()),
+           float(v[:, 1].min()), float(v[:, 1].max()),
+           float(v[:, 2].min()), 0.5 * (v[:, 2].min() + v[:, 2].max()))
+    res4 = app.CreateObjectFld_TRIM(FLD, *box)
+    assert res4 and 0 < res4["n_vertices"] <= n_full
+
+    # IsThisFldValid: real file yes, garbage no
+    assert app.IsThisFldValid(FLD) is True
+    bad = tmp_path / "bad.fld"
+    bad.write_bytes(b"garbage")
+    assert app.IsThisFldValid(str(bad)) is False
+
+    # Quit (scPOST spelling) releases the file
+    assert app.Quit() is True
+    assert app.has_file is False
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_r12p0_compare_cycle_basescale():
+    """r12 P0-1: Compare returns diff stats; GetCurCycle/GetBaseScale read."""
+    from fv.com import FlowviewerApplication
+    app = FlowviewerApplication()
+    app.open_file(FPH)
+    res = app.Compare(FPH)                    # self-compare: zero diffs
+    assert isinstance(res, dict) and "PRES" in res
+    assert res["PRES"]["max"] == 0.0
+    st = app.Compare(FPH, "PRES")             # single-variable form
+    assert st["var"] == "PRES" and st["n"] > 0
+    cyc = app.GetCurCycle()
+    assert isinstance(cyc, int)
+    assert app.GetBaseScale() == 1.0
+
+
+def test_r12p0_viewpoint_viewport():
+    """r12 P0-1: SetViewPoint/GetViewPoint roundtrip + SetViewPort checks."""
+    from fv.com import FlowviewerApplication
+
+    class _FF:            # minimal stand-in; only presence is needed
+        path = "x"
+
+    app = FlowviewerApplication()
+    app._ff = _FF()
+    # headless GetViewPoint without a stored pose -> error channel
+    assert app.GetViewPoint() is None and app.ErrorCode != 0
+    assert app.SetViewPoint((1.0, 2.0, 3.0), (0, 0, 0), (0, 1, 0)) is True
+    pose = app.GetViewPoint()
+    assert pose["position"] == (1.0, 2.0, 3.0)
+    assert pose["view_up"] == (0.0, 1.0, 0.0)
+    # bad position arity -> error channel, not a raise
+    assert app.SetViewPoint((1.0, 2.0)) is None and app.ErrorCode != 0
+    # viewport: valid rect stored, inverted rect rejected
+    assert app.SetViewPort(0.0, 0.0, 0.5, 1.0) is True
+    assert app._flags["view_port"] == (0.0, 0.0, 0.5, 1.0)
+    assert app.SetViewPort(0.8, 0.0, 0.2, 1.0) is None and app.ErrorCode != 0
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_r12p0_scene_export_honest_fail():
+    """r12 P0-1: SaveVRML/SaveGLTF need a GUI; SaveFBX fails honestly."""
+    from fv.com import FlowviewerApplication
+    app = FlowviewerApplication()
+    app.open_file(FPH)
+    assert app.SaveVRML("out.wrl") is None and app.ErrorCode != 0
+    assert app.SaveGLTF("out.gltf") is None and app.ErrorCode != 0
+    assert app.SaveFBX("out.fbx") is None and "FBX" in app.ErrorString
+    assert app.SaveCradleViewer("out.cvw") is None
