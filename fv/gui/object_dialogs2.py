@@ -1870,3 +1870,52 @@ class UFODialog(ObjectSettingsPanel):
         obj.variable = self.variable.currentData() or ""
         obj.point_size = float(self.psize.value())
         obj.color = self.color.rgb()
+
+
+class DrawWindowDialog(ObjectSettingsPanel):
+    """Draw Window — overlay / gnomon / projection (clears last _nyi)."""
+
+    def __init__(self, obj, field_file=None, parent=None):
+        super().__init__(getattr(obj, "label", "Draw Window"), parent)
+        if not _HAS_QT:
+            self.obj = obj
+            return
+        self.obj = obj
+        page = QWidget(self)
+        form = QFormLayout()
+        self.display_list = QCheckBox("DisplayList mode", page)
+        self.display_list.setChecked(bool(getattr(obj, "display_list", True)))
+        form.addRow("", self.display_list)
+        self.show_axes = QCheckBox("Show XYZ axes", page)
+        self.show_axes.setChecked(bool(getattr(obj, "show_axes", True)))
+        form.addRow("", self.show_axes)
+        self.show_file = QCheckBox("Show File overlay", page)
+        self.show_file.setChecked(bool(getattr(obj, "show_file", True)))
+        form.addRow("", self.show_file)
+        self.show_cycle = QCheckBox("Show Cycle overlay", page)
+        self.show_cycle.setChecked(bool(getattr(obj, "show_cycle", True)))
+        form.addRow("", self.show_cycle)
+        self.show_time = QCheckBox("Show Time overlay", page)
+        self.show_time.setChecked(bool(getattr(obj, "show_time", True)))
+        form.addRow("", self.show_time)
+        self.parallel = QCheckBox("Parallel projection", page)
+        self.parallel.setChecked(bool(getattr(obj, "parallel_projection", True)))
+        form.addRow("", self.parallel)
+        self.gradient = QCheckBox("Gradient background", page)
+        self.gradient.setChecked(bool(getattr(obj, "gradient_background", True)))
+        form.addRow("", self.gradient)
+        lay = QVBoxLayout(page)
+        lay.addLayout(form)
+        lay.addStretch(1)
+        self.tabs.addTab(page, "Display")
+
+    def apply_to(self, obj) -> None:
+        if not _HAS_QT:
+            return
+        obj.display_list = self.display_list.isChecked()
+        obj.show_axes = self.show_axes.isChecked()
+        obj.show_file = self.show_file.isChecked()
+        obj.show_cycle = self.show_cycle.isChecked()
+        obj.show_time = self.show_time.isChecked()
+        obj.parallel_projection = self.parallel.isChecked()
+        obj.gradient_background = self.gradient.isChecked()

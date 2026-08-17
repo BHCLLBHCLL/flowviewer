@@ -5289,3 +5289,27 @@ def test_r121_application_windows_and_config():
     assert env.SetValue("nope", 1) is False
     assert isinstance(env.GetAll(), dict)
 
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_r13_draw_window_settings(qapp):
+    """Draw Window tree node opens a real settings pane (no _nyi)."""
+    w = _make(qapp, FPH)
+    assert w._draw_window.kind == "drawwindow"
+    w._on_tree_activated("Draw Window : DisplayList mode")
+    assert w.property_host.current_object is w._draw_window
+    panel = w.property_host.current_panel
+    assert panel is not None
+    panel.show_file.setChecked(False)
+    panel.show_cycle.setChecked(False)
+    panel.display_list.setChecked(False)
+    panel.apply_to(w._draw_window)
+    assert w._draw_window.show_file is False
+    assert w._draw_window.display_list is False
+    w._apply_draw_window(w._draw_window)
+    text = w.scene.overlay_text()
+    assert "File :" not in text
+    assert "Cycle :" not in text
+    assert "Time :" in text
+    labels = _tree_texts(w.object_tree)
+    assert any(t.startswith("Draw Window : Immediate") for t in labels)
+

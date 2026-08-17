@@ -447,6 +447,21 @@ class LightObject(PostObject):
 
 
 @dataclass
+class DrawWindowObject(PostObject):
+    """Draw Window overlay / projection / gnomon (scPOST Draw Window)."""
+
+    kind: str = "drawwindow"
+    title: str = "Draw Window"
+    display_list: bool = True              # DisplayList vs Immediate
+    show_axes: bool = True                 # XYZ gnomon
+    show_file: bool = True                 # overlay File line
+    show_cycle: bool = True                # overlay Cycle line
+    show_time: bool = True                 # overlay Time line
+    parallel_projection: bool = True
+    gradient_background: bool = True
+
+
+@dataclass
 class CameraObject(PostObject):
     """Camera settings / image save (scPOST Camera, 5b)."""
 

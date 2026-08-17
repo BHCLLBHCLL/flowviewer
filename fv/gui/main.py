@@ -149,9 +149,11 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.renderer = None
         # Global Light (P0.3): scPOST keeps one Light under Global Objects
         from ..model.objects import CameraObject, LightObject
-        from ..model.objects import ColorbarObject, GradationObject, GlobalWindow
+        from ..model.objects import (ColorbarObject, DrawWindowObject,
+                                     GradationObject, GlobalWindow)
         self._global_light = LightObject(index=1)
         self._global_camera = CameraObject(index=1)
+        self._draw_window = DrawWindowObject(index=1)
         self.global_window = GlobalWindow(
             colorbar=ColorbarObject(index=1),
             gradation=GradationObject(index=1),
@@ -1345,7 +1347,9 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         elif name == "Camera":
             self._open_camera_dialog()
         elif name.startswith("Draw Window"):
-            self._nyi("Draw Window settings")
+            self.property_host.show_object(
+                "drawwindow", self._draw_window, field_file=None, siblings=[])
+            self.property_host.setVisible(True)
         elif name == "Light (1)":
             self.property_host.show_object(
                 "light", self._global_light, field_file=None, siblings=[])
@@ -1488,6 +1492,9 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self.message_win.log("Draw: applied Light")
             self.status.showMessage("Draw: Light", 3000)
             return
+        if getattr(obj, "kind", "") == "drawwindow":
+            self._apply_draw_window(obj)
+            return
         if self.dataset is None or self.main_object is None:
             return
         if self.scene._field_file is not None:
@@ -1499,6 +1506,37 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         label = getattr(obj, "label", str(obj))
         self.message_win.log(f"Draw: applied {label}")
         self.status.showMessage(f"Draw: {label}", 3000)
+
+    def _apply_draw_window(self, obj) -> None:
+        """Commit Draw Window overlay / gnomon / projection settings."""
+        self.scene.set_overlay_flags(
+            show_file=getattr(obj, "show_file", True),
+            show_cycle=getattr(obj, "show_cycle", True),
+            show_time=getattr(obj, "show_time", True))
+        if self.dataset is not None:
+            from pathlib import Path
+            self.scene.set_overlay(
+                Path(self.dataset.path).name,
+                getattr(self.dataset, "cycle", None),
+                getattr(self.dataset, "time", None))
+        self._set_orientation_marker(bool(getattr(obj, "show_axes", True)))
+        if self.renderer is not None:
+            cam = self.renderer.GetActiveCamera()
+            if getattr(obj, "parallel_projection", True):
+                cam.ParallelProjectionOn()
+            else:
+                cam.ParallelProjectionOff()
+            if getattr(obj, "gradient_background", True):
+                self.renderer.GradientBackgroundOn()
+            else:
+                self.renderer.GradientBackgroundOff()
+        if hasattr(self.object_tree, "set_draw_window_mode"):
+            self.object_tree.set_draw_window_mode(
+                bool(getattr(obj, "display_list", True)))
+        if self._enable_3d:
+            self._refresh_gl()
+        self.message_win.log("Draw: applied Draw Window")
+        self.status.showMessage("Draw: Draw Window", 3000)
 
     def _create_object(self, kind: Optional[str]) -> None:
         """Create menu / toolbar: instantiate an object under the Main node."""

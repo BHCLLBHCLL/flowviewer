@@ -37,6 +37,10 @@ class Scene:
         self._layer_actors: dict[str, list] = {}
         self._overlay = None
         self._overlay_text = ""
+        self._overlay_file = ""
+        self._overlay_cycle = None
+        self._overlay_time = None
+        self._overlay_show = {"file": True, "cycle": True, "time": True}
         self._bounds: Optional[tuple] = None
         self._field_file = None
         self._main = None
@@ -454,14 +458,49 @@ class Scene:
 
     def set_overlay(self, file_name: str, cycle=None, time=None) -> None:
         """Top-left Draw Window info matching scPOST."""
+        self._overlay_file = file_name
+        self._overlay_cycle = cycle
+        self._overlay_time = time
+        self._refresh_overlay_text()
+
+    def set_overlay_flags(self, show_file=None, show_cycle=None,
+                          show_time=None) -> None:
+        """Toggle File / Cycle / Time overlay lines (Draw Window settings)."""
+        if show_file is not None:
+            self._overlay_show["file"] = bool(show_file)
+        if show_cycle is not None:
+            self._overlay_show["cycle"] = bool(show_cycle)
+        if show_time is not None:
+            self._overlay_show["time"] = bool(show_time)
+        if self._overlay_file or self._overlay_text:
+            self._refresh_overlay_text()
+
+    def _refresh_overlay_text(self) -> None:
+        file_name = self._overlay_file or ""
+        cycle = self._overlay_cycle
+        time = self._overlay_time
         cyc = "—" if cycle is None else str(cycle)
         if time is None:
             tim = "—"
         else:
             tim = f"{time:.6g}"
-        text = f"File : {file_name}\nCycle : {cyc}\nTime : {tim}"
+        lines = []
+        if self._overlay_show.get("file", True):
+            lines.append(f"File : {file_name}")
+        if self._overlay_show.get("cycle", True):
+            lines.append(f"Cycle : {cyc}")
+        if self._overlay_show.get("time", True):
+            lines.append(f"Time : {tim}")
+        text = "\n".join(lines)
         self._overlay_text = text
         if not self.enable_3d or self.renderer is None:
+            return
+        if not text:
+            if self._overlay is not None:
+                try:
+                    self._overlay.SetInput("")
+                except Exception:
+                    pass
             return
         if self._overlay is None:
             self._overlay = vtk.vtkTextActor()

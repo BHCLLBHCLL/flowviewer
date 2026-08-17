@@ -209,6 +209,17 @@ class ObjectTree(QTreeWidget if _HAS_QT else object):
         glob.setExpanded(True)
         self.blockSignals(False)
 
+    def set_draw_window_mode(self, display_list: bool) -> None:
+        """Rename the Draw Window tree node to match DisplayList/Immediate."""
+        label = ("Draw Window : DisplayList mode" if display_list
+                 else "Draw Window : Immediate mode")
+        for key in list(self._items.keys()):
+            if str(key).startswith("Draw Window"):
+                it = self._items.pop(key)
+                it.setText(0, label)
+                self._items[label] = it
+                break
+
     def load_main(self, main) -> None:
         """Insert field-file Main node with Surface/Plane[/Particle] children.
 
@@ -569,7 +580,7 @@ class PropertyHost(QWidget if _HAS_QT else object):
             IsosurfaceDialog, LightDialog, MaxMinDialog, MeasureDialog,
             MirrorCopyDialog, PathlineDialog, PeriodicalCopyDialog,
             PointDialog, StreamlineDialog, TextDialog, TimeSeriesDialog,
-            VolumeDialog,
+            VolumeDialog, DrawWindowDialog,
         )
         cls = {
             "surface": SurfaceDialog,
@@ -603,6 +614,7 @@ class PropertyHost(QWidget if _HAS_QT else object):
             "region": RegionDialog,
             "turbo": TurboDialog,
             "ufo": UFODialog,
+            "drawwindow": DrawWindowDialog,
         }.get(kind)
         if cls is None:
             return
