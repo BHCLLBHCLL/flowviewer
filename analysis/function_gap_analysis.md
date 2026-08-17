@@ -1,8 +1,9 @@
 # flowviewer 功能差距全面分析（2026-08-16，第七轮评估）
 
-> **最新状态（2026-08-17 第十二轮 P1 执行后）见文末 §8.8**：COM 覆盖率
-> FLDFile 93.4%→**100%**（106/106）、Application 53.2%→**100%**（62/62），
-> 整体端到端深度 **~91%**；§8.1–8.6 为第十一轮评估基线、§8.7 为 P0 记录。
+> **最新状态（2026-08-18 第十三轮执行后）见文末 §8.9**：COM 覆盖率
+> FLDFile **100%**（106/106）、Application **100%**（62/62），
+> 整体端到端深度 **~96%**；可落地缺口（Draw Window / TSER·OT / pick /
+> compare / 鼠标 1·3 键 / ADF 多 base）已闭环。§8.8 为第十二轮 P1 COM 100%。
 
 > 分析日期：2026-08-16（会话执行）
 > 对比基准：Cradle CFD 2025.2 scPOST（VB 接口 41 个公开类 + FLD File 类 125 方法面）
@@ -453,3 +454,46 @@ Environment）全过；64 项真文件冒烟（FPH 多面体 + FLD NGON + 序列
 
 **整体端到端深度：~91%**（COM 双类覆盖面 100% 后，剩余差距集中在
 ShellExecute 沙箱、FBX/CradleViewer 外部格式、Draw Window settings UI）。
+
+### 8.9 第十三轮执行记录（2026-08-18，深度闭环）
+
+对照 §8.4/§8.8 残留项，并用官方案例库
+
+* `D:\training\cradle\CradleCFD_2025.2_scFLOW_Example_a`（VBS/Python 脚本面）
+* `D:\training\cradle\CradleCFD_2023.2_ST_Example`（Operation `*_tm.csv` TSER、`*.ot` CRDL-OT）
+
+落地全部**不依赖外部样例/专有格式**的深度缺口：
+
+| 计划项 | 内容 | 提交 | 状态 |
+|---|---|---|---|
+| r12 P1 COM | FLDFile 106/106 + Application 62/62 表面 100% | `d5c75da` | ✅ |
+| Draw Window settings | 树节点打开 Display 面板：File/Cycle/Time overlay、XYZ gnomon、平行投影、渐变背景、DisplayList/Immediate；清掉最后一处真实 `_nyi` | `c079db9` | ✅ |
+| TSER / CRDL-OT + Timeline | ST Operation 官方格式解析；Time Series 应用后驱动 Timeline 范围与 overlay 时间 | `86adaaf` | ✅ |
+| Compare 深度 | `signed` / `relative` 模式 + 异网格 IDW 映射（默认仍 \|A−B\| + nearest） | `eba90b9` | ✅ |
+| CGNS ADF | mmap 读取（避免全文 `bytes` 拷贝）+ 合并全部 `CGNSBase_t` | `3c22d00` | ✅ |
+| pick + 鼠标 | point/bar/curve/turbo/ufo/graph 探针；Option 1-Button（Shift/Ctrl+左）≠ 3-Button trackball | `19efb25` | ✅ |
+
+**分维度（第十三轮后）**
+
+| 维度 | 完整度 | 深度 | 变化 |
+|---|---|---|---|
+| 对象面 | ~100% | ~96% | Draw Window settings 可达；pick 覆盖点/条/曲线/Turbo/UFO/Graph |
+| 数据格式面 | ~90% | ~88% | ADF 多 base + mmap；TSER/CRDL-OT 官方格式 |
+| 数据 API / COM | **100%** / **100%** | — | 与 §8.8 相同 |
+| 交互/GUI | ~98% | ~95% | 1/3 键鼠标区分；Timeline←TSER |
+| 渲染/比较 | ~95% | ~90% | compare 有符号/相对/IDW |
+
+**整体端到端深度：~96%。**
+
+**维持不做 / 外部阻塞（到不了字面 100% 的原因）**
+
+| 项 | 原因 |
+|---|---|
+| Marc `.t16`/`.t19` | 两套官方案例库均无 Marc 二进制结果；`marc.py` 明示 out of scope |
+| FBX | 无 VTK FBX writer / assimp 依赖 |
+| CradleViewer 专有 | COM `SaveCradleViewer` 诚实 NYI |
+| ShellExecute | 沙箱拦截（第十轮已知） |
+| VR 实机 HMD | 需自编译 VTK + 设备 |
+| scConverter 附属工具 | 非 scPOST 核心 |
+
+在上述外部依赖到位之前，**可实现范围内的完整度与深度已收敛到上限**；再往上只能等 Marc/FBX 样例与库。
