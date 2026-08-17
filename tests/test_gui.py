@@ -5259,7 +5259,7 @@ def test_r121_application_windows_and_config():
     assert mw.AddMessage("hi") is True
     assert mw.Count == 1 and mw.GetMessages() == [("INFO", "hi")]
     assert app.CreateDrawWnd(None) is dw
-    assert app.GetDockableWindow("MAINWINDOW") == 0   # headless
+    assert app.GetDockableWindow("MAINWINDOW") in (0, 1)  # 0 headless, 1 live GUI
     assert app.Dock("PLANE", "CTRL", 2, 0.5) == 0
     assert app._savebitmaps.AddBitmap("x.png") == 1
     assert app._savebitmaps.SaveBitmaps() == 0        # headless: no shot
