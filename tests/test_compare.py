@@ -86,3 +86,40 @@ def test_r16_compare_constant_offset():
     diff_ff = diff_field_file(a, "PRES", res["diff"], res["location"])
     arr = diff_ff.variable_array("PRES")
     assert arr is not None and len(arr) == len(res["diff"])
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_compare_signed_relative_and_idw():
+    """Signed / relative modes and IDW mapping (depth beyond |A−B|)."""
+    import numpy as np
+    from dataclasses import replace
+    from fv.model.dataset import load_file, VarInfo
+    from fv.model.compare import difference_field
+    a = load_file(FPH)
+    b = replace(a)
+    b.variables = dict(a.variables)
+    src = np.asarray(a.variable_array("PRES"))
+    b.variables["PRES"] = VarInfo(name="PRES", kind="scalar", location="cell",
+                                  array=src + 4.0)
+    signed = difference_field(a, b, "PRES", mode="signed")
+    assert signed["min"] == pytest.approx(-4.0)
+    assert signed["max"] == pytest.approx(-4.0)
+    rel = difference_field(a, b, "PRES", mode="relative")
+    # (A - (A+4)) / (|A|+eps) is negative
+    assert rel["max"] < 0.0
+    absr = difference_field(a, b, "PRES", mode="abs")
+    assert absr["mean"] == pytest.approx(4.0)
+    # IDW on identical mesh equals nearest (same shape short-circuits mapping)
+    idw = difference_field(a, b, "PRES", mapping="idw")
+    assert idw["mean"] == pytest.approx(4.0)
+
+
+def test_compare_idw_midpoint():
+    """IDW of two samples at the midpoint is the arithmetic mean."""
+    import numpy as np
+    from fv.model.compare import _map_idw
+    src_pts = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
+    src_vals = np.array([0.0, 10.0])
+    dst = np.array([[0.5, 0.0, 0.0]])
+    out = _map_idw(src_vals, src_pts, dst)
+    assert out[0] == pytest.approx(5.0)
