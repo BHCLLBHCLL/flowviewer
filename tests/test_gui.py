@@ -5261,8 +5261,9 @@ def test_r12p0_scene_export_honest_fail():
     app.open_file(FPH)
     assert app.SaveVRML("out.wrl") is None and app.ErrorCode != 0
     assert app.SaveGLTF("out.gltf") is None and app.ErrorCode != 0
-    assert app.SaveFBX("out.fbx") is None and "FBX" in app.ErrorString
-    assert app.SaveCradleViewer("out.cvw") is None
+    # r15: SaveFBX is now real (ASCII FBX); SaveCradleViewer stays honest NYI.
+    assert app.SaveFBX("out.fbx") is True
+    assert app.SaveCradleViewer("out.cvw") is None and app.ErrorCode != 0
 
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
