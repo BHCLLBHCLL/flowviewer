@@ -546,3 +546,23 @@ VR 实机 HMD、scConverter 附属工具——与 §8.9 相同，无新增可落
 
 **结论**：不引入外部样例/依赖的前提下，完整度与深度已收敛至可实现上限；
 下一轮提升点只存在于 Marc/FBX 样例获取或 scPOST 新版本接口对照。
+
+### 8.11 第十五轮执行记录（2026-08-18，导出/性能尾差收敛）
+
+按 §r14 建议顺序执行四项，落地三项、定论一项：
+
+| 计划项 | 内容 | 提交 | 状态 |
+|---|---|---|---|
+| FBX 导出 | 零依赖 ASCII FBX 7.3 writer（`export_surface_fbx`，顶点/多边形负索引终止符/ByVertice 法线/UV），`api.export_fbx` + COM `SaveFBX` 接通；真文件验证 21220 多边形全部合法 | `38eb462` | ✅ |
+| 变量惰性加载 | `VarInfo` 增惰性描述符（path/section/block/dtype/count）；`load_file(lazy_vars=True)` 跳过字段 payload；`variable_array()` 首访透明物化——20+ 调用点零改动；FPH 11 变量、FLD 15 变量 lazy vs eager 逐元素零差异 | `944933e` | ✅ |
+| STA 字段保真 | 新增 `test_sta_roundtrip_field_fidelity`：32 kind 全声明字段类型匹配探针变异 → round-trip → 逐字段比对（kind 判别字段除外）；零差异通过 | `98d4c87` | ✅ |
+| CradleViewer | 样例侦察定论：`*.CradleViewer` = `CVFF` v2 magic + 自定义 `ENCD` 编码（非 zlib、非 chunk-TLV，多起点解压失败）；6 份官方样例在 `*/AR/*` 可供后续专次逆向，NYI 消息已更新为可逆待研 | `38eb462` | 🔍 定论 |
+
+**对 §8.10 清单的影响**：
+
+| 维度 | r14 | r15 后 | 依据 |
+|---|---|---|---|
+| 导出/生态 完整度 | ~85% | **~92%** | FBX 出口补齐（NYI 项唯一仓库内可清项）；CradleViewer 从「无格式认知」升级为「格式已识别、样例在手」 |
+| 导出/生态 深度 | ~80% | **~88%** | STA 字段级保真有硬测试背书；FBX 与 OBJ 共享法线/UV 管线 |
+| 性能 完整度 | ~88% | **~92%** | 惰性加载补齐「按需读取」能力面；eager 默认不变（零回归） |
+| 性能 深度 | ~85% | **~88%** | 大文件打开跳过全部变量 payload（仅付显示所用变量）；剩余：百万级首帧基准未定标 |
