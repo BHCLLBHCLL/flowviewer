@@ -1475,14 +1475,24 @@ class FlowviewerApplication:
             return self._fail(exc)
 
     def SaveFBX(self, filepath):
-        """FBX export (SaveFBX) - no VTK FBX writer; reported via ErrorCode."""
-        return self._fail(NotImplementedError(
-            "FBX export is not available (no VTK FBX writer)"))
+        """Export the boundary surface as ASCII FBX 7.3 (SaveFBX)."""
+        try:
+            from . import api
+            return self._ok(api.export_fbx(self._need_ff(), str(filepath)))
+        except Exception as exc:
+            return self._fail(exc)
 
     def SaveCradleViewer(self, filepath):
-        """CradleViewer export (SaveCradleViewer) - proprietary format, NYI."""
+        """CradleViewer export (SaveCradleViewer).
+
+        Format identified from official AR samples as ``CVFF`` v2 with a
+        custom ``ENCD`` encoding (not zlib, not chunk-TLV); reversible in
+        principle once that encoding is mapped — blocked pending dedicated
+        reverse engineering of the sample files.
+        """
         return self._fail(NotImplementedError(
-            "CradleViewer format is proprietary and not supported"))
+            "CradleViewer CVFF v2 custom encoding not yet reversed "
+            "(samples available under D:/training/cradle */AR/*)"))
 
     def Compare(self, other_path, var=None):
         """Compare the current FLD with another file (Compare).

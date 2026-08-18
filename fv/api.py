@@ -92,6 +92,12 @@ def export_stl(ff, filename: str, surface=None) -> bool:
     return export_surface_stl(ff, filename, obj=surface)
 
 
+def export_fbx(ff, filename: str, surface=None) -> bool:
+    """Export the boundary surface (or a SurfaceObject) as ASCII FBX 7.3."""
+    from .render.export import export_surface_fbx
+    return export_surface_fbx(ff, filename, obj=surface)
+
+
 def register_variable(ff, name: str, expr: str):
     """Register a derived variable (see fv.model.varreg)."""
     from .model.varreg import register_variable
