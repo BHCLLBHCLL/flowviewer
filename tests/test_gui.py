@@ -2923,6 +2923,78 @@ def test_sta_roundtrip_all_kinds(tmp_path):
         f"only {len(restored)}/{len(classes)} kinds restored")
     assert {o.kind for o in restored} == {c.kind for c in classes}
 
+def test_sta_roundtrip_field_fidelity(tmp_path):
+    """r15: every declared field of every kind survives STA byte-for-byte.
+
+    Mutates each field to a type-matched probe value, round-trips through
+    save_status/load_status and compares field-by-field — catches fields
+    that silently fall back to defaults (the r7 "quiet loss" class of bug).
+    """
+    import dataclasses
+    from pathlib import Path as _P
+    from fv.model import objects as objmod
+    from fv.model.objects import MainObject
+    from fv.render.export import load_status, save_status
+
+    classes = [c for c in vars(objmod).values()
+               if isinstance(c, type) and dataclasses.is_dataclass(c)
+               and issubclass(c, objmod.PostObject)
+               and c is not objmod.PostObject
+               and isinstance(getattr(c, "kind", None), str)]
+
+    def probe(default):
+        """Type-matched non-default probe value, or None to skip."""
+        if isinstance(default, bool):
+            return not default
+        if isinstance(default, int):
+            return default + 12345
+        if isinstance(default, float):
+            return default + 1.5
+        if isinstance(default, str):
+            return (default or "x") + "-PROBE"
+        if isinstance(default, list):
+            return (list(default) or ["p"]) + ["PROBE"]
+        if isinstance(default, tuple):
+            return tuple(default) + ("PROBE",)
+        return None                       # None / exotic -> skip
+
+    skipped = []                          # fields not probeable (None default)
+    for cls in classes:
+        obj = cls(index=1)
+        for f in dataclasses.fields(cls):
+            cur = getattr(obj, f.name)
+            if f.name == "kind":      # discriminator: never mutate
+                continue
+            p = probe(cur)
+            if p is None:
+                skipped.append(f"{cls.__name__}.{f.name}")
+                continue
+            try:
+                setattr(obj, f.name, p)
+            except Exception:             # frozen / property-backed
+                skipped.append(f"{cls.__name__}.{f.name}")
+        obj.title = f"{cls.kind}-probe"
+        main = MainObject(path="x.fph", display_name="x.fph")
+        main.children = [obj]
+        sta = tmp_path / f"{cls.kind}.sta"
+        assert save_status(main, str(sta)) is True
+        restored = load_status(str(sta))
+        assert restored and len(restored) == 1, (
+            f"{cls.kind}: lost in round-trip")
+        back = restored[0]
+        assert type(back) is cls, f"{cls.kind}: wrong class restored"
+        for f in dataclasses.fields(cls):
+            if f"{cls.__name__}.{f.name}" in skipped:
+                continue
+            a = getattr(obj, f.name)
+            b = getattr(back, f.name)
+            if isinstance(a, _P):         # Path serialises as str
+                a = str(a)
+            assert a == b, (
+                f"{cls.__name__}.{f.name}: {a!r} -> {b!r}")
+    # every kind must have carried at least one probed field
+    assert len(skipped) < 8 * len(classes), f"too many unprobeable: {skipped}"
+
 def test_snapshot_png_headless_returns_false(tmp_path):
     """Headless scene has no render window → snapshot_png returns False."""
     from fv.model.dataset import load_file
