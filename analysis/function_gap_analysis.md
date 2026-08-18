@@ -1,9 +1,8 @@
 # flowviewer 功能差距全面分析（2026-08-16，第七轮评估）
 
-> **最新状态（2026-08-18 第十三轮执行后）见文末 §8.9**：COM 覆盖率
-> FLDFile **100%**（106/106）、Application **100%**（62/62），
-> 整体端到端深度 **~96%**；可落地缺口（Draw Window / TSER·OT / pick /
-> compare / 鼠标 1·3 键 / ADF 多 base）已闭环。§8.8 为第十二轮 P1 COM 100%。
+> **最新状态（2026-08-18 第十四轮清单刷新）见文末 §8.10**：全维度实测复核——
+> COM 双类 **100%**（106/106 + 62/62）、全量回归 **348 passed + 1 skipped**、
+> 整体端到端深度 **~96%**；r7 梯队一 5 项断裂全部销账；剩余尾差均为外部依赖。
 
 > 分析日期：2026-08-16（会话执行）
 > 对比基准：Cradle CFD 2025.2 scPOST（VB 接口 41 个公开类 + FLD File 类 125 方法面）
@@ -498,3 +497,52 @@ ShellExecute 沙箱、FBX/CradleViewer 外部格式、Draw Window settings UI）
 | scConverter 附属工具 | 非 scPOST 核心 |
 
 在上述外部依赖到位之前，**可实现范围内的完整度与深度已收敛到上限**；再往上只能等 Marc/FBX 样例与库。
+
+### 8.10 第十四轮：完整度 × 深度清单刷新（2026-08-18，实测复核）
+
+**方法**：不沿用历史轮结论，逐维度以源码 grep / git 提交 / 覆盖率脚本 /
+全量回归四类证据独立复核；HEAD = e882ac9。
+
+#### 分维度完整度 × 深度清单（当前权威版）
+
+| 维度 | 完整度 | 深度 | 较 r11（§8.2） | 实测证据 |
+|---|---|---|---|---|
+| 对象面（41 VB 类 → 32 kind） | ~100% | **~96%** | 深度 +6pp | Create 菜单 14 主 + 16 次 = 30 kind UI 全可达（main.py L44–79）；STA 动态注册表，新 kind 自动往返（export.py L73–92）；undo/redo Edit 菜单 + Ctrl+Z/Y（main.py L373–374）；pick 探针 11 kind（_pick_vars：plane/surface/isosurface/volume/streamline/cylinder/circle/particle/pathline/point/bar 族）；Draw Window settings 面板落地（object_dialogs2.py L1891） |
+| 数据格式面 | ~90% | **~88%** | +5pp | 11 解码器（crdl/ 13 文件）；CGNS ADF mmap + 多 CGNSBase_t（3c22d00）；TSER/CRDL-OT（tsmm.py，86adaaf）；iFLD 真局部盘读（bd2003b）；Marc .t16/.t19 仍缺样例（marc.py） |
+| 数据 API（FLDFile） | **100%**（106/106） | — | +16pp | _tmp_cov.py 本轮实测；表查询族 GetSurfaceArray(2)/GetVolumeArray2/GetNextNodes/GetElemBySurf（d5c75da） |
+| 自动化（Application） | **100%**（62/62） | — | +56pp | _tmp_cov.py 本轮实测；29 方法 + Message/Global/Draw/SaveBitmaps/Environment 5 窗口类（d5c75da） |
+| 渲染层 | ~97% | **~92%** | +5pp | 28 render 模块；流线族真六面体插值（c9bf854）；体渲染跨步采样实测确认（volume.py L67–88，r11「截断式」残留项销账）+ 3 点 opacity ramp（3d6e14a）；动画增量 cut（462c5e1）+ 批量 ugrid（8e5032e）；FBX 无 VTK writer（外部） |
+| 交互/GUI | ~98% | **~95%** | +7pp | 1-Button（Shift/Ctrl+左）与 3-Button trackball 行为区分（19efb25）；pick 值入状态栏；Timeline 由 TSER 驱动 |
+| 导出/生态 | ~85% | ~80% | +2pp | OBJ 法线/UV（3d6e14a）、VRML/GLTF、视频 3 通路；FBX/CradleViewer 外部依赖 |
+| 性能 | ~88% | ~85% | +3pp | FieldFile LRU + 单 open 复用（7d4e717）；百万单元级首帧秒级残留 |
+| 质量/测试 | ~95% | — | +7pp | tests 19 文件 350 函数；全量回归 348 passed + 1 skipped（25:41 实测，含 3 处顺序依赖断言对齐 0d7dfb5/05da721） |
+| 比较/分析 | ~95% | ~90% | 新增行 | signed/relative + IDW 异网格映射（eba90b9）；POD 时间系数 + k-means（f1886de） |
+
+**整体端到端深度：~96%**（§8.9 判断经独立复核成立）。
+
+#### 代码规模（较 r7 基线）
+
+| 指标 | r7 基线 | 当前 | 增幅 |
+|---|---|---|---|
+| fv/ 文件·行数 | 63 文件 18,195 行 | 66 文件 26,113 行 | 行数 +44% |
+| 测试 | 223 函数（201 passed） | 350 函数（348 passed + 1 skipped） | +57% |
+| COM 覆盖 | FLDFile ~48.8%（旧口径）/ Application ~15% | 106/106 + 62/62 | 双 100% |
+
+#### r7 梯队一「贯通断裂」逐条销账
+
+| r7 编号 | 当年断裂 | 现状 | 证据 |
+|---|---|---|---|
+| 1.1 | Create 菜单仅 8/13 可创建、18 对话框无入口 | 30 kind 全 UI 可达 | main.py L44–79 |
+| 1.2 | STA 往返仅 9/31 kind | 动态注册表自动全覆盖 | export.py L73–92 |
+| 1.3 | undo/redo 死代码 | Edit 菜单 + Ctrl+Z/Y | main.py L373–374 |
+| 1.4 | 粒子多帧解析不消费 | particle.py 消费多帧 + animate 循环 | particle.py L36–53 |
+| 1.5 | Timeline 控件 inert | TSER 驱动范围/overlay | tsmm.py（86adaaf） |
+
+#### 尾差（外部依赖，维持不做清单不变）
+
+Marc .t16/.t19（官方案例库无样例）、FBX（无 VTK writer/assimp）、
+CradleViewer 专有格式（com.py L1483 诚实 NYI）、ShellExecute 沙箱拦截、
+VR 实机 HMD、scConverter 附属工具——与 §8.9 相同，无新增可落地项。
+
+**结论**：不引入外部样例/依赖的前提下，完整度与深度已收敛至可实现上限；
+下一轮提升点只存在于 Marc/FBX 样例获取或 scPOST 新版本接口对照。
