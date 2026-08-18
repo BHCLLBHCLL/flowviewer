@@ -281,6 +281,25 @@ def _f64_field_blocks(data, section_name: str, keep=None,
     return out
 
 
+def _f64_block_descriptors(data, section_name: str) -> list[tuple]:
+    """Lazy counterpart of :func:`_f64_field_blocks` (r15).
+
+    Enumerates float64 blocks without reading payloads; each hit yields
+    ``(block_index, element_count)`` where *block_index* counts every
+    block in the section (same filter as ``_f64_field_blocks``) so the
+    caller can re-locate the block later.
+    """
+    sec_start = find_section(data, section_name)
+    if sec_start < 0:
+        return []
+    sec_end = section_end(data, sec_start)
+    out: list[tuple] = []
+    for i, (p, bc) in enumerate(iter_data_blocks(data, sec_start, sec_end)):
+        if bc >= 8 and bc % 8 == 0:
+            out.append((i, bc // 8))
+    return out
+
+
 def _parse_volume_names(data) -> list[str]:
     sec_start = find_section(data, "LS_VolumeGeometryArray")
     if sec_start < 0:
@@ -638,7 +657,8 @@ def _trim_faces(faces, face_cells, bc_plan, base, inside, remap, n_all,
     return new_faces, new_face_cells, new_bp, total_faces
 
 
-def parse_fld(filepath: str, data=None, bounds=None) -> dict[str, Any]:
+def parse_fld(filepath: str, data=None, bounds=None,
+              lazy_fields: bool = False) -> dict[str, Any]:
     """Parse an FLD file into a structured mesh + solution dict.
 
     ``data`` may pass an already-open buffer (bytes / mmap) to reuse a
@@ -727,6 +747,64 @@ def parse_fld(filepath: str, data=None, bounds=None) -> dict[str, Any]:
         result["face_cells"] = face_cells
 
     n = int(keep_v.size) if keep_v is not None else (n_verts or 0)
+
+    # r15 lazy mode: enumerate field blocks without reading payloads;
+    # incompatible with spatial trimming (which must slice every array).
+    _lazy = lazy_fields and keep_v is None
+
+    if _lazy:
+        temp_d = _f64_block_descriptors(data, "Temperature")
+        cn01_d = _f64_block_descriptors(data, "CN01")
+        pres_d = _f64_block_descriptors(data, "Pressure")
+        vect_d = _f64_block_descriptors(data, "VECT")
+        hvec_d = _f64_block_descriptors(data, "HVEC")
+
+        def _count_ok(cnt):
+            return cnt > 0 and (n == 0 or cnt == n)
+
+        field_lazy: dict[str, tuple] = {}
+
+        def _d(sec, hit):
+            i, cnt = hit
+            return (sec, i, ">f8", cnt)
+
+        if pres_d and _count_ok(pres_d[0][1]):
+            field_lazy["PRES"] = _d("Pressure", pres_d[0])
+        if temp_d:
+            if _count_ok(temp_d[0][1]):
+                field_lazy["TEMP"] = _d("Temperature", temp_d[0])
+                field_lazy["ATMS"] = _d("Temperature", temp_d[0])
+            if len(temp_d) > 3 and _count_ok(temp_d[3][1]):
+                field_lazy["TURK"] = _d("Temperature", temp_d[3])
+            if len(temp_d) > 6 and _count_ok(temp_d[6][1]):
+                field_lazy["TEPS"] = _d("Temperature", temp_d[6])
+        if cn01_d:
+            if _count_ok(cn01_d[0][1]):
+                field_lazy["CN01"] = _d("CN01", cn01_d[0])
+            if len(cn01_d) > 3 and _count_ok(cn01_d[3][1]):
+                field_lazy["HTRC"] = _d("CN01", cn01_d[3])
+            if len(cn01_d) > 6 and _count_ok(cn01_d[6][1]):
+                field_lazy["SURT"] = _d("CN01", cn01_d[6])
+            if len(cn01_d) > 9 and _count_ok(cn01_d[9][1]):
+                field_lazy["HTFX"] = _d("CN01", cn01_d[9])
+        if len(vect_d) >= 3 and all(_count_ok(h[1]) for h in vect_d[:3]):
+            for ax, suffix in enumerate(("X", "Y", "Z")):
+                field_lazy[f"VECT{suffix}"] = _d("VECT", vect_d[ax])
+        if len(hvec_d) >= 3 and all(_count_ok(h[1]) for h in hvec_d[:3]):
+            for ax, suffix in enumerate(("X", "Y", "Z")):
+                field_lazy[f"HVEC{suffix}"] = _d("HVEC", hvec_d[ax])
+
+        result["fields"] = {}
+        result["field_lazy"] = field_lazy
+        result["bc_sections"] = _parse_bc_sections(data)
+        result["ls_sfile"] = _parse_ls_sfile(data)
+        result["meta"] = parse_header_meta(data)
+        result["meta"]["local_coord"] = _parse_local_coord(data)
+        if trim_meta is not None:
+            trim_meta["kept_cells"] = int(result.get("n_cells") or 0)
+            result["meta"]["ifld_trim"] = trim_meta
+        return result
+
     temp_blocks = _f64_field_blocks(data, "Temperature", keep=keep_v,
                                     n_verts=n_verts)
     cn01_blocks = _f64_field_blocks(data, "CN01", keep=keep_v,

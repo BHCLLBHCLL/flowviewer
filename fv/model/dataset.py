@@ -29,6 +29,13 @@ class VarInfo:
     kind: str = FIELD_KIND_SCALAR
     location: str = "cell"  # 'cell' | 'node' | 'face'
     array: Optional[np.ndarray] = None
+    # r15 lazy-load descriptor: when array is None and lazy_path is set,
+    # FieldFile.variable_array() materialises the block on first access.
+    lazy_path: str = ""               # source file
+    lazy_section: str = ""            # file section holding the block
+    lazy_block: int = -1              # block index within the section
+    lazy_dtype: str = ""              # ">f4" | ">f8"
+    lazy_count: int = 0               # element count
 
 
 @dataclass
@@ -106,8 +113,40 @@ class FieldFile:
     def variable_names(self) -> list[str]:
         return list(self.variables)
 
+    def load_variable(self, name: str) -> Optional[np.ndarray]:
+        """Materialise one variable; lazy descriptors load on demand (r15)."""
+        vi = self.variables.get(name)
+        if vi is None:
+            return None
+        if vi.array is None and vi.lazy_path:
+            from ..crdl.core import (open_buffer, find_section, section_end,
+                                     iter_data_blocks)
+            with open_buffer(vi.lazy_path) as data:
+                sec_start = find_section(data, vi.lazy_section)
+                if sec_start < 0:
+                    raise IOError(
+                        f"lazy section missing: {vi.lazy_section}")
+                sec_end = section_end(data, sec_start)
+                hit = None
+                for i, blk in enumerate(
+                        iter_data_blocks(data, sec_start, sec_end)):
+                    if i == vi.lazy_block:
+                        hit = blk
+                        break
+                if hit is None:
+                    raise IOError(f"lazy block missing: {name}")
+                p, bc = hit
+                vi.array = np.frombuffer(
+                    data, dtype=vi.lazy_dtype,
+                    count=min(vi.lazy_count,
+                              bc // np.dtype(vi.lazy_dtype).itemsize),
+                    offset=p).astype(np.float64)
+        return vi.array
+
     def variable_array(self, name: str) -> Optional[np.ndarray]:
         vi = self.variables.get(name)
+        if vi is not None and vi.array is None and vi.lazy_path:
+            return self.load_variable(name)
         return vi.array if vi is not None else None
 
 
@@ -421,6 +460,20 @@ def _ff_from_fld_mesh(mesh, path) -> FieldFile:
             location="node",
             array=arr,
         )
+    # r15 lazy descriptors (parse_fld lazy_fields=True)
+    for name, desc in (mesh.get("field_lazy") or {}).items():
+        section, bidx, dtype, count = desc
+        ff.variables[name] = VarInfo(
+            name=name,
+            kind=_field_kind(name),
+            location="node",
+            array=None,
+            lazy_path=str(path),
+            lazy_section=section,
+            lazy_block=bidx,
+            lazy_dtype=dtype,
+            lazy_count=count,
+        )
     return ff
 
 
@@ -453,16 +506,22 @@ def fld_only_load(filepath: str) -> FieldFile:
     return ff
 
 
-def load_file(filepath: str) -> FieldFile:
+def load_file(filepath: str, lazy_vars: bool = False) -> FieldFile:
     """Detect GPH/FPH vs FLD by section layout and parse into a FieldFile.
 
     Mesh, flow solution and cycle metadata are all read from one file
     buffer (P1-2 single-open reuse).
+
+    ``lazy_vars=True`` (r15) skips field payloads at open time; each
+    variable carries a block descriptor and materialises on first
+    ``variable_array()`` access — big files open fast and only pay for
+    the variables actually displayed.
     """
     path = Path(filepath)
     with open_buffer(str(path)) as data:
         if _looks_like_fld(data) or path.suffix.lower() == ".fld":
-            mesh = mesh_fld.parse_fld(str(path), data=data)
+            mesh = mesh_fld.parse_fld(str(path), data=data,
+                                      lazy_fields=lazy_vars)
             if not mesh["n_vertices"] and not mesh["n_cells"]:
                 mesh = _inherit_mesh_from_sibling(mesh, path)
             ff = _ff_from_fld_mesh(mesh, path)
@@ -485,8 +544,23 @@ def load_file(filepath: str) -> FieldFile:
         ff.element_flags = mesh.get("element_flags")
         ff.element_centers = mesh.get("element_centers")
 
-        sph = fld_fields.parse_fph_flow_solution(data, ff.n_cells)
+        sph = fld_fields.parse_fph_flow_solution(data, ff.n_cells,
+                                                 lazy=lazy_vars)
         for name, arr in sph.items():
+            if lazy_vars and isinstance(arr, tuple):
+                section, bidx, dtype, count = arr
+                ff.variables[name] = VarInfo(
+                    name=name,
+                    kind=_field_kind(name),
+                    location="cell",
+                    array=None,
+                    lazy_path=str(path),
+                    lazy_section=section,
+                    lazy_block=bidx,
+                    lazy_dtype=dtype,
+                    lazy_count=count,
+                )
+                continue
             ff.variables[name] = VarInfo(
                 name=name,
                 kind=_field_kind(name),

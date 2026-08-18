@@ -223,8 +223,14 @@ def parse_particle_variables(data) -> dict:
             in parse_particle_variable_frames(data).items() if frames}
 
 
-def parse_fph_flow_solution(data, n_cells: int) -> dict[str, np.ndarray]:
-    """Parse ``LS_SPHFile`` → ``{var: float64 (n_cells,)}`` (cell-centred)."""
+def parse_fph_flow_solution(data, n_cells: int,
+                            lazy: bool = False) -> dict:
+    """Parse ``LS_SPHFile`` → ``{var: float64 (n_cells,)}`` (cell-centred).
+
+    With ``lazy=True`` (r15) payloads are *not* read; each variable maps to
+    a descriptor tuple ``(section, block_index, dtype, count)`` the caller
+    can materialise later via :meth:`FieldFile.variable_array`.
+    """
     sec_start = find_section(data, "LS_SPHFile")
     if sec_start < 0:
         return {}
@@ -250,18 +256,20 @@ def parse_fph_flow_solution(data, n_cells: int) -> dict[str, np.ndarray]:
     if not name_indices:
         return {}
 
-    scalars: list[tuple[str, np.ndarray]] = []
-    vectors: list[tuple[str, list[np.ndarray]]] = []
+    scalars: list = []
+    vectors: list = []
 
     for vi, (bi, name) in enumerate(name_indices):
         next_bi = (name_indices[vi + 1][0]
                    if vi + 1 < len(name_indices) else len(blocks))
-        data_blocks: list[np.ndarray] = []
+        data_blocks: list = []
         for j in range(bi + 1, next_bi):
             p, bc = blocks[j]
             if bc == expected_data_bytes:
-                arr = f32_be_array(data, p, bc // 4)
-                data_blocks.append(arr)
+                if lazy:
+                    data_blocks.append(("LS_SPHFile", j, ">f4", bc // 4))
+                else:
+                    data_blocks.append(f32_be_array(data, p, bc // 4))
         if not data_blocks:
             continue
 
@@ -273,7 +281,7 @@ def parse_fph_flow_solution(data, n_cells: int) -> dict[str, np.ndarray]:
             if len(data_blocks) >= 3:
                 vectors.append((var, data_blocks[:3]))
 
-    result: dict[str, np.ndarray] = {}
+    result: dict = {}
     for var, arr in scalars:
         result[var] = arr
     for var, comps in vectors:
