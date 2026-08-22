@@ -8,10 +8,16 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from fv.crdl.marc import is_marc_post, parse_marc_post
+from fv.crdl.marc import is_marc_post, parse_marc, parse_marc_post, _post_name
 from fv.model.dataset import load_file, marc_load
 from fv.model import loaders
 
+EXAMPLE_DAT = (
+    Path(__file__).resolve().parents[1]
+    / "Marc_Mentat_Scripting-main"
+    / "marcmentat_files"
+    / "example_model_0.dat"
+)
 EXAMPLE = (
     Path(__file__).resolve().parents[1]
     / "Marc_Mentat_Scripting-main"
@@ -85,7 +91,7 @@ def write_tiny_t16(path: Path) -> Path:
         _beg("52401", "Nodal Results"),
         _i4(1, 2),
         _rec(_a1("Displacement", 48)),
-        _i4(1, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0),
+        _i4(1, 0, 0, 2, 0, 0, -1, 0, 0, 0, 0, 0),
         _f4(0.0, 0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6),
         _end(),
     ])
@@ -139,8 +145,9 @@ def test_tiny_t16_mesh_and_fields(tmp_path):
     dy = mesh["fields"]["Displacement_Y"][0]
     assert dx.tolist() == pytest.approx([0.0, 0.1, 0.3, 0.5])
     assert dy.tolist() == pytest.approx([0.0, 0.2, 0.4, 0.6])
-    assert mesh["fields"]["POST_681"][1] == "cell"
-    assert mesh["fields"]["POST_681"][0].tolist() == pytest.approx([42.0])
+    assert mesh["fields"]["Cauchy_XX"][1] == "cell"
+    assert mesh["fields"]["Cauchy_XX"][0].tolist() == pytest.approx([42.0])
+    assert mesh["meta"]["times"][0] == pytest.approx(0.5)
 
 
 def test_tiny_t19_and_load_file(tmp_path):
@@ -189,7 +196,56 @@ def test_example_model_0_t16():
         3.1814255714416504)
     assert ff.variables["Displacement_Y"].array[corner] == pytest.approx(
         1.8095834255218506)
-    assert "POST_681" in ff.variables
-    assert ff.variables["POST_681"].location == "cell"
+    assert "Cauchy_XX" in ff.variables
+    assert ff.variables["Cauchy_XX"].location == "cell"
     assert ff.meta["postrv"] == 14
     assert ff.meta["n_increments"] == 91
+    assert ff.meta["spec"] == "PLDUMP2000"
+    assert len(ff.meta["times"]) == 91
+
+
+def test_post_code_names():
+    assert _post_name(17) == "Equiv_Mises"
+    assert _post_name(47) == "Equiv_Cauchy"
+    assert _post_name(341) == "Cauchy_XX"
+    assert _post_name(686) == "Cauchy_ZX"
+    assert _post_name(681, "My Label") == "My_Label"
+
+
+def write_tiny_k7(path: Path) -> Path:
+    """Classic K7 PLDUMP: 70A1 title, 18 ints, one quad, four nodes."""
+    title = _a1("k7job")
+    vfy = struct.pack("<18i", 0, 4, 1, 2, 1, 0, 1, 0, 2, 4, 1, 0, 0, 0, 0, 0, 0, 0)
+    conn = struct.pack("<7i", 1, 11, 4, 1, 2, 3, 4)
+    blob = b"".join([
+        _rec(title),
+        _rec(vfy),
+        _rec(conn),
+        _coord(1, 0.0, 0.0),
+        _coord(2, 1.0, 0.0),
+        _coord(3, 1.0, 1.0),
+        _coord(4, 0.0, 1.0),
+    ])
+    path.write_bytes(blob)
+    return path
+
+
+def test_classic_k7_pldump(tmp_path):
+    path = write_tiny_k7(tmp_path / "old.t16")
+    assert is_marc_post(str(path))
+    mesh = parse_marc_post(str(path))
+    assert mesh is not None
+    assert mesh["meta"]["spec"] == "PLDUMP-K7"
+    assert mesh["n_cells"] == 1 and mesh["n_vertices"] == 4
+    assert mesh["cell_types"].tolist() == [9]
+
+
+@pytest.mark.skipif(not EXAMPLE_DAT.exists(), reason="Mentat example dat not present")
+def test_example_model_0_mentat_dat():
+    """Volume C Mentat deck: connectivity + coordinates, 2582 geometric nodes."""
+    mesh = parse_marc(str(EXAMPLE_DAT))
+    assert mesh is not None
+    assert mesh["n_cells"] == 2461
+    assert mesh["n_vertices"] == 2582
+    assert mesh["cell_types"][0] == 9
+    assert mesh["vertices"][mesh["node_order"][2]][0] == pytest.approx(25.0)

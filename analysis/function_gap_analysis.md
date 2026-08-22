@@ -588,8 +588,10 @@ VR 实机 HMD、scConverter 附属工具——与 §8.9 相同，无新增可落
 `example_model_0.t16`：2461 cell、2582 有效节点，节点 2 末位移与
 `Example_ouput_file.txt` 一致（Δx=3.18142557）。
 
-**仍不做**：K7 无 `=beg=` 老 t16；全增量时间序列（只取末增量）；官方 `py_post`。
-未把 11MB/87MB 样例纳入 git。
+**本轮补全（对照 Volume D 2005 PLDUMP2000 + HyperView 后处理码表 + Mentat `.dat`）**：
+Mentat `connectivity`/`coordinates` 卡片（含 `2.5+1` Fortran 指数）；524nn 按 `ivec(7)=-1`
+读节点向量；51701/51801 全增量时间表；后处理码 17/47/341–346/681–686 命名；
+无 `=beg=` 的 K7 PLDUMP 回退。仍不依赖官方 `py_post`，不把大样例纳入 git。
 
 **对清单**：数据格式面「Marc 二进制」从外部阻塞改为已实现；剩余外部项为
 CradleViewer 解码、VR HMD、ShellExecute 沙箱。
