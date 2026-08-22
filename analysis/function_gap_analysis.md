@@ -1,8 +1,8 @@
 # flowviewer 功能差距全面分析（2026-08-16，第七轮评估）
 
-> **最新状态（2026-08-18 第十四轮清单刷新）见文末 §8.10**：全维度实测复核——
-> COM 双类 **100%**（106/106 + 62/62）、全量回归 **348 passed + 1 skipped**、
-> 整体端到端深度 **~96%**；r7 梯队一 5 项断裂全部销账；剩余尾差均为外部依赖。
+> **最新状态（2026-08-22 第十六轮）见文末 §8.12**：Marc Mentat `.t16`/`.t19`
+> style-14 后处理文件已落地（样例 `Marc_Mentat_Scripting-main`）；此前 §8.10
+> 把该项列为外部阻塞，现已解除。
 
 > 分析日期：2026-08-16（会话执行）
 > 对比基准：Cradle CFD 2025.2 scPOST（VB 接口 41 个公开类 + FLD File 类 125 方法面）
@@ -566,3 +566,30 @@ VR 实机 HMD、scConverter 附属工具——与 §8.9 相同，无新增可落
 | 导出/生态 深度 | ~80% | **~88%** | STA 字段级保真有硬测试背书；FBX 与 OBJ 共享法线/UV 管线 |
 | 性能 完整度 | ~88% | **~92%** | 惰性加载补齐「按需读取」能力面；eager 默认不变（零回归） |
 | 性能 深度 | ~85% | **~88%** | 大文件打开跳过全部变量 payload（仅付显示所用变量）；剩余：百万级首帧基准未定标 |
+
+### 8.12 第十六轮：Marc `.t16`/`.t19` 后处理文件（2026-08-22）
+
+样例与脚本：`Marc_Mentat_Scripting-main`（`py_post_process.py` 走官方 `py_post`）
+及 `marcmentat_files/example_model_{0,1}.t16`（Mentat 2021.4，POST style 14）。
+
+**格式**：Fortran 无格式顺序记录 + 自描述 `=beg=NNNNN` / `=end=` 段
+（A1 一字一符）。与 Volume D PLDUMP 逻辑块对应，但现代文件用段码而非
+无标号块序列：
+
+| 段码 | 内容 |
+|---|---|
+| 50100 / 50200 | 标题；INUM/LNUM/MNUM/NDEG/NCRD/IANTYP/POSTRV=14 |
+| 50602 / 50702 / 50800 | 单元后处理码、连接、节点坐标（`int32` + `NCRD×float32`） |
+| 51701 / 51801 | 增量号 / 时间 |
+| 52300 / 52401 | 末增量积分点值、节点位移（`Displacement_*`） |
+
+**落地**：`fv/crdl/marc.py` `parse_marc_post`；`marc_load` + `load_file` 注册
+`.t16`/`.t19`；2D 五节点 118 单元去掉原点填充节点后按四边形导入。
+`example_model_0.t16`：2461 cell、2582 有效节点，节点 2 末位移与
+`Example_ouput_file.txt` 一致（Δx=3.18142557）。
+
+**仍不做**：K7 无 `=beg=` 老 t16；全增量时间序列（只取末增量）；官方 `py_post`。
+未把 11MB/87MB 样例纳入 git。
+
+**对清单**：数据格式面「Marc 二进制」从外部阻塞改为已实现；剩余外部项为
+CradleViewer 解码、VR HMD、ShellExecute 沙箱。

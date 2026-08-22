@@ -272,12 +272,18 @@ def neutral_load(filepath: str) -> FieldFile:
 
 
 def marc_load(filepath: str) -> FieldFile:
-    """Marc/Mentat .dat mesh loader + optional node results sidecar (3, 7)."""
-    from ..crdl.marc import parse_marc, parse_marc_results
+    """Marc/Mentat loader: ``.dat`` mesh, or ``.t16``/``.t19`` post file."""
+    from ..crdl.marc import parse_marc, parse_marc_results, parse_marc_post
     path = Path(filepath)
-    mesh = parse_marc(str(path))
-    if mesh is None:
-        raise ValueError("not a readable Marc .dat mesh: " + filepath)
+    suf = path.suffix.lower()
+    if suf in (".t16", ".t19"):
+        mesh = parse_marc_post(str(path))
+        if mesh is None:
+            raise ValueError("not a readable Marc post file: " + filepath)
+    else:
+        mesh = parse_marc(str(path))
+        if mesh is None:
+            raise ValueError("not a readable Marc .dat mesh: " + filepath)
     ff = FieldFile(path=str(path), kind="marc")
     ff.vertices = mesh["vertices"]
     ff.n_vertices = mesh["n_vertices"]
@@ -285,19 +291,31 @@ def marc_load(filepath: str) -> FieldFile:
     ff.cell_types = mesh["cell_types"]
     ff.n_cells = mesh["n_cells"]
     ff.volume_regions = mesh["volume_regions"]
-    ff.file_size = mesh["vertices"].nbytes
-    # optional ASCII node results sidecar (same stem, .res/.csv)
-    for suf in (".res", ".csv"):
-        side = path.with_suffix(suf)
-        if side.exists():
-            fields = parse_marc_results(
-                str(side), mesh["node_order"], mesh["n_vertices"])
-            for name, (arr, loc) in fields.items():
-                ff.variables[name] = VarInfo(
-                    name=name, kind=FIELD_KIND_SCALAR, location=loc,
-                    array=np.asarray(arr, dtype=np.float64),
-                )
-            break
+    ff.file_size = path.stat().st_size if path.exists() else mesh["vertices"].nbytes
+    meta = mesh.get("meta") or {}
+    if meta:
+        ff.meta.update(meta)
+        if meta.get("last_increment") is not None:
+            ff.cycle = int(meta["last_increment"])
+        if meta.get("time") is not None:
+            ff.time = float(meta["time"])
+    for name, (arr, loc) in (mesh.get("fields") or {}).items():
+        ff.variables[name] = VarInfo(
+            name=name, kind=FIELD_KIND_SCALAR, location=loc,
+            array=np.asarray(arr, dtype=np.float64),
+        )
+    if suf not in (".t16", ".t19"):
+        for side_suf in (".res", ".csv"):
+            side = path.with_suffix(side_suf)
+            if side.exists():
+                fields = parse_marc_results(
+                    str(side), mesh["node_order"], mesh["n_vertices"])
+                for name, (arr, loc) in fields.items():
+                    ff.variables[name] = VarInfo(
+                        name=name, kind=FIELD_KIND_SCALAR, location=loc,
+                        array=np.asarray(arr, dtype=np.float64),
+                    )
+                break
     return ff
 
 def pph_load(filepath: str) -> FieldFile:
@@ -394,6 +412,8 @@ def _register_loaders() -> None:
         loaders.register("neu", neutral_load)
         loaders.register("ply", neutral_load)
         loaders.register("dat", marc_load)
+        loaders.register("t16", marc_load)
+        loaders.register("t19", marc_load)
         loaders.register("op2", op2_load)
     except Exception:  # pragma: no cover - registry is best-effort
         pass
@@ -516,8 +536,17 @@ def load_file(filepath: str, lazy_vars: bool = False) -> FieldFile:
     variable carries a block descriptor and materialises on first
     ``variable_array()`` access — big files open fast and only pay for
     the variables actually displayed.
+
+    Non-Cradle extensions (CGNS, Marc ``.t16``/``.t19``/``.dat``, …)
+    dispatch through the loader registry.
     """
     path = Path(filepath)
+    ext = path.suffix.lower().lstrip(".")
+    if ext not in {"fld", "ifld", "fph", "gph", "emt"}:
+        from . import loaders
+        fn = loaders.LOADERS.get(ext)
+        if fn is not None:
+            return fn(str(path))
     with open_buffer(str(path)) as data:
         if _looks_like_fld(data) or path.suffix.lower() == ".fld":
             mesh = mesh_fld.parse_fld(str(path), data=data,

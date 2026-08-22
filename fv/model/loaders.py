@@ -1,10 +1,8 @@
 """File-format registry: which extensions have real loaders + format probe.
 
-The GUI filter list intentionally mirrors scPOST's catalogue (CGNS/XDMF/
-Nastran/…), but only ``fld/ifld/fph/gph`` have working parsers.  This module
-keeps a single registry so the dialog and ``main.open_file`` can answer
-"is this file actually loadable?" honestly and give a useful message for
-formats that are detected-but-not-yet-parsed (e.g. CGNS/HDF5).
+The GUI filter list mirrors scPOST's catalogue.  Working parsers are
+whatever ``dataset._register_loaders`` advertised (FLD/FPH/GPH plus
+CGNS, Marc ``.dat``/``.t16``/``.t19``, Nastran, Neutral, …).
 """
 
 from __future__ import annotations
@@ -62,6 +60,14 @@ def probe_format(path: str) -> str:
         return "fph"      # EMT is a Cradle binary result, fph-family
     if suf in ("fld", "ifld"):
         return "fld"
+    if suf in ("t16", "t19"):
+        try:
+            from ..crdl.marc import is_marc_post
+            return "marc-post" if is_marc_post(str(p)) else "marc"
+        except Exception:  # pragma: no cover
+            return "marc"
+    if suf == "dat":
+        return "marc"
     return "other"
 
 
