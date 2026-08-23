@@ -551,3 +551,67 @@ def print_scene(scene, parent=None) -> bool:
     painter.end()
     os.remove(tmp)
     return True
+
+
+def export_surface_cvff(ff, filename: str) -> bool:
+    """Write named boundary-region groups as a CradleViewer CVFF scene (R17-T4b).
+
+    Inverse of ``fv.model.dataset.cvff_load``: every boundary region
+    becomes one named tree group; per-region vertices are compacted and
+    re-indexed, so re-loading the exported file reproduces the same
+    region split (mesh geometry only, no scalar fields - CVFF is a
+    geometry-viewer format like the STL/FBX exports).  FPH/GPH/PPH
+    surfaces come from the ``link_data`` face table (boundary faces are
+    the ``neighbour == -1`` rows); FLD/neutral kinds use ``ff.faces``.
+    """
+    import numpy as np
+    from ..crdl.cvff import build_scene, write_cvff
+    if ff.vertices is None:
+        return False
+    region_faces = []
+    if ff.poly and ff.link_data is not None:
+        ld = ff.link_data
+        face_nodes = np.asarray(ld["face_nodes"], dtype=np.int64)
+        face_offsets = np.asarray(ld["face_offsets"], dtype=np.int64)
+        neighbour = np.asarray(ld["neighbour"], dtype=np.int64)
+        bnd = set(np.flatnonzero(neighbour == -1).tolist())
+        for reg in ff.boundary_regions():
+            faces = [face_nodes[int(face_offsets[i]):int(face_offsets[i + 1])]
+                     .tolist()
+                     for i in np.asarray(reg.face_ids, dtype=np.int64).tolist()
+                     if int(i) in bnd]
+            if faces:
+                region_faces.append((reg.name, faces))
+    elif ff.faces:
+        # FLD faces carry the file's 1-based node ids (OBJ/STL/PLY/CVFF
+        # loaders already emit 0-based indices).
+        shift = 1 if ff.kind == "fld" else 0
+        for reg in ff.boundary_regions():
+            faces = [[int(v) - shift for v in ff.faces[i]]
+                     for i in np.asarray(reg.face_ids, dtype=np.int64).tolist()
+                     if 0 <= i < len(ff.faces)]
+            if faces:
+                region_faces.append((reg.name, faces))
+        if not region_faces:   # anonymous single group over the whole boundary
+            region_faces = [("Boundary",
+                             [[int(v) - shift for v in f]
+                              for f in ff.faces if len(f)])]
+    if not region_faces:
+        return False
+    verts_all = np.asarray(ff.vertices, dtype=np.float64)
+    groups = []
+    for name, faces in region_faces:
+        faces = [f for f in faces if len(f)]
+        if not faces:
+            continue
+        used = sorted({int(v) for f in faces for v in f})
+        remap = {v: k for k, v in enumerate(used)}
+        groups.append((str(name), verts_all[used],
+                       [[remap[int(v)] for v in f] for f in faces]))
+    if not groups:
+        return False
+    try:
+        write_cvff(str(filename), build_scene(groups))
+    except (OSError, ValueError, IndexError):
+        return False
+    return True

@@ -68,7 +68,7 @@ def probe_format(path: str) -> str:
             return "marc"
     if suf == "dat":
         return "marc"
-    if suf in ("cradleviewer", "cvff"):
+    if suf in ("cradleviewer", "cvff", "cvw"):
         return "cvff"
     return "other"
 

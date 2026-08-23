@@ -251,3 +251,24 @@ TREE: FLD(B=2,C=4,D=-1,E=1) → 组名(B=3+i,C=6+i,D=4,E=5)
   opacity 分组不同（0.5/1.0）
 - LINE 公共记录 visible=0；BTN 图标块每树节点一块（含 FLD 组 kind=2），
   新场景暂不合成 BTN（图标位图无法生成，树节点将无图标——解析器不依赖）
+
+## 11. 导出链路（R17-T4b，2026-08-24）
+
+### 11.1 `api.export_cradleviewer(ff, path)` / COM `SaveCradleViewer(filepath)`
+
+- `fv/render/export.py: export_surface_cvff` — 按区域分组导出（与
+  `cvff_load` 互逆）：
+  - FPH/GPH/PPH：面表取自 `link_data`（face_nodes/face_offsets），
+    仅保留边界行（`neighbour == -1`），每区域一组
+  - FLD：`ff.faces` + `bc_plan` 区段；FLD 面存的是文件 **1 基节点号**，
+    导出时平移到 0 基（OBJ/STL/PLY/CVFF loader 本就 0 基）
+  - 每组顶点压缩重编号 -> `build_scene` -> `write_cvff`；
+    无区域时整体作为单组 "Boundary"
+- `.cvw` 扩展名注册为 CVFF 别名（`loaders.register("cvw", ...)`，
+  probe 同步；官方样例用 `.CradleViewer`，两者均可加载）
+- COM `SaveCradleViewer` 从 NotImplementedError 存根活化（r15 曾按
+  "格式未逆向"诚实失败；R17 逆向完成后成为真实导出，与 SaveFBX 同构）
+- Round-trip 验证（`tests/test_gui.py::test_r17t4b_cradleviewer_roundtrip`）：
+  - tr03_9.fph：104 区域名称逐一保留，119,335 面与区域面数总和相等，
+    bbox 误差 7.5e-9 << u16 量化步长
+  - ex1 FLD：13 区域、9,238 面、bbox 误差 5.4e-9

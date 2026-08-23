@@ -98,6 +98,12 @@ def export_fbx(ff, filename: str, surface=None) -> bool:
     return export_surface_fbx(ff, filename, obj=surface)
 
 
+def export_cradleviewer(ff, filename: str) -> bool:
+    """Export boundary-region groups as a CradleViewer CVFF scene."""
+    from .render.export import export_surface_cvff
+    return export_surface_cvff(ff, filename)
+
+
 def register_variable(ff, name: str, expr: str):
     """Register a derived variable (see fv.model.varreg)."""
     from .model.varreg import register_variable

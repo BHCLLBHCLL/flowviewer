@@ -491,6 +491,7 @@ def _register_loaders() -> None:
         loaders.register("ply", neutral_load)
         loaders.register("cradleviewer", cvff_load)
         loaders.register("cvff", cvff_load)
+        loaders.register("cvw", cvff_load)
         loaders.register("dat", marc_load)
         loaders.register("t16", marc_load)
         loaders.register("t19", marc_load)

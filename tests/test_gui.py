@@ -5255,15 +5255,37 @@ def test_r12p0_viewpoint_viewport():
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_r12p0_scene_export_honest_fail():
-    """r12 P0-1: SaveVRML/SaveGLTF need a GUI; SaveFBX fails honestly."""
+    """r12 P0-1: SaveVRML/SaveGLTF need a GUI; real exports succeed."""
     from fv.com import FlowviewerApplication
     app = FlowviewerApplication()
     app.open_file(FPH)
     assert app.SaveVRML("out.wrl") is None and app.ErrorCode != 0
     assert app.SaveGLTF("out.gltf") is None and app.ErrorCode != 0
-    # r15: SaveFBX is now real (ASCII FBX); SaveCradleViewer stays honest NYI.
+    # r15: SaveFBX real (ASCII FBX); r17-T4b: SaveCradleViewer real (CVFF).
     assert app.SaveFBX("out.fbx") is True
-    assert app.SaveCradleViewer("out.cvw") is None and app.ErrorCode != 0
+    assert app.SaveCradleViewer("out.cvw") is True
+
+
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_r17t4b_cradleviewer_roundtrip(tmp_path):
+    """r17-T4b: SaveCradleViewer export re-loads with identical regions."""
+    import numpy as np
+    from fv.com import FlowviewerApplication
+    from fv.model.dataset import load_file
+    app = FlowviewerApplication()
+    app.open_file(FPH)
+    out = str(tmp_path / "rt.cvw")
+    assert app.SaveCradleViewer(out) is True and app.ErrorCode == 0
+    src, ff = app._ff, load_file(out)
+    assert ff.kind == "cvff"
+    names = [n for n, _ in ff.surface_regions]
+    assert names and set(names) == {r.name for r in src.boundary_regions()}
+    assert len(ff.faces) == sum(len(r.face_ids) for r in src.boundary_regions())
+    # geometry fidelity within one u16 quantisation step of the bbox
+    b1, b2 = np.asarray(src.vertices), np.asarray(ff.vertices)
+    step = float((b1.max(0) - b1.min(0)).max()) / 65535.0 + 1e-9
+    assert np.abs(b1.min(0) - b2.min(0)).max() <= step
+    assert np.abs(b1.max(0) - b2.max(0)).max() <= step
 
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
