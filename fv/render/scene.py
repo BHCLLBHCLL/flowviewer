@@ -548,7 +548,7 @@ class Scene:
 
         if ff.poly:
             self._build_fph_wireframe(ff)
-        elif ff.kind == "neutral":
+        elif ff.kind in ("neutral", "cvff"):
             self._build_neutral_wireframe(ff)
         else:
             self._build_fld_wireframe(ff)

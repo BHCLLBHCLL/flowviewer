@@ -271,6 +271,84 @@ def neutral_load(filepath: str) -> FieldFile:
     return ff
 
 
+def cvff_load(filepath: str) -> FieldFile:
+    """CradleViewer CVFF scene loader (R17-T3).
+
+    Mesh geometry (POLY triangles/quads + LINE segments) of every object
+    group named in the scene tree is merged into one polygon soup; screen
+    overlays (kind not in TREE, e.g. colorbar/logo) are skipped.  The
+    common-record matrix is the shared column-major *view* matrix (R17
+    analysis: ``-R^-1 t`` reproduces the FLD camera target), so vertices
+    are already in model space and are not transformed.
+    """
+    from ..crdl.cvff import parse_cvff
+    path = Path(filepath)
+    scene = parse_cvff(str(path))
+    ff = FieldFile(path=str(path), kind="cvff")
+    ui_kinds = {e.group for e in scene.tree if e.type_id == 15}  # colorbar
+    verts: list = []
+    faces: list = []
+    regions: dict = {}
+    base = 0
+
+    def _add_region(name: str, face_id: int) -> None:
+        regions.setdefault(name, []).append(face_id)
+
+    for o in scene.polys:
+        if o.vertices is None or not o.faces:
+            continue
+        name = scene.group_name(o.props.kind)
+        if name is None or o.props.kind in ui_kinds:   # screen overlays
+            continue
+        verts.append(o.vertices)
+        for f in o.faces:
+            faces.append([v + base for v in f])
+            _add_region(name, len(faces) - 1)
+        base += o.vertices.shape[0]
+    for o in scene.lines:
+        if o.vertices is None or not o.polylines:
+            continue
+        name = scene.group_name(o.props.kind)
+        if name is None or o.props.kind in ui_kinds:
+            continue
+        verts.append(o.vertices)
+        for p in o.polylines:
+            for a, b in zip(p, p[1:]):
+                faces.append([a + base, b + base])
+                _add_region(name, len(faces) - 1)
+        base += o.vertices.shape[0]
+
+    if verts:
+        ff.vertices = np.vstack(verts)
+        ff.n_vertices = int(ff.vertices.shape[0])
+    ff.faces = faces
+    ff.surface_regions = [(nm, np.asarray(ids, dtype=np.int64))
+                          for nm, ids in regions.items()]
+    ff.file_size = path.stat().st_size
+    fs = scene.field_settings
+    meta: dict = {"cvff_tree": [(e.name, e.group, e.node_id, e.parent, e.type_id)
+                                for e in scene.tree]}
+    if fs is not None:
+        if fs.model_range is not None:
+            meta["cvff_model_range"] = [float(x) for x in fs.model_range]
+        cam = {"eye": [float(x) for x in fs.camera_eye]}
+        if fs.camera_target is not None:
+            cam["target"] = [float(x) for x in fs.camera_target]
+        if fs.camera_up is not None:
+            cam["up"] = [float(x) for x in fs.camera_up]
+        meta["cvff_camera"] = cam
+    parts = []
+    for pc in scene.particles:
+        pos = pc.valid_positions()
+        if pos is not None and pos.shape[0]:
+            parts.append({"positions": pos,
+                          "rgba": pc.rgba if pc.rgba is not None else None,
+                          "size": pc.size})
+    if parts:
+        meta["cvff_particles"] = parts
+    ff.meta.update(meta)
+    return ff
+
 def marc_load(filepath: str) -> FieldFile:
     """Marc/Mentat loader: ``.dat`` mesh, or ``.t16``/``.t19`` post file."""
     from ..crdl.marc import parse_marc, parse_marc_results, parse_marc_post
@@ -411,6 +489,8 @@ def _register_loaders() -> None:
         loaders.register("stl", neutral_load)
         loaders.register("neu", neutral_load)
         loaders.register("ply", neutral_load)
+        loaders.register("cradleviewer", cvff_load)
+        loaders.register("cvff", cvff_load)
         loaders.register("dat", marc_load)
         loaders.register("t16", marc_load)
         loaders.register("t19", marc_load)

@@ -46,6 +46,7 @@ FILE_TYPE_FILTERS: list[tuple[str, tuple[str, ...]]] = [
     ("Marc post files", ("t16", "t19")),
     ("Nastran files", ("h5", "nas", "dat", "bdf")),
     ("Parasolid files", ("xmt_txt", "x_t", "xmt_bin", "x_b")),
+    ("CradleViewer files", ("cradleviewer", "cvff")),
 ]
 
 # Currently loadable by flowviewer core (others accepted in dialog, then NYI).
