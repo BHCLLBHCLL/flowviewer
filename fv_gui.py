@@ -13,12 +13,12 @@ def main(argv=None) -> int:
         print(f"flowviewer {__version__}")
         return 0
     if argv in (["--help"], ["-h"]):
-        print("usage: python fv_gui.py")
+        print("usage: python fv_gui.py [file]")
         return 0
 
     from fv.gui.main import run_gui
 
-    return run_gui(None)
+    return run_gui(argv[0] if argv else None)
 
 
 if __name__ == "__main__":
