@@ -326,6 +326,112 @@ def integrate_surface(pd, scalar_name: Optional[str]):
     return integrate_cut(pd, scalar_name)
 
 
+
+# ---------------------------------------------------------------------------
+# R21 bump-mapped surface
+# ---------------------------------------------------------------------------
+
+def bump_surface_actor(ff: FieldFile, obj, pd=None,
+                       cell_centered=None, face_idx=None
+                       ) -> Optional["vtk.vtkActor"]:
+    """Bump-mapped surface: vertices displaced along normals by a scalar.
+
+    ``obj.bump_var`` selects the height field (falls back to
+    ``obj.contour_var``). ``obj.bump_factor`` (default 0.05) displaces each
+    vertex along its outward surface normal by ``factor * diag * (s - s0)/span``
+    where ``diag`` is the model diagonal - so the peak scalar bumps the
+    surface by ``factor`` of the model size. The displaced surface is
+    coloured by the same scalar. Returns None when no height field is given
+    or the surface is empty.
+    """
+    if not _HAS_VTK:
+        return None
+    var = ((getattr(obj, "bump_var", "") or "")
+           or (getattr(obj, "contour_var", "") or "")).strip()
+    if not var or var not in ff.variables:
+        return None
+    if pd is None:
+        pd, cell_centered, face_idx = build_surface_polydata(ff, obj)
+    if pd is None or pd.GetNumberOfCells() == 0:
+        return None
+    attach_scalar(ff, pd, face_idx, var, cell_centered)
+    work = pd
+    if cell_centered:
+        c2p = vtk.vtkCellDataToPointData()
+        c2p.SetInputData(pd)
+        c2p.PassCellDataOn()
+        c2p.Update()
+        work = c2p.GetOutput()
+    sarr = work.GetPointData().GetArray(var)
+    if sarr is None:
+        return None
+    pts = _vns.vtk_to_numpy(work.GetPoints().GetData())
+    pts = pts.astype(np.float64, copy=False)
+    norms = _vertex_normals(pd, pts)
+    s = _vns.vtk_to_numpy(sarr).astype(np.float64, copy=False)
+    rng = float(sarr.GetRange()[0]), float(sarr.GetRange()[1])
+    span = (rng[1] - rng[0]) or 1.0
+    diag = max(float(pts[:, 0].max() - pts[:, 0].min()),
+               float(pts[:, 1].max() - pts[:, 1].min()),
+               float(pts[:, 2].max() - pts[:, 2].min()), 1e-9)
+    _bump = getattr(obj, "bump_factor", None)
+    factor = max(0.0, float(0.05 if _bump is None else _bump))
+    h = (s - rng[0]) / span
+    new_pts = pts + norms * (factor * diag * h[:, None])
+    vp = vtk.vtkPoints()
+    vp.SetData(_vns.numpy_to_vtk(np.ascontiguousarray(new_pts, dtype=np.float64),
+                                 deep=True))
+    # keep the point-scalar grid (work) as topology; only its geometry moves
+    out = vtk.vtkPolyData()
+    out.DeepCopy(work)
+    out.SetPoints(vp)
+    mapper = vtk.vtkPolyDataMapper()
+    mapper.SetInputData(out)
+    mapper.SetScalarModeToUsePointData()
+    mapper.SelectColorArray(var)
+    mapper.SetScalarRange(float(rng[0]), float(rng[1]))
+    actor = vtk.vtkActor()
+    actor.SetMapper(mapper)
+    return actor
+
+
+
+def _vertex_normals(pd: "vtk.vtkPolyData", pts: np.ndarray) -> np.ndarray:
+    """Area-weighted vertex normals aligned with the polydata point order.
+
+    Accumulates each face's Newell normal onto its vertices, then normalises,
+    so the result is ordered 1:1 with ``pd``'s points (unused vertices keep a
+    zero normal and are left unmoved by the bump).  Handled in numpy because
+    ``vtkPolyDataNormals`` may re-order geometry points on C2P-transformed
+    grids (R21).
+    """
+    n = pts.shape[0]
+    norms = np.zeros((n, 3), dtype=np.float64)
+    cellarr = pd.GetPolys()
+    if cellarr is None:
+        return norms
+    ids = vtk.vtkIdList()
+    cellarr.InitTraversal()
+    while cellarr.GetNextCell(ids):
+        m = ids.GetNumberOfIds()
+        if m < 3:
+            continue
+        nids = [ids.GetId(i) for i in range(m)]
+        p = pts[nids]
+        face = np.zeros(3)
+        for a in range(m):
+            a0 = p[a]
+            a1 = p[(a + 1) % m]
+            face[0] += (a0[1] - a1[1]) * (a0[2] + a1[2])
+            face[1] += (a0[2] - a1[2]) * (a0[0] + a1[0])
+            face[2] += (a0[0] - a1[0]) * (a0[1] + a1[1])
+        norms[nids] += face
+    mag = np.linalg.norm(norms, axis=1, keepdims=True)
+    mag[mag < 1e-300] = 1.0
+    return norms / mag
+
+
+
 # ---------------------------------------------------------------------------
 # High-level entry
 # ---------------------------------------------------------------------------

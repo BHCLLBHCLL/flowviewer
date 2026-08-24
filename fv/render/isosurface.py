@@ -84,6 +84,36 @@ def build_isosurface_actors(ff: FieldFile, obj,
     return out
 
 
+
+def build_iso_animation(fields, obj, ugrid=None, cell_centered=True) -> list:
+    """Per-cycle isosurface actor frames sharing one geometry grid (R21).
+
+    ``fields`` is a sequence of :class:`FieldFile` (one per cycle/FileSet,
+    normally the same geometry with a different scalar). The unstructured
+    grid is built once from the first field (or taken from ``ugrid``) and
+    reused; each field's scalar is attached and one
+    ``{"contour", "contour_line", "vector"}`` frame is built. Returns a list
+    aligned 1:1 with ``fields`` so a renderer can cycle the frames.
+    """
+    if not _HAS_VTK or not fields:
+        return []
+    if ugrid is None or cell_centered is None:
+        ugrid, cell_centered = _pipeline_grid(fields[0], obj)
+    if ugrid is None:
+        return []
+    var = getattr(obj, "contour_var", "") or ""
+    frames = []
+    for ff in fields:
+        # attach_scalar overwrites the cell array in place; build_isosurface_
+        # actors then cell-to-points each frame, so the contour outputs are
+        # independent even though one grid is reused.
+        if var and ff.variable_array(var) is not None:
+            _attach_scalar(ugrid, ff, var, cell_centered)
+        frames.append(build_isosurface_actors(ff, obj, ugrid=ugrid,
+                                              cell_centered=cell_centered))
+    return frames
+
+
 def _pipeline_grid(ff, obj):
     """(ugrid, cell_centered) with MAT / Volume Region filtering applied."""
     from .plane import build_ugrid, cell_filter_mask
