@@ -23,6 +23,7 @@ from __future__ import annotations
 from typing import Optional
 
 import numpy as np
+import inspect
 
 from .dataset import FIELD_KIND_SCALAR, FIELD_KIND_VECTOR, VarInfo
 
@@ -702,4 +703,87 @@ def register_var_all_cycles(file_set, name, expr, cache=None):
             continue
         vi = register_variable(ff, name, expr)
         out.append((int(m.cycle), vi))
+    return out
+
+# ---- R18: beyond-scPOST variable registration upgrade -------------------
+def register_derived_function(ff, name: str, fn, location=None) -> VarInfo:
+    """Register a user-supplied Python callable as a derived variable (R18).
+    fn(**coarrays); must return (n,) scalar or (n,3) vector. Trusted opt-in."""
+    if not name or not name.isidentifier():
+        raise ValueError("invalid variable name: " + repr(name))
+    if name in ff.variables:
+        raise ValueError("variable already exists: " + repr(name))
+    resolved = _resolved_vars(ff)
+    n = _array_len(ff, resolved)
+    _params = inspect.signature(fn).parameters
+    if any(p.kind == p.VAR_KEYWORD for p in _params.values()):
+        _kwargs = dict(resolved)
+    else:
+        _want = [p.name for p in _params.values()
+                 if p.kind in (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY)]
+        _miss = [w for w in _want if w not in resolved]
+        if _miss:
+            raise ValueError("derived function needs undeclared variable(s) %s"
+                             % (", ".join(repr(m) for m in _miss)))
+        _kwargs = {w: resolved[w] for w in _want}
+    arr = np.asarray(fn(**_kwargs), dtype=np.float64)
+    if arr.ndim == 1 and arr.shape[0] == n:
+        kind = FIELD_KIND_SCALAR
+    elif arr.ndim == 2 and arr.shape[0] == n and arr.shape[1] == 3:
+        kind = FIELD_KIND_VECTOR
+    else:
+        raise ValueError(
+            "derived function must return shape (%d,) or (%d,3), got %r"
+            % (n, n, tuple(arr.shape)))
+    if location is None:
+        location = "node" if ff.kind == "fld" else "cell"
+    vi = VarInfo(name=name, kind=kind, location=location, array=arr)
+    ff.variables[name] = vi
+    return vi
+
+
+def _detect_vector_bases(ff, names=None, arrays=None) -> list:
+    resolved = (arrays if arrays is not None else _resolved_vars(ff))
+    if names:
+        return [nm for nm in names
+                if nm in resolved and np.asarray(resolved[nm]).ndim == 2
+                and np.asarray(resolved[nm]).shape[1] == 3]
+    out = []
+    for base, arr in resolved.items():
+        a = np.asarray(arr)
+        if a.ndim == 2 and a.shape[1] == 3:
+            out.append(base)
+    return out
+
+
+def _base_location(ff, base: str) -> str:
+    vi = ff.variables.get(base)
+    if vi is not None:
+        return vi.location
+    for c in "XYZ":
+        v = ff.variables.get(base + c)
+        if v is not None:
+            return v.location
+    return "node" if ff.kind == "fld" else "cell"
+
+
+def auto_scalarize(ff, vector_names=None) -> list:
+    """Auto-register magnitude + component scalars for vector variables (R18).
+    For each vector base create <BASE>_mag and <BASE>_X/_Y/_Z scalars.
+    Idempotent: existing names are skipped. Returns the new VarInfo list."""
+    resolved = _resolved_vars(ff)
+    out = []
+    for base in _detect_vector_bases(ff, vector_names, resolved):
+        arr = np.asarray(resolved[base], dtype=np.float64)
+        loc = _base_location(ff, base)
+        candidates = [(base + "_mag", np.linalg.norm(arr, axis=1))]
+        for k, c in enumerate("XYZ"):
+            candidates.append((base + "_" + c, np.ascontiguousarray(arr[:, k])))
+        for nm, a in candidates:
+            if nm in ff.variables:
+                continue
+            vi = VarInfo(name=nm, kind=FIELD_KIND_SCALAR,
+                         location=loc, array=a)
+            ff.variables[nm] = vi
+            out.append(vi)
     return out

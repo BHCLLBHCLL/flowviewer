@@ -618,6 +618,18 @@ def register_var_all_cycles(file_set, name, expr, cache=None):
 
 # ── object management (scPOST GetObjNum/GetObjectByType/Remove*, P2) ────
 
+def register_derived_function(ff, name, fn, location=None):
+    """Register a user-supplied callable as a derived variable (R18)."""
+    from .model.varreg import register_derived_function as _f
+    return _f(ff, name, fn, location)
+
+
+def auto_scalarize(ff, vector_names=None):
+    """Auto-register magnitude + component scalars for vectors (R18)."""
+    from .model.varreg import auto_scalarize as _f
+    return _f(ff, vector_names)
+
+
 def object_count(main) -> int:
     """Number of child objects (GetObjNum)."""
     return len(getattr(main, "children", None) or [])
