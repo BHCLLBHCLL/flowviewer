@@ -113,6 +113,22 @@ def _slice_field_array(arr: Optional[np.ndarray],
     return np.ascontiguousarray(np.asarray(arr)[rows], dtype=np.float64)
 
 
+
+
+def _mesh_fingerprint(ff: FieldFile):
+    """Stable cheap identity of the geometry for the ugrid cache (R19).
+
+    Includes vertex count, cell count and the identity of the vertex /
+    link_data arrays so a rebuilt (e.g. lazy-materialised) mesh is not
+    reused under a stale cache entry.
+    """
+    verts = getattr(ff, "vertices", None)
+    ld = getattr(ff, "link_data", None)
+    nv = 0 if verts is None else int(np.asarray(verts).shape[0])
+    nc = int(getattr(ff, "n_cells", 0) or 0)
+    return (nv, nc, id(verts), id(ld))
+
+
 def build_ugrid(ff: FieldFile, cell_mask: Optional[np.ndarray] = None):
     """Return ``(ugrid, cell_centered: bool)`` for cutting.
 
@@ -130,10 +146,13 @@ def build_ugrid(ff: FieldFile, cell_mask: Optional[np.ndarray] = None):
     if not _HAS_VTK:
         return None, True
     rows = _masked_cell_rows(ff, cell_mask)
-    # P3.5: reuse the last-built grid when nothing changed (animation frames)
+    # R19: memoize the built grid under a mesh fingerprint + cell mask so
+    # large FPH/FLD grids are not rebuilt across animation frames or
+    # repeated renders when neither geometry nor the filter changed.
     cache = getattr(ff, "_ugrid_cache", None)
-    key = None if cell_mask is None else (cell_mask.tobytes(),
-                                          int(np.count_nonzero(cell_mask)))
+    key = (_mesh_fingerprint(ff),
+           None if cell_mask is None else (cell_mask.tobytes(),
+                                           int(np.count_nonzero(cell_mask))))
     if cache is not None and cache[0] == key:
         return cache[1], cache[2]
     if ff.poly:
@@ -154,31 +173,49 @@ def _build_fph_ugrid(ff: FieldFile, rows=None):
     verts = np.asarray(ff.vertices, dtype=np.float64)
     n_cells = int(np.asarray(ld["n_cells"]).item())
     cell_owner_faces = ld["cell_owner_faces"]
+    face_nodes = np.asarray(ld["face_nodes"], dtype=np.int64)
+    face_offsets = np.asarray(ld["face_offsets"], dtype=np.int64)
 
     points = vtk.vtkPoints()
     points.SetData(_vns.numpy_to_vtk(verts, deep=True))
     ug = vtk.vtkUnstructuredGrid()
     ug.SetPoints(points)
 
-    cells = vtk.vtkCellArray()
-    face_nodes = np.asarray(ld["face_nodes"], dtype=np.int64)
-    face_offsets = np.asarray(ld["face_offsets"], dtype=np.int64)
-    if rows is not None:
-        keep = rows
-    else:
-        keep = range(n_cells)
+    # R19: build all ConvexPointSet cells through one packed vtkIdTypeArray
+    # (legacy [npts, id0..] per cell) and deduplicate each cell's node set,
+    # instead of a per-cell vtkConvexPointSet Python loop.
+    counts = []
+    blocks = []
+    keep = range(n_cells) if rows is None else rows
     for c in keep:
-        pf = cell_owner_faces[c]
+        seen = set()
         ids = []
-        for fi in pf:
+        for fi in cell_owner_faces[c]:
             lo, hi = int(face_offsets[fi]), int(face_offsets[fi + 1])
-            ids.extend(face_nodes[lo:hi].tolist())
-        cell = vtk.vtkConvexPointSet()
-        n = len(ids)
-        cell.GetPointIds().SetNumberOfIds(n)
-        for k, vid in enumerate(ids):
-            cell.GetPointIds().SetId(k, int(vid))
-        cells.InsertNextCell(cell)
+            for k in range(lo, hi):
+                vid = int(face_nodes[k])
+                if vid not in seen:
+                    seen.add(vid)
+                    ids.append(vid)
+        # Some FPH cells legitimately have no owner faces (empty node set).
+        # Keep them as 0-point cells: they carry no geometry, never intersect
+        # the cut plane, and keep cell indexing 1:1 with the attached
+        # cell-centred field data. (vtkCutter tolerates them; a 1-point cell
+        # instead crashes vtkProbeFilter/its cell-to-point pass - R19)
+        counts.append(len(ids))
+        blocks.append(ids)
+    total = sum(counts)
+    flat = np.empty(total + len(counts), dtype=np.int64)
+    off = 0
+    for c_n, block in zip(counts, blocks):
+        flat[off] = c_n
+        off += 1
+        m = len(block)
+        flat[off:off + m] = block
+        off += m
+    arr = _vns.numpy_to_vtkIdTypeArray(flat, deep=True)
+    cells = vtk.vtkCellArray()
+    cells.SetCells(len(counts), arr)
     ug.SetCells(vtk.VTK_CONVEX_POINT_SET, cells)
     return ug
 
