@@ -43,6 +43,8 @@ python fv_gui.py file.fph
 - Load `fph` / `fld` / `cgns` result files.
 - Render scalars/vectors on cuts, surfaces, streamlines, isosurfaces, etc.
 - Register derived variables with user-defined functions (R18).
+- Vortex identification presets: vorticity, Q-criterion, lambda-2,
+  helicity and the velocity-gradient components (R23).
 - Compare two datasets and generate scalar-statistics CSV reports (R20).
 - Export cuts/scenes; CradleViewer `cvw` round-trips preserve `fph`
   (104 regions) and `fld` (13 regions) structure.
@@ -61,7 +63,7 @@ python scripts/benchmark.py [file ...]
 ```
 
 Times the hot paths (dataset load, cold/cached ugrid build, scalar variable
-registration) over the bundled sample files.
+registration, Green-Gauss velocity gradient) over the bundled sample files.
 
 ## Development map
 
@@ -71,3 +73,5 @@ registration) over the bundled sample files.
 - R20 - multi-dataset statistics and automated CSV reports.
 - R21 - rendering depth: DST colormap / isosurface animation.
 - R22 - packaging engineering: `pyproject.toml`, CLI entry point, benchmarks.
+- R23 - vortex-identification presets: Green-Gauss gradient kernel,
+  vorticity / Q-criterion / lambda-2 / helicity, VGRAD component library.

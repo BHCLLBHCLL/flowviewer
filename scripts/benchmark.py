@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """flowviewer benchmark harness (R22 packaging/perf).
 
 Times the hot paths over the sample files: dataset load, ugrid build
@@ -50,6 +50,13 @@ def bench(path: str):
     if "PRES" in ff.variables:
         dt, _ = _t(register_variable, ff, "BENCH_DP", "PRES * 2.0")
         row.append(("register var", "%.3fs" % dt, "PRES * 2.0"))
+
+    try:  # R23: vortex preset registration (gradient kernel hot path)
+        from fv.model.derived import velocity_gradient
+        dt, _ = _t(velocity_gradient, ff)
+        row.append(("vortex grad", "%.3fs" % dt, "Green-Gauss VEL"))
+    except Exception as e:
+        row.append(("vortex grad", "skip", "%s" % e))
 
     return row
 

@@ -630,6 +630,50 @@ def auto_scalarize(ff, vector_names=None):
     return _f(ff, vector_names)
 
 
+# ── R23: vortex-identification preset library ────────────────────────────
+
+def velocity_gradient(ff, base="VEL"):
+    """Gradient tensor g[:, i, j] = du_i/dx_j (Green-Gauss, R23)."""
+    from .model.derived import velocity_gradient as _f
+    return _f(ff, base)
+
+
+def register_velocity_gradient(ff, base="VEL", prefix="VGRAD"):
+    """Register VGRADXX..VGRADZZ gradient components (R23)."""
+    from .model.derived import register_velocity_gradient as _f
+    return _f(ff, base, prefix)
+
+
+def register_vorticity(ff, name="VORT", base="VEL"):
+    """Register the vorticity vector omega = curl(u) (R23)."""
+    from .model.derived import register_vorticity as _f
+    return _f(ff, name, base)
+
+
+def register_q_criterion(ff, name="QCRIT", base="VEL"):
+    """Register the Q-criterion scalar (R23)."""
+    from .model.derived import register_q_criterion as _f
+    return _f(ff, name, base)
+
+
+def register_lambda2(ff, name="LAMBDA2", base="VEL"):
+    """Register the lambda-2 vortex-core scalar (R23)."""
+    from .model.derived import register_lambda2 as _f
+    return _f(ff, name, base)
+
+
+def register_helicity(ff, name="HELI", base="VEL"):
+    """Register the helicity scalar u . omega (R23)."""
+    from .model.derived import register_helicity as _f
+    return _f(ff, name, base)
+
+
+def register_vortex_presets(ff, base="VEL", prefix="VGRAD"):
+    """Register all vortex presets for one vector base (R23)."""
+    from .model.derived import register_vortex_presets as _f
+    return _f(ff, base, prefix)
+
+
 def object_count(main) -> int:
     """Number of child objects (GetObjNum)."""
     return len(getattr(main, "children", None) or [])
