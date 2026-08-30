@@ -7,10 +7,9 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
-from fv.crdl.marc import is_marc_post, parse_marc, parse_marc_post, _post_name
-from fv.model.dataset import load_file, marc_load
+from fv.crdl.marc import _post_name, is_marc_post, parse_marc, parse_marc_post
 from fv.model import loaders
+from fv.model.dataset import load_file, marc_load
 
 EXAMPLE_DAT = (
     Path(__file__).resolve().parents[1]

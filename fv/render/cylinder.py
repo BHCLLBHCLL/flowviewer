@@ -8,7 +8,6 @@ exactly like the plane pipeline.
 
 from __future__ import annotations
 
-import numpy as np
 import vtk
 
 from ..model.dataset import FieldFile
@@ -17,8 +16,14 @@ from ..model.dataset import FieldFile
 def build_cylinder_actors(ff: FieldFile, obj) -> dict:
     """Cylinder-surface contour / vector / mesh actors."""
     out: dict = {}
-    from .plane import (attach_scalar, build_ugrid, cell_filter_mask,
-                      contour_actor, mesh_lines_actor, vector_actor)
+    from .plane import (
+        attach_scalar,
+        build_ugrid,
+        cell_filter_mask,
+        contour_actor,
+        mesh_lines_actor,
+        vector_actor,
+    )
     mask = cell_filter_mask(ff, obj)
     ugrid, cc = build_ugrid(ff, cell_mask=mask)
     if ugrid is None:
@@ -76,9 +81,14 @@ def build_cylinder_actors(ff: FieldFile, obj) -> dict:
 def build_circle_actors(ff: FieldFile, obj) -> dict:
     """Disk (plane cut clipped to the circle radius) actors."""
     out: dict = {}
-    from .plane import (attach_scalar, build_ugrid, cell_filter_mask,
-                      contour_actor, mesh_lines_actor, plane_from_object,
-                      vector_actor)
+    from .plane import (
+        attach_scalar,
+        build_ugrid,
+        cell_filter_mask,
+        contour_actor,
+        mesh_lines_actor,
+        vector_actor,
+    )
     mask = cell_filter_mask(ff, obj)
     ugrid, cc = build_ugrid(ff, cell_mask=mask)
     if ugrid is None:

@@ -123,9 +123,9 @@ def _read_coordinates(zone) -> Optional[np.ndarray]:
     gc = zone.get("GridCoordinates")
     if gc is None:
         return None
-    comps = [];
+    comps = []
     for axis in ("CoordinateX", "CoordinateY", "CoordinateZ"):
-        c = gc.get(axis);
+        c = gc.get(axis)
         arr = _data_of(c) if c is not None else None
         if arr is None:
             return None
@@ -137,12 +137,12 @@ def _read_coordinates(zone) -> Optional[np.ndarray]:
 
 def _elements_sections(zone) -> list:
     """Every Elements_t section (volume or boundary) in the zone."""
-    out = [];
+    out = []
     for name, obj in _children(zone):
         if not isinstance(obj, h5py.Group):
             continue
         if "ElementConnectivity" in obj and "ElementRange" in obj:
-            out.append((name, obj));
+            out.append((name, obj))
     return out
 
 
@@ -178,8 +178,8 @@ def _read_mixed_stream(conn):
 
 def _read_cells(zone):
     """Read volume cells -> (cell_conn, cell_types) or (None, None)."""
-    cell_conn = [];
-    cell_types = [];
+    cell_conn = []
+    cell_types = []
     for name, sec in _elements_sections(zone):
         et = _elem_type_name(sec)
         conn = _data_of(sec["ElementConnectivity"])
@@ -194,8 +194,8 @@ def _read_cells(zone):
             vtk_t, nn = _VTK_FOR_CGNS[et]
             n_elems = conn.size // nn
             arr = np.asarray(conn, dtype=np.int64).reshape(n_elems, nn) - 1
-            cell_conn.append(arr);
-            cell_types.extend([vtk_t] * n_elems);
+            cell_conn.append(arr)
+            cell_types.extend([vtk_t] * n_elems)
         elif et == "MIXED":
             # P2.1: decode the per-element [code, nodes...] stream
             rows, types = _read_mixed_stream(conn)
@@ -261,8 +261,8 @@ def _structured_zone(zone):
 
 def _read_flow_solution(zone, n_nodes: int):
     """FlowSolution fields -> dict name -> (array, location)."""
-    out = {};
-    fs = zone.get("FlowSolution");
+    out = {}
+    fs = zone.get("FlowSolution")
     if fs is None:
         return out
     for name, obj in _children(fs):
@@ -277,20 +277,20 @@ def _read_flow_solution(zone, n_nodes: int):
             if arr.ndim != 1 or arr.size == 0:
                 continue
             loc = "node" if arr.size == n_nodes else "cell"
-            out[name] = (arr, loc);
+            out[name] = (arr, loc)
     return out
 
 
 def _read_bcs(zone, n_faces: int):
     """ZoneBC boundary conditions -> [(name, face_ids 0-based)]."""
-    out = [];
-    zbc = zone.get("ZoneBC");
+    out = []
+    zbc = zone.get("ZoneBC")
     if zbc is None:
         return out
     for name, obj in _children(zbc):
         if not isinstance(obj, h5py.Group):
             continue
-        pl = obj.get("PointList");
+        pl = obj.get("PointList")
         raw = _data_of(pl) if pl is not None else None
         if raw is None:
             continue
@@ -298,7 +298,7 @@ def _read_bcs(zone, n_faces: int):
             ids = np.asarray(raw, dtype=np.int64).ravel() - 1
         except Exception:
             continue
-        out.append((name, ids));
+        out.append((name, ids))
     return out
 
 

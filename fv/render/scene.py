@@ -179,7 +179,7 @@ class Scene:
         if plane_obj is None and self._main is not None:
             for o in getattr(self._main, "children", []) or []:
                 if getattr(o, "kind", "") == "plane":
-                    plane_obj = o;
+                    plane_obj = o
                     break
         if plane_obj is None or self._field_file is None:
             return False
@@ -411,8 +411,12 @@ class Scene:
         if not planes and not particles:
             return
         if planes:
-            from .plane import (automove_coordinate, build_ugrid,
-                                cell_filter_mask, recut_plane_actors)
+            from .plane import (
+                automove_coordinate,
+                build_ugrid,
+                cell_filter_mask,
+                recut_plane_actors,
+            )
             ff = self._field_file
             for obj in planes:
                 point, normal = automove_coordinate(obj, t, frames=fps)
@@ -721,7 +725,6 @@ class Scene:
         if ff.vertices is None or ff.cell_conn is None:
             return
         verts = np.asarray(ff.vertices, dtype=np.float64)
-        conn = np.asarray(ff.cell_conn, dtype=np.int64)
         self._bounds = (
             tuple(verts.min(axis=0).tolist()),
             tuple(verts.max(axis=0).tolist()),
@@ -850,8 +853,8 @@ class Scene:
 
     def _add_region_actor(self, ff, obj) -> None:
         """Independent boundary-region surface (5d)."""
-        from .surface import build_surface_polydata
         from ..model.objects import SurfaceObject
+        from .surface import build_surface_polydata
         s = SurfaceObject(index=1)
         s.selected_regions = [getattr(obj, "region_name", "")] if getattr(obj, "region_name", "") else []
         pd, cc, _ = build_surface_polydata(ff, s)

@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
-import numpy as np
 import xml.etree.ElementTree as ET
 
+import numpy as np
 
 _VTK_TYPE = {
     "Hexahedron": (12, 8),

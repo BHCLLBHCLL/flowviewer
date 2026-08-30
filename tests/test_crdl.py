@@ -3,7 +3,6 @@
 import sys
 from pathlib import Path
 
-import pytest
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -61,7 +60,6 @@ def test_open_buffer_context():
 
 
 def test_cell_count_from_data():
-    import tempfile
     from fv.crdl.core import cell_count_from_data
     payload = np.array([1, 2, 3], dtype=">i4").tobytes()
     sec = _section_bytes("LS_MatOfElements", payload)

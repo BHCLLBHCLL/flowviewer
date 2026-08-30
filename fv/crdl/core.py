@@ -200,7 +200,6 @@ def open_buffer(filepath: str):
         with open(filepath, "rb") as f:
             yield f.read()
         return
-    import mmap
     f = open(filepath, "rb")
     try:
         mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)

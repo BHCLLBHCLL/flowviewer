@@ -6,13 +6,30 @@ from typing import Optional
 
 try:
     from PyQt5.QtCore import Qt
-    from PyQt5.QtWidgets import (
-        QButtonGroup, QCheckBox, QComboBox, QDialog, QDoubleSpinBox,
-        QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget,
-        QPushButton, QRadioButton, QSlider, QSpinBox, QTabWidget,
-        QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QColorDialog,
-    )
     from PyQt5.QtGui import QColor
+    from PyQt5.QtWidgets import (
+        QButtonGroup,
+        QCheckBox,
+        QColorDialog,
+        QComboBox,
+        QDialog,
+        QDoubleSpinBox,
+        QFormLayout,
+        QFrame,
+        QHBoxLayout,
+        QLabel,
+        QLineEdit,
+        QListWidget,
+        QPushButton,
+        QRadioButton,
+        QSlider,
+        QSpinBox,
+        QTabWidget,
+        QTreeWidget,
+        QTreeWidgetItem,
+        QVBoxLayout,
+        QWidget,
+    )
     _HAS_QT = True
 except Exception:  # pragma: no cover
     _HAS_QT = False
@@ -694,7 +711,8 @@ class PlaneDialog(_PinnedDialog):
     def _rotate_click(self, cmd: str) -> None:
         """Rotate the plane about the current point (scPOST Coordinate Rotate)."""
         import numpy as np
-        from ..render.plane import _rotate_vector, _rotate_around
+
+        from ..render.plane import _rotate_around, _rotate_vector
         ang = float(self.rotate_angle.value())
         ax = self.axis_group.checkedId()
         axes = {0: (1, 0, 0), 1: (0, 1, 0), 2: (0, 0, 1)}
@@ -1436,8 +1454,11 @@ class PlaneDialog(_PinnedDialog):
         """Execute the scPOST integral over the current cut."""
         try:
             from ..render.plane import (
-                build_ugrid, integrate_cut, cut_with_fields,
-                write_integration_csv)
+                build_ugrid,
+                cut_with_fields,
+                integrate_cut,
+                write_integration_csv,
+            )
             if self.field_file is None:
                 return
             ug, cc = build_ugrid(self.field_file)

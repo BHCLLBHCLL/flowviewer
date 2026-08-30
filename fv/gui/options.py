@@ -10,7 +10,6 @@ from __future__ import annotations
 from typing import Optional
 
 try:
-    from PyQt5 import QtCore
     from PyQt5.QtCore import QSettings
     _HAS_QT = True
 except Exception:  # pragma: no cover - headless

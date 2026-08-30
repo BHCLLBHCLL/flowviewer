@@ -83,8 +83,8 @@ def test_scpost_result_only_inherits_mesh(samples):
 
 def test_scpost_klein_mixed_mesh(samples):
     """Klein_1 mixed grid: tet/wedge/pyramid via type-code accumulation."""
-    from fv.model.dataset import load_file
     import numpy as np
+    from fv.model.dataset import load_file
     ff = load_file(str(samples / "Klein_1.fld"))
     assert ff.n_vertices == 164343
     assert ff.n_cells == 686497
@@ -100,8 +100,8 @@ def test_scpost_klein_mixed_mesh(samples):
 
 def test_scpost_scteta_mixed_mesh(samples):
     """SCTeta_tutorial mixed grid with temperature variables."""
-    from fv.model.dataset import load_file
     import numpy as np
+    from fv.model.dataset import load_file
     ff = load_file(str(samples / "SCTeta_tutorial.fld"))
     assert ff.n_cells == 361868 and ff.n_vertices == 116691
     assert ff.cell_conn.shape == (361868, 6)
@@ -116,8 +116,8 @@ def test_scpost_2cars_mixed(samples):
     scFLOW type codes 34/35/36 -> tet(4)/pyramid(5)/wedge(6) nodes; the
     connectivity is split into a 16 MiB standard block plus a bare
     continuation block (GPH-style)."""
-    from fv.model.dataset import load_file
     import numpy as np
+    from fv.model.dataset import load_file
     ff = load_file(str(samples / "2cars.fld"))
     assert ff.n_vertices == 338713
     assert ff.n_cells == 1671037

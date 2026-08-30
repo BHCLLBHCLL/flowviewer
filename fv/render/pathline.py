@@ -78,14 +78,14 @@ def _seed_points(ff, obj) -> Optional[np.ndarray]:
     if ff.vertices is None:
         return None
     verts = np.asarray(ff.vertices, dtype=np.float64)
-    lo = verts.min(axis=0);
+    lo = verts.min(axis=0)
     hi = verts.max(axis=0)
     axis = (getattr(obj, "seed_axis", "Z") or "Z").upper()
     ax = {"X": 0, "Y": 1, "Z": 2}[axis]
     c = float(getattr(obj, "seed_coordinate", None) or
             0.5 * (lo[ax] + hi[ax]))
-    du = max(1, int(getattr(obj, "density_u", 8) or 8));
-    dv = max(1, int(getattr(obj, "density_v", 8) or 8));
+    du = max(1, int(getattr(obj, "density_u", 8) or 8))
+    dv = max(1, int(getattr(obj, "density_v", 8) or 8))
     if axis == "X":
         xs, ys = np.meshgrid(np.linspace(lo[1], hi[1], du),
                              np.linspace(lo[2], hi[2], dv))
@@ -111,10 +111,10 @@ def _attach_vectors(ugrid, ff, var: str, cell_centered: bool) -> None:
     arr = _vns.numpy_to_vtk(v, deep=True)
     arr.SetName(var)
     if cell_centered:
-        ugrid.GetCellData().AddArray(arr);
+        ugrid.GetCellData().AddArray(arr)
         ugrid.GetCellData().SetActiveVectors(var)
     else:
-        ugrid.GetPointData().AddArray(arr);
+        ugrid.GetPointData().AddArray(arr)
         ugrid.GetPointData().SetActiveVectors(var)
 
 
@@ -134,13 +134,13 @@ def _trace(ugrid, ff, seeds, steps: int, reverse: bool,
     pts = vtk.vtkPoints()
     pts.SetData(_vns.numpy_to_vtk(
         np.ascontiguousarray(seeds, dtype=np.float64), deep=True))
-    src = vtk.vtkPolyData();
+    src = vtk.vtkPolyData()
     src.SetPoints(pts)
     tracer = vtk.vtkStreamTracer()
     tracer.SetInputData(ugrid)
     tracer.SetSourceData(src)
-    tracer.SetMaximumPropagation(max(1, steps));
-    tracer.SetInitialIntegrationStep(max(1e-6, step_len));
+    tracer.SetMaximumPropagation(max(1, steps))
+    tracer.SetInitialIntegrationStep(max(1e-6, step_len))
     tracer.SetIntegrationDirectionToForward()
     if reverse:
         tracer.SetIntegrationDirectionToBackward()
@@ -148,24 +148,24 @@ def _trace(ugrid, ff, seeds, steps: int, reverse: bool,
     out = tracer.GetOutput()
     if out is None or out.GetNumberOfPoints() == 0:
         return None, None, None
-    segs = [];
-    ends = [];
+    segs = []
+    ends = []
     lines = out.GetLines()
     n_lines = lines.GetNumberOfCells() if lines else 0
     for li in range(n_lines):
-        ids = vtk.vtkIdList();
-        lines.GetCellAtId(li, ids);
-        n = ids.GetNumberOfIds();
+        ids = vtk.vtkIdList()
+        lines.GetCellAtId(li, ids)
+        n = ids.GetNumberOfIds()
         if n < 2:
-            segs.append(np.zeros((0, 3)));
-            ends.append(seeds[li]);
+            segs.append(np.zeros((0, 3)))
+            ends.append(seeds[li])
             continue
         arr = np.array([out.GetPoint(ids.GetId(k)) for k in range(n)])
-        segs.append(arr);
-        ends.append(arr[-1]);
+        segs.append(arr)
+        ends.append(arr[-1])
     while len(segs) < len(seeds):
-        segs.append(np.zeros((0, 3)));
-        ends.append(seeds[len(segs) - 1]);
+        segs.append(np.zeros((0, 3)))
+        ends.append(seeds[len(segs) - 1])
     return segs, np.asarray(ends, dtype=np.float64), None
 
 
@@ -265,44 +265,44 @@ def _assemble_scalars(chain, scalar_chain):
     return scalars or None
 
 
-def _assemble(chain) -> Optional["vtk.vtkPolyData"]:
+def _assemble(chain) -> Optional[vtk.vtkPolyData]:
     """Join per-cycle segments into one polyline per seed."""
     if not chain:
         return None
-    pts = vtk.vtkPoints();
-    lines = vtk.vtkCellArray();
-    ids = vtk.vtkIdList();
+    pts = vtk.vtkPoints()
+    lines = vtk.vtkCellArray()
+    ids = vtk.vtkIdList()
     for parts in chain:
         total = sum(p.shape[0] for p in parts)
         if total < 2:
             continue
-        ids.Reset();
+        ids.Reset()
         for p in parts:
             for row in p:
                 ids.InsertNextId(pts.InsertNextPoint(float(row[0]),
                                                    float(row[1]),
-                                                   float(row[2])));
-        lines.InsertNextCell(ids);
-    pd = vtk.vtkPolyData();
-    pd.SetPoints(pts);
-    pd.SetLines(lines);
+                                                   float(row[2])))
+        lines.InsertNextCell(ids)
+    pd = vtk.vtkPolyData()
+    pd.SetPoints(pts)
+    pd.SetLines(lines)
     return pd
 
 
-def _line_actor(pd, obj) -> Optional["vtk.vtkActor"]:
-    draw = (getattr(obj, "draw_type", "Line") or "Line");
+def _line_actor(pd, obj) -> Optional[vtk.vtkActor]:
+    draw = (getattr(obj, "draw_type", "Line") or "Line")
     color_var = (getattr(obj, "color_var", "") or "").strip()
-    mapper = vtk.vtkPolyDataMapper();
+    mapper = vtk.vtkPolyDataMapper()
     if str(draw).lower() in ("tube", "triangle"):
-        tube = vtk.vtkTubeFilter();
-        tube.SetInputData(pd);
+        tube = vtk.vtkTubeFilter()
+        tube.SetInputData(pd)
         tube.SetRadius(max(1e-4, float(
-            getattr(obj, "thickness", 1.0) or 1.0)) * 1e-3);
+            getattr(obj, "thickness", 1.0) or 1.0)) * 1e-3)
         tube.SetNumberOfSides(
-            3 if str(draw).lower() == "triangle" else 8);
-        mapper.SetInputConnection(tube.GetOutputPort());
+            3 if str(draw).lower() == "triangle" else 8)
+        mapper.SetInputConnection(tube.GetOutputPort())
     else:
-        mapper.SetInputData(pd);
+        mapper.SetInputData(pd)
     use_color = bool(color_var) and \
         pd.GetPointData().GetArray(color_var) is not None
     if use_color:
@@ -310,16 +310,16 @@ def _line_actor(pd, obj) -> Optional["vtk.vtkActor"]:
         mapper.SelectColorArray(color_var)
         mapper.SetScalarRange(
             pd.GetPointData().GetArray(color_var).GetRange())
-    actor = vtk.vtkActor();
-    actor.SetMapper(mapper);
-    prop = actor.GetProperty();
-    prop.SetLineWidth(max(1, int(getattr(obj, "thickness", 1) or 1)));
+    actor = vtk.vtkActor()
+    actor.SetMapper(mapper)
+    prop = actor.GetProperty()
+    prop.SetLineWidth(max(1, int(getattr(obj, "thickness", 1) or 1)))
     if not use_color:
         try:
-            prop.SetColor(*getattr(obj, "mono_color", (0.1, 0.1, 0.8)));
+            prop.SetColor(*getattr(obj, "mono_color", (0.1, 0.1, 0.8)))
         except (TypeError, IndexError):
-            prop.SetColor(0.1, 0.1, 0.8);
-        mapper.ScalarVisibilityOff();
+            prop.SetColor(0.1, 0.1, 0.8)
+        mapper.ScalarVisibilityOff()
     if getattr(obj, "transparent", False):
-        prop.SetOpacity(0.5);
+        prop.SetOpacity(0.5)
     return actor

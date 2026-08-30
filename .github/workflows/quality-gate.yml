@@ -1,0 +1,40 @@
+# flowviewer quality gate
+#
+# One-click static-analysis + type-check + test + performance-gate on push/PR.
+# Local equivalent: `python scripts/check.py`
+# Tune benchmark bounds in scripts/benchmarks.json.
+name: quality-gate
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.11"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install project + dev deps
+        run: |
+          pip install -e ".[dev]"
+          # VTK >= 9.4.2 crashes vtkCutter on convex point-set grids (see README)
+          pip install --user vtk==9.3.1 || true
+      - name: Lint (ruff)
+        run: python -m ruff check fv/ tests/
+      - name: Types (mypy, core modules)
+        run: |
+          python -m mypy fv/model/varreg.py fv/model/derived.py fv/model/report.py
+      - name: Tests (pytest)
+        run: python -m pytest tests -q
+      - name: Benchmark gate (--check)
+        run: python scripts/benchmark.py --check
+        env:
+          QT_QPA_PLATFORM: "offscreen"

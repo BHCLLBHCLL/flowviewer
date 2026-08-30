@@ -10,9 +10,23 @@ try:
     from PyQt5 import QtWidgets
     from PyQt5.QtCore import Qt
     from PyQt5.QtWidgets import (
-        QCheckBox, QComboBox, QDialog, QFileDialog, QFrame, QGridLayout,
-        QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QPushButton,
-        QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+        QCheckBox,
+        QComboBox,
+        QDialog,
+        QFileDialog,
+        QFrame,
+        QGridLayout,
+        QGroupBox,
+        QHBoxLayout,
+        QLabel,
+        QLineEdit,
+        QListWidget,
+        QPushButton,
+        QSplitter,
+        QTableWidget,
+        QTableWidgetItem,
+        QVBoxLayout,
+        QWidget,
     )
     _HAS_QT = True
 except Exception:  # pragma: no cover - headless
@@ -62,8 +76,10 @@ def loadable_extensions() -> frozenset[str]:
     dialog's info pane and the registry can never drift apart again.
     """
     try:
-        from ..model import dataset  # noqa: F401  (registers loaders)
-        from ..model import loaders
+        from ..model import (
+            dataset,  # noqa: F401  (registers loaders)
+            loaders,
+        )
         exts = loaders.loaders()
         if exts:
             return exts
@@ -529,7 +545,6 @@ class OpenDialog(QDialog if _HAS_QT else object):
         if self._dirpath is None or not _HAS_QT:
             return
         exts = filter_extensions(self._type_combo.currentIndex())
-        entries: list[Path] = []
         try:
             children = list(self._dirpath.iterdir())
         except OSError as exc:
@@ -780,7 +795,7 @@ class VariableRegistrationDialog(QDialog):
     def _update_preview(self) -> None:
         expr = self.expr.text().strip()
         if not expr:
-            self.preview.setText(" ");
+            self.preview.setText(" ")
             return
         try:
             from ..model.varreg import _resolved_vars, evaluate_expression
@@ -789,7 +804,7 @@ class VariableRegistrationDialog(QDialog):
             n = 0
             for a in variables.values():
                 if a is not None and getattr(a, "size", 0):
-                    n = int(a.shape[0]);
+                    n = int(a.shape[0])
                     break
             if n == 0:
                 n = ff.n_vertices or ff.n_cells
@@ -803,15 +818,15 @@ class VariableRegistrationDialog(QDialog):
         name = self.result_name.text().strip()
         expr = self.expr.text().strip()
         if not name or not expr:
-            self.preview.setText("Enter a result name and an expression.");
+            self.preview.setText("Enter a result name and an expression.")
             return
         try:
             from ..model.varreg import register_variable
             register_variable(self.field_file, name, expr)
         except Exception as exc:
-            self.preview.setText(f"Error: {exc}");
+            self.preview.setText(f"Error: {exc}")
             return
-        self.preview.setText(f"Registered: {name}");
+        self.preview.setText(f"Registered: {name}")
         self.result_name.clear()
         self.var_list.addItem(name)
         if self.parent() is not None and hasattr(self.parent(),
@@ -867,10 +882,10 @@ class CompareDialog(QDialog):
         vbox.addWidget(title)
         if enable_3d:
             try:
-                from vtk.qt.QVTKRenderWindowInteractor import (
-                    QVTKRenderWindowInteractor)
-                from ..render.scene import Scene
+                from vtk.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
+
                 from ..model.objects import MainObject
+                from ..render.scene import Scene
                 widget = QVTKRenderWindowInteractor(pane)
                 sc = Scene(enable_3d=True)
                 sc.build(ff, main=MainObject.from_field_file(ff))
@@ -909,7 +924,7 @@ class CompareDialog(QDialog):
             vbox.addWidget(QLabel("no common scalar variable", pane))
             return pane
         try:
-            from ..model.compare import difference_field, diff_field_file
+            from ..model.compare import diff_field_file, difference_field
             from ..model.objects import MainObject
             res = difference_field(a, b, var)
             if res is None:
@@ -930,7 +945,9 @@ class CompareDialog(QDialog):
             if enable_3d:
                 try:
                     from vtk.qt.QVTKRenderWindowInteractor import (
-                        QVTKRenderWindowInteractor)
+                        QVTKRenderWindowInteractor,
+                    )
+
                     from ..render.scene import Scene
                     widget = QVTKRenderWindowInteractor(pane)
                     sc = Scene(enable_3d=True)
@@ -974,8 +991,7 @@ class ColorTableDialog(QDialog if _HAS_QT else object):
         self.result_points = None
         if not _HAS_QT:
             return
-        from ..render.colorbar import (colormap_control_points,
-                                       normalize_control_points)
+        from ..render.colorbar import colormap_control_points, normalize_control_points
         self.setWindowTitle("Edit Color Table")
         self.resize(540, 420)
         lay = QVBoxLayout(self)

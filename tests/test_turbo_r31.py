@@ -51,8 +51,7 @@ def test_blade_wall_faces_explicit_region(ff):
 
 def test_ps_ss_normal_split(ff):
     """n_θ sign splits wall faces into two populated, opposite sides."""
-    from fv.render.turbo import (_blade_wall_faces,
-                                _normal_circumferential)
+    from fv.render.turbo import _blade_wall_faces, _normal_circumferential
     bw = _blade_wall_faces(ff, None)
     assert bw is not None
     _, centers, normals, _ = bw
@@ -107,7 +106,7 @@ def test_blade_to_blade_surface(ff):
     # x = r·θ unwrap matches the polar view of the same faces
     from fv.render.turbo import blade_wall_faces, polar_view_points_from
     bw = blade_wall_faces(ff, None)
-    rt = polar_view_points_from(bw[1], "Z")
+    polar_view_points_from(bw[1], "Z")
     assert pts[:, 1].min() >= float(np.asarray(ff.vertices)[:, 2].min()) - 1e-9
     assert np.all(np.isfinite(pts))
     assert pts[:, 0].max() > 0

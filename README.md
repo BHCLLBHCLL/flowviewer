@@ -65,6 +65,47 @@ python scripts/benchmark.py [file ...]
 Times the hot paths (dataset load, cold/cached ugrid build, scalar variable
 registration, Green-Gauss velocity gradient) over the bundled sample files.
 
+## Quality gate
+
+One command runs lint + type-check + tests + performance thresholds:
+
+```bash
+python scripts/check.py            # all four stages
+python scripts/check.py --fix      # autofix import/sorting, then gate
+python scripts/check.py --skip=test  # lint + types + bench only
+```
+
+Stages and rules (see `pyproject.toml`):
+- **lint** — `ruff check fv/ tests/`; critical defect rules (E/F/W/B) enforced,
+  style rules relaxed for legacy debt (E501/E7xx/E731/E741/B007 ignored).
+- **types** — `mypy` on the progressively-typed core modules
+  (`fv/model/varreg.py`, `derived.py`, `report.py`); third-party deps skipped.
+- **test** — `pytest tests -q` (394 passed / 3 skipped baseline).
+- **bench** — `scripts/benchmark.py --check` asserts each hot-path phase stays
+  under its bound; a threshold violation exits non-zero (exit 2) and fails the
+  gate.
+
+### Benchmark thresholds
+
+`scripts/benchmarks.json` stores upper-bound seconds per phase. Defaults are
+~4-5x the 2026-08-30 dev-machine baseline so normal CI variance does not false-
+fail, while a real regression must blow the bound:
+
+| phase | threshold(s) |
+|-------|-------------|
+| load | 6.00 |
+| ugrid_build | 10.00 |
+| ugrid_cached | 1.00 |
+| register_var | 0.50 |
+| vortex_grad | 5.00 |
+
+Refresh the baseline with `python scripts/benchmark.py` and edit
+`scripts/benchmarks.json` when hardware/algorithm changes legitimately shift
+the hot-path costs.
+
+A GitHub Actions workflow (`.github/workflows/quality-gate.yml`) mirrors the
+gate on push/PR.
+
 ## Development map
 
 - R17 - CradleViewer (`cvw`) format reverse-engineering, loader and byte-faithful writer.
@@ -75,3 +116,5 @@ registration, Green-Gauss velocity gradient) over the bundled sample files.
 - R22 - packaging engineering: `pyproject.toml`, CLI entry point, benchmarks.
 - R23 - vortex-identification presets: Green-Gauss gradient kernel,
   vorticity / Q-criterion / lambda-2 / helicity, VGRAD component library.
+- R24 - quality gate & sustainability: ruff + mypy + benchmark thresholds,
+  `scripts/check.py` one-click gate, GitHub Actions CI.

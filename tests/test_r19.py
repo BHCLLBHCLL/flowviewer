@@ -25,14 +25,14 @@ import pytest
 
 FPH = r"D:\training\cgns\examples\tr03_9.fph"
 
+from fv.model.objects import PlaneObject  # noqa: E402
 from fv.render.plane import (  # noqa: E402
-    _mesh_fingerprint,
     _HAS_VTK,
+    _mesh_fingerprint,
+    attach_scalar,
     build_ugrid,
     cut_grid,
-    attach_scalar,
 )
-from fv.model.objects import PlaneObject  # noqa: E402
 
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
@@ -99,7 +99,6 @@ def test_fph_grid_handles_degenerate_cells():
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_cut_on_cached_grid_returns_data():
     """The cached FPH grid still cuts (regression: empty-cut bug)."""
-    import vtk
     from fv.model.dataset import load_file
     ff = load_file(FPH)
     ug, cc = build_ugrid(ff)

@@ -10,7 +10,6 @@ from typing import Optional
 
 import numpy as np
 import vtk
-from vtk.util import numpy_support as _vns
 
 from ..model.dataset import FieldFile
 
@@ -37,7 +36,7 @@ def probe_values(ff: FieldFile, point) -> dict:
     return out
 
 
-def marker_actor(obj, bounds=None) -> Optional["vtk.vtkActor"]:
+def marker_actor(obj, bounds=None) -> Optional[vtk.vtkActor]:
     """Small sphere at the probe position.
 
     R0.7: the radius follows the model extent (0.5% of the bounds
@@ -56,18 +55,18 @@ def marker_actor(obj, bounds=None) -> Optional["vtk.vtkActor"]:
                 r = 0.005 * diag
         except (TypeError, ValueError, IndexError):
             pass
-    sphere = vtk.vtkSphereSource();
-    sphere.SetRadius(r);
-    pos = getattr(obj, "position", (0.0, 0.0, 0.0));
-    sphere.SetCenter(float(pos[0]), float(pos[1]), float(pos[2]));
+    sphere = vtk.vtkSphereSource()
+    sphere.SetRadius(r)
+    pos = getattr(obj, "position", (0.0, 0.0, 0.0))
+    sphere.SetCenter(float(pos[0]), float(pos[1]), float(pos[2]))
     sphere.SetThetaResolution(12); sphere.SetPhiResolution(12)
-    mapper = vtk.vtkPolyDataMapper();
+    mapper = vtk.vtkPolyDataMapper()
     mapper.SetInputConnection(sphere.GetOutputPort())
-    actor = vtk.vtkActor();
+    actor = vtk.vtkActor()
     actor.SetMapper(mapper)
     try:
         actor.GetProperty().SetColor(*getattr(obj, "marker_color",
-                                                (1.0, 0.0, 0.0)));
+                                                (1.0, 0.0, 0.0)))
     except (TypeError, IndexError):
-        actor.GetProperty().SetColor(1.0, 0.0, 0.0);
+        actor.GetProperty().SetColor(1.0, 0.0, 0.0)
     return actor

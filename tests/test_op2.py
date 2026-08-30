@@ -104,7 +104,8 @@ def test_op2_mock_model_mapping(monkeypatch):
     monkeypatch.setattr(op2mod, "_HAS_PYNASTRAN", True)
     monkeypatch.setattr(op2mod, "read_op2",
                         lambda *a, **k: model)
-    import tempfile, pathlib
+    import pathlib
+    import tempfile
     p = pathlib.Path(tempfile.gettempdir()) / "fake.op2"
     p.write_bytes(b"\x00" * 8)
     m = op2mod.parse_op2(str(p))

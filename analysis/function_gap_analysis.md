@@ -712,6 +712,35 @@ ShellExecute 沙箱 / FBX 三个纯外部项），对 scPOST 2025.2 的功能完
 - 基准热路径无回退（load 1.48s / ugrid 2.11s / register 0.001s），
   新增 vortex grad 1.25s（tr03_9.fph，含胞心计算）✓
 
+### 8.15 第十九轮执行记录：R24 质量门禁与可持续性（2026-08-31，§9.2 落地）
+
+**交付物**：
+1. **benchmark 阈值断言**（`scripts/benchmark.py --check`）：每条热路径相位
+   （load / ugrid_build / ugrid_cached / register_var / vortex_grad）读
+   `scripts/benchmarks.json` 上限，超限打印 FAIL 并以退出码 2 失败；阈值
+   按开发机基线（load~1.5s / ugrid~2.1s / register~0.001s / grad~1.25s）
+   放权为 ~4-5x（6.0/10.0/1.0/0.5/5.0s），规避 CI 速度波动误伤。
+2. **ruff lint**（`pyproject.toml [tool.ruff.lint]`）：select E/F/W/I/B，
+   ignore E501/E7xx/E731/E741/B007（遗留风格债显式豁免）。仓库全量
+   `--fix` 后 lint 清零（133 → 0，多为导入排序/行尾换行/未用导入/单行多
+   import）；手工收窄 6 处：test_pod 盲异常 B017 → ValueError，
+   test_gui/turbo 4 处 F841 未用变量删除，2 处导入清理。
+3. **mypy 渐进标注**：`[tool.mypy]` skip 第三方、check_untyped_defs，
+   `fv/model/varreg.py` 补 `tokenize/_node_neighbors` 等局部标注、
+   `derived.py` 纯函数标注收敛；types 阶段过。
+4. **门禁入口** `scripts/check.py`：lint → types → test → bench 四阶段
+   依序执行，支持 `--fix`（ruff 自动修复后重跑）与 `--skip=<stage>`。
+5. **CI 模板** `.github/workflows/quality-gate.yml`：push/PR 触发，py3.9/
+   py3.11 矩阵，含 vtk 9.3.1 固定（规避 9.4.2+ vtkCutter 崩溃）。
+6. **README** 增「Quality gate」章节：check.py 用法、五条阈值表、
+   基线刷新方法、CI 位置；开发地图加 R24。
+
+**验收核对**（§9.2 验收逐条）：
+- `python scripts/check.py` 全绿：lint/ruff ✓、types/mypy ✓、bench ✓、
+  test ✓（全量 **394 passed, 3 skipped, 2 deselected**，8m07 一次跑绿）✓
+- 阈值写入 README ✓；豁免清单 = E501/E7xx/E731/E741/B007 遗留债务，
+  ≤ 既有可接受范围 ✓
+
 ## 9. R23–R26 路线图（2026-08-30 定稿，超越 scPOST 增量轮）
 
 **前提**：第十七轮复评后 scPOST 可实现范围内无缺口，R23+ 性质从「补差距」

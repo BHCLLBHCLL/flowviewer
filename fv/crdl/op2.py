@@ -14,13 +14,12 @@ degrade gracefully (probe reports op2 only when importable).
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 
 try:
-    from pyNastran.op2.op2 import read_op2
     from pyNastran.bdf.bdf import read_bdf
+    from pyNastran.op2.op2 import read_op2
     _HAS_PYNASTRAN = True
 except Exception:  # pragma: no cover - optional dep
     read_op2 = None

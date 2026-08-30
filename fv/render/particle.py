@@ -257,14 +257,14 @@ def _cloth_actor(polydata, obj):
     line.GetPointIds().SetNumberOfIds(n)
     for i in range(n):
         line.GetPointIds().SetId(i, i)
-    cells = vtk.vtkCellArray();
+    cells = vtk.vtkCellArray()
     cells.InsertNextCell(line)
-    pd = vtk.vtkPolyData();
-    pd.SetPoints(pts);
+    pd = vtk.vtkPolyData()
+    pd.SetPoints(pts)
     pd.SetLines(cells)
-    actor = vtk.vtkActor();
-    mapper = vtk.vtkPolyDataMapper();
-    mapper.SetInputData(pd);
+    actor = vtk.vtkActor()
+    mapper = vtk.vtkPolyDataMapper()
+    mapper.SetInputData(pd)
     actor.SetMapper(mapper)
     prop = actor.GetProperty()
     try:

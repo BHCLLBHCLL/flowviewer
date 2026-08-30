@@ -14,16 +14,16 @@ from typing import Optional
 import numpy as np
 
 from .core import (
-    find_section,
-    section_end,
-    iter_data_blocks,
-    read_i32_be,
+    f32_be_array,
     f64_be_array,
     f64_wr_array,
-    f32_be_array,
+    find_section,
     i32_be_array,
+    iter_data_blocks,
     open_buffer,
     parse_header_meta,
+    read_i32_be,
+    section_end,
 )
 
 _CONN_CHUNK_BYTES = 1073741824  # 1 GiB cap per LS_Links conn payload block

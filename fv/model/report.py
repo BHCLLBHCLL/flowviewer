@@ -18,7 +18,8 @@ from __future__ import annotations
 
 import csv
 import io
-from typing import Dict, Iterable, List, Optional
+from collections.abc import Iterable
+from typing import Dict, List, Optional
 
 import numpy as np
 

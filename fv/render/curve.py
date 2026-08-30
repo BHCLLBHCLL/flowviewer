@@ -85,7 +85,7 @@ def build_curve_actors(ff: FieldFile, obj) -> dict:
         pd.GetPointData().AddArray(arr)
         mapper.SetScalarModeToUsePointData()
         mapper.SelectColorArray("CurveScalar")
-        mapper.SetScalarRange(float(vals.min()), float(vals.max()));
+        mapper.SetScalarRange(float(vals.min()), float(vals.max()))
         mapper.ScalarVisibilityOn()
     else:
         mapper.ScalarVisibilityOff()
@@ -94,7 +94,7 @@ def build_curve_actors(ff: FieldFile, obj) -> dict:
     actor.SetMapper(mapper)
     prop = actor.GetProperty()
     try:
-        prop.SetColor(*getattr(obj, "color", (0.9, 0.2, 0.2)));
+        prop.SetColor(*getattr(obj, "color", (0.9, 0.2, 0.2)))
     except (TypeError, IndexError):
         prop.SetColor(0.9, 0.2, 0.2)
     prop.SetLineWidth(max(1, int(getattr(obj, "thickness", 2) or 2)))

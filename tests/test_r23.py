@@ -8,8 +8,10 @@
   expression-engine reuse, auto_scalarize idempotency, collision
   errors, and sample-driven checks on tr03_9.fph.
 """
-import os, sys
+import os
+import sys
 from pathlib import Path
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import numpy as np
@@ -99,7 +101,7 @@ def _tet_ff(vel=None):
 
 def test_uniform_flow_zero_identities():
     """Uniform flow: omega = 0, Q = 0, lambda2 = 0 everywhere (R23)."""
-    from fv.model.derived import q_criterion, vorticity, lambda2
+    from fv.model.derived import lambda2, q_criterion, vorticity
     ff = _hex_ff(vel=lambda x, y, z: (2.0, -3.0, 0.5))
     np.testing.assert_allclose(vorticity(ff), 0.0, atol=1e-9)
     np.testing.assert_allclose(q_criterion(ff), 0.0, atol=1e-9)
@@ -165,8 +167,8 @@ def test_tet_grid_gradient_exact():
 
 def test_register_vortex_presets_names_and_reuse():
     """Presets register 13 variables, feed the expression engine (R23)."""
-    from fv.model.varreg import auto_scalarize, register_variable
     from fv.model.derived import register_vortex_presets
+    from fv.model.varreg import auto_scalarize, register_variable
     ff = _hex_ff(vel=lambda x, y, z: (-y, x, 0.0 * x))
     out = register_vortex_presets(ff)
     assert len(out) == 13
@@ -189,9 +191,11 @@ def test_register_vortex_presets_names_and_reuse():
 
 def test_registration_errors():
     """Missing velocity / topology / collisions are explicit (R23)."""
-    from fv.model.derived import (register_q_criterion, register_vorticity,
-                                  register_vortex_presets,
-                                  velocity_gradient)
+    from fv.model.derived import (
+        register_q_criterion,
+        register_vorticity,
+        velocity_gradient,
+    )
     ff = _hex_ff()                                   # no velocity at all
     with pytest.raises(ValueError):
         velocity_gradient(ff)
@@ -215,7 +219,7 @@ def test_registration_errors():
 def test_fph_uniform_flow_exact_zero():
     """Uniform velocity on the real polyhedral mesh: exact zeros (R23)."""
     from fv.model.dataset import load_file
-    from fv.model.derived import q_criterion, vorticity, velocity_gradient
+    from fv.model.derived import q_criterion, velocity_gradient, vorticity
     ff = load_file(FPH)
     n = ff.n_cells
     for c in "XYZ":
@@ -231,9 +235,9 @@ def test_fph_uniform_flow_exact_zero():
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_fph_linear_field_gradient():
     """Linear velocity on the real mesh: gradient close to the exact A (R23)."""
-    from fv.model.varreg import _cell_centers_fph
     from fv.model.dataset import load_file
-    from fv.model.derived import lambda2, q_criterion, vorticity, velocity_gradient
+    from fv.model.derived import lambda2, q_criterion, velocity_gradient, vorticity
+    from fv.model.varreg import _cell_centers_fph
     ff = load_file(FPH)
     cc = _cell_centers_fph(ff)
     assert cc.shape == (ff.n_cells, 3)

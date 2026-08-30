@@ -8,8 +8,6 @@ summaries remain out of scope.
 
 from __future__ import annotations
 
-from typing import Optional
-
 import numpy as np
 
 _VTK = {"CHEXA": (12, 8), "CTETRA": (10, 4), "CPENTA": (13, 6),
@@ -21,7 +19,7 @@ def parse_nastran(path: str):
     nodes = {}
     cells = []
     cell_types = []
-    with open(path, "r", encoding="utf-8", errors="replace") as fh:
+    with open(path, encoding="utf-8", errors="replace") as fh:
         for line in fh:
             s = line.split("$", 1)[0].strip().upper()
             if not s or s.startswith(("ENDDATA", "SOL ")):

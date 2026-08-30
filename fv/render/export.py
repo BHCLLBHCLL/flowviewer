@@ -82,6 +82,7 @@ def _object_class(kind: str):
     """
     if not _KIND_CLASSES:
         import dataclasses as _dc
+
         from ..model import objects as _om
         for cls in vars(_om).values():
             if (isinstance(cls, type) and issubclass(cls, _om.PostObject)
@@ -151,7 +152,7 @@ def load_status(filepath: str) -> Optional[list]:
     file is missing / not a status file.
     """
     try:
-        with open(filepath, "r", encoding="utf-8") as fh:
+        with open(filepath, encoding="utf-8") as fh:
             doc = json.load(fh)
     except Exception:
         return None
@@ -184,8 +185,8 @@ def export_surface_stl(ff, filename: str, obj=None) -> bool:
     """Write the boundary surface polydata as STL (P3.2)."""
     if not _HAS_VTK:
         return False
-    from .surface import build_surface_polydata
     from ..model.objects import SurfaceObject
+    from .surface import build_surface_polydata
     obj = obj or SurfaceObject(index=1)
     pd, _, _ = build_surface_polydata(ff, obj)
     if pd is None or pd.GetNumberOfCells() == 0:
@@ -326,8 +327,9 @@ def export_surface_obj(ff, filename: str, obj=None) -> bool:
     if not _HAS_VTK:
         return False
     import vtk
-    from .surface import build_surface_polydata
+
     from ..model.objects import SurfaceObject
+    from .surface import build_surface_polydata
     obj = obj or SurfaceObject(index=1)
     pd, _, _ = build_surface_polydata(ff, obj)
     if pd is None or pd.GetNumberOfCells() == 0:
@@ -395,8 +397,9 @@ def export_surface_fbx(ff, filename: str, obj=None) -> bool:
     if not _HAS_VTK:
         return False
     import vtk
-    from .surface import build_surface_polydata
+
     from ..model.objects import SurfaceObject
+    from .surface import build_surface_polydata
     obj = obj or SurfaceObject(index=1)
     pd, _, _ = build_surface_polydata(ff, obj)
     if pd is None or pd.GetNumberOfCells() == 0:
@@ -565,6 +568,7 @@ def export_surface_cvff(ff, filename: str) -> bool:
     the ``neighbour == -1`` rows); FLD/neutral kinds use ``ff.faces``.
     """
     import numpy as np
+
     from ..crdl.cvff import build_scene, write_cvff
     if ff.vertices is None:
         return False

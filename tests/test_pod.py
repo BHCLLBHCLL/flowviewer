@@ -42,6 +42,7 @@ def test_pod_analysis_fileset(tmp_path):
     """POD across a cycle FileSet registers POD_MEAN / POD_MODE_i (P3)."""
     import shutil
     from pathlib import Path
+
     from fv import api
     from fv.model.fileset import scan_sequence
     base = Path(tmp_path)
@@ -63,6 +64,7 @@ def test_pod_allcyc_cache_and_no_swallow(tmp_path):
     """POD/ALLCYC share a member cache and surface errors (P2.5)."""
     import shutil
     from pathlib import Path
+
     from fv import api
     from fv.model.fileset import scan_sequence
     from fv.model.pod import collect_snapshots
@@ -90,7 +92,7 @@ def test_pod_allcyc_cache_and_no_swallow(tmp_path):
 
     # a corrupt member must propagate, not be swallowed
     (base / "flow_2.fph").write_bytes(b"garbage: not a field file")
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError):
         collect_snapshots(fs, "PRES")
 
 
@@ -99,6 +101,7 @@ def test_pod_time_coeffs_and_export(tmp_path):
     import csv
     import shutil
     from pathlib import Path
+
     import numpy as np
     from fv import api
     from fv.model.fileset import scan_sequence
@@ -125,6 +128,7 @@ def test_cluster_analysis_and_fields(tmp_path):
     import csv
     import shutil
     from pathlib import Path
+
     import numpy as np
     from fv import api
     from fv.model.fileset import scan_sequence

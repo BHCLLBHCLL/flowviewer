@@ -11,11 +11,16 @@ try:
     from PyQt5.QtCore import QSize, Qt
     from PyQt5.QtGui import QKeySequence
     from PyQt5.QtWidgets import (
-        QAction, QApplication, QLabel, QMainWindow, QSplitter, QToolBar,
+        QAction,
+        QApplication,
+        QLabel,
+        QMainWindow,
+        QSplitter,
+        QToolBar,
     )
     try:
-        from vtk.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
         import vtk
+        from vtk.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
         _HAS_GUI_DEPS = True
     except Exception:  # pragma: no cover
         QVTKRenderWindowInteractor = None
@@ -148,9 +153,14 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.vtk_widget = None
         self.renderer = None
         # Global Light (P0.3): scPOST keeps one Light under Global Objects
-        from ..model.objects import CameraObject, LightObject
-        from ..model.objects import (ColorbarObject, DrawWindowObject,
-                                     GradationObject, GlobalWindow)
+        from ..model.objects import (
+            CameraObject,
+            ColorbarObject,
+            DrawWindowObject,
+            GlobalWindow,
+            GradationObject,
+            LightObject,
+        )
         self._global_light = LightObject(index=1)
         self._global_camera = CameraObject(index=1)
         self._draw_window = DrawWindowObject(index=1)
@@ -218,7 +228,11 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
     def _build_central(self) -> None:
         from .panes import (
-            DrawSplitter, MessageWindow, ObjectTree, PaneFrame, PropertyHost,
+            DrawSplitter,
+            MessageWindow,
+            ObjectTree,
+            PaneFrame,
+            PropertyHost,
             TimelineWindow,
         )
 
@@ -553,6 +567,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
     def _about(self) -> None:
         from PyQt5.QtWidgets import QMessageBox
+
         from .. import __version__
         QMessageBox.about(
             self, "About flowviewer",
@@ -565,6 +580,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
     def on_open_dialog(self) -> None:
         """File → Open…: native Explorer dialog with correct Qt filters."""
         from PyQt5.QtWidgets import QFileDialog
+
         from .dialogs import qt_file_filters
 
         # Start where the user last opened/saved (P0.6): options.last_dir,
@@ -947,7 +963,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
     def on_vr_mode(self) -> None:
         """View → VR Mode: open a VR render window when a backend exists (7d)."""
-        from ..render.vr import create_vr_window, release_vr_window, vr_backend
+        from ..render.vr import create_vr_window, vr_backend
         backend = vr_backend()
         if backend == "none":
             self.message_win.log(
@@ -1266,8 +1282,8 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
     def on_edit_color_table(self) -> None:
         """Display → Edit Color Table…: control-point colormap editor (R3.7)."""
-        from .dialogs import ColorTableDialog
         from ..render import colorbar as cb
+        from .dialogs import ColorTableDialog
         cbar = getattr(self.global_window, "colorbar", None)
         name = getattr(cbar, "color_map", "Rainbow") or "Rainbow"
         points = cb.colormap_control_points(name)
@@ -1888,7 +1904,8 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if mode == "rubber":
             try:
                 from vtkmodules.vtkInteractionStyle import (
-                    vtkInteractorStyleRubberBandZoom)
+                    vtkInteractorStyleRubberBandZoom,
+                )
             except Exception:
                 vtkInteractorStyleRubberBandZoom = (
                     vtk.vtkInteractorStyleRubberBandZoom)
@@ -1907,8 +1924,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
     def _set_trackball_style(self, iren) -> None:
         try:
-            from vtkmodules.vtkInteractionStyle import (
-                vtkInteractorStyleTrackballCamera)
+            from vtkmodules.vtkInteractionStyle import vtkInteractorStyleTrackballCamera
         except Exception:
             vtkInteractorStyleTrackballCamera = (
                 vtk.vtkInteractorStyleTrackballCamera)
@@ -1921,8 +1937,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self._set_trackball_style(iren)
             return
         try:
-            from vtkmodules.vtkInteractionStyle import (
-                vtkInteractorStyleTrackballCamera)
+            from vtkmodules.vtkInteractionStyle import vtkInteractorStyleTrackballCamera
         except Exception:
             vtkInteractorStyleTrackballCamera = (
                 vtk.vtkInteractorStyleTrackballCamera)
@@ -1962,8 +1977,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self._set_trackball_style(iren)
             return
         try:
-            from vtkmodules.vtkInteractionStyle import (
-                vtkInteractorStyleRubberBandPick)
+            from vtkmodules.vtkInteractionStyle import vtkInteractorStyleRubberBandPick
         except Exception:
             vtkInteractorStyleRubberBandPick = vtk.vtkInteractorStyleRubberBandPick
         self._area_picker = vtk.vtkAreaPicker()

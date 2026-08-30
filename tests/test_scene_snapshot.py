@@ -7,7 +7,6 @@
 * ``test_emt_alias`` checks the loader registry recognises EMT as fph-family.
 """
 
-import os
 import sys
 from pathlib import Path
 

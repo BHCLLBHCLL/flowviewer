@@ -50,9 +50,8 @@ def test_compare_dialog_panes(qapp):
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_r16_compare_same_file_zero_diff():
     """R1.6: comparing a file with itself yields a zero difference field."""
+    from fv.model.compare import common_variables, compare_stats, compare_summary, difference_field
     from fv.model.dataset import load_file
-    from fv.model.compare import (common_variables, difference_field,
-                                  compare_stats, compare_summary)
     ff = load_file(FPH)
     common = common_variables(ff, ff)
     assert "PRES" in common
@@ -70,10 +69,11 @@ def test_r16_compare_same_file_zero_diff():
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_r16_compare_constant_offset():
     """R1.6: a constant offset gives uniform |A−B| equal to the offset."""
-    import numpy as np
     from dataclasses import replace
-    from fv.model.dataset import load_file, VarInfo
-    from fv.model.compare import difference_field, diff_field_file
+
+    import numpy as np
+    from fv.model.compare import diff_field_file, difference_field
+    from fv.model.dataset import VarInfo, load_file
     a = load_file(FPH)
     b = replace(a)
     b.variables = dict(a.variables)
@@ -91,10 +91,11 @@ def test_r16_compare_constant_offset():
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_compare_signed_relative_and_idw():
     """Signed / relative modes and IDW mapping (depth beyond |A−B|)."""
-    import numpy as np
     from dataclasses import replace
-    from fv.model.dataset import load_file, VarInfo
+
+    import numpy as np
     from fv.model.compare import difference_field
+    from fv.model.dataset import VarInfo, load_file
     a = load_file(FPH)
     b = replace(a)
     b.variables = dict(a.variables)

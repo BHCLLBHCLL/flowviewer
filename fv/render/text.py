@@ -20,14 +20,14 @@ def text_actor(obj) -> Optional[object]:
     a = vtk.vtkTextActor()
     a.SetInput(getattr(obj, "text", "Text") or " ")
     tp = a.GetTextProperty()
-    tp.SetFontSize(max(6, int(getattr(obj, "font_size", 14) or 14)));
+    tp.SetFontSize(max(6, int(getattr(obj, "font_size", 14) or 14)))
     tp.SetBold(1)
     try:
-        tp.SetColor(*getattr(obj, "color", (0.0, 0.0, 0.0)));
+        tp.SetColor(*getattr(obj, "color", (0.0, 0.0, 0.0)))
     except (TypeError, IndexError):
-        tp.SetColor(0.0, 0.0, 0.0);
+        tp.SetColor(0.0, 0.0, 0.0)
     if getattr(obj, "background", False):
-        tp.SetBackgroundColor(1.0, 1.0, 1.0);
+        tp.SetBackgroundColor(1.0, 1.0, 1.0)
         tp.SetBackgroundOpacity(0.7)
     pos = getattr(obj, "position", (0.1, 0.85))
     a.GetPositionCoordinate().SetCoordinateSystemToNormalizedDisplay()
@@ -74,7 +74,7 @@ def bitmap_actor(obj) -> Optional[object]:
     reader = vtk.vtkImageReader2Factory().CreateImageReader2(path)
     if reader is None:
         return None
-    reader.SetFileName(path);
+    reader.SetFileName(path)
     reader.Update()
     tex = vtk.vtkTexture()
     tex.SetInputConnection(reader.GetOutputPort())

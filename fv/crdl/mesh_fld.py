@@ -14,13 +14,13 @@ from typing import Any, Optional
 import numpy as np
 
 from .core import (
+    f64_be_array,
     find_section,
-    section_end,
     iter_data_blocks,
-    read_i32_be,
     open_buffer,
     parse_header_meta,
-    f64_be_array,
+    read_i32_be,
+    section_end,
 )
 
 

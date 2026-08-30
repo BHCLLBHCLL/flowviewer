@@ -2,19 +2,19 @@
 
 from .core import (
     LARGE_FILE_BYTES,
-    find_section,
-    section_end,
-    iter_data_blocks,
-    read_i32_be,
-    read_f32_be,
-    read_f64_be,
-    read_f64_wr,
-    open_buffer,
+    cell_count_from_data,
     f32_be_array,
     f64_be_array,
     f64_wr_array,
+    find_section,
     i32_be_array,
-    cell_count_from_data,
+    iter_data_blocks,
+    open_buffer,
+    read_f32_be,
+    read_f64_be,
+    read_f64_wr,
+    read_i32_be,
+    section_end,
 )
 
 __all__ = [

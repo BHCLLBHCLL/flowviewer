@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
-
-from fv.crdl.cgns_adf import (AdfNode, is_cgns_adf, read_adf,
-                              read_cgns_adf, write_adf)
+from fv.crdl.cgns_adf import AdfNode, is_cgns_adf, read_adf, read_cgns_adf, write_adf
 
 
 def _cgns_fixture():

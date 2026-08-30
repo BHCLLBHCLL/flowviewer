@@ -31,8 +31,8 @@ def build_periodical_actors(ff: FieldFile, obj, siblings=None) -> dict:
     sources = _find_sources(obj, siblings)
     if not sources:
         return {}
-    from .surface import build_surface_polydata
     from .mirror import _field_mapper, _source_scalar
+    from .surface import build_surface_polydata
     axis = (getattr(obj, "axis", "Z") or "Z").upper()
     d = {"X": (1.0, 0.0, 0.0), "Y": (0.0, 1.0, 0.0), "Z": (0.0, 0.0, 1.0)}[axis]
     ap = getattr(obj, "axis_point", (0.0, 0.0, 0.0))

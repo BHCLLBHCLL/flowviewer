@@ -7,12 +7,10 @@ trimming-read building block.  Returns counts + variable names.
 
 from __future__ import annotations
 
-from typing import Optional
-
 import numpy as np
 
-from .core import (find_section, iter_data_blocks, open_buffer,
-                   read_i32_be, section_end)
+from .core import find_section, iter_data_blocks, open_buffer, section_end
+
 
 def scan_ifld(path: str):
     """Quick metadata scan of an iFLD/FLD file (D3)."""

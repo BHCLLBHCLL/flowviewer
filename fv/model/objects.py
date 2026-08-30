@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 
-
 @dataclass
 class GlobalWindow:
     """Global objects container (scPOST Global Window, 5a).
@@ -863,7 +862,7 @@ class MainObject:
     children: list[PostObject] = field(default_factory=list)
 
     @classmethod
-    def from_field_file(cls, ff, *, magic: bool = True) -> "MainObject":
+    def from_field_file(cls, ff, *, magic: bool = True) -> MainObject:
         """Build Main + default Surface(1)/Plane(1)[/Particle(1)] like Magic open."""
         path = str(ff.path)
         display = _short_display_path(path)

@@ -10,7 +10,6 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest  # noqa: E402
 
 
-
 def test_time_series_max_min_parsers(tmp_path):
     """TM/OT CSV parsers read cycle/time and min/max rows (P2.10)."""
     from fv.model.tsmm import parse_max_min, parse_time_series

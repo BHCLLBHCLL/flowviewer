@@ -163,7 +163,7 @@ def capture_camera_sequence(renderer, keyframes, n_frames, out_dir,
     for i, pose in enumerate(poses):
         if not apply_pose(renderer, pose):
             continue
-        path = os.path.join(out_dir, base + "_{:04d}.png".format(i))
+        path = os.path.join(out_dir, base + f"_{i:04d}.png")
         if snapshot_png(renderer, path):
             written += 1
     return written

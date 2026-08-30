@@ -49,6 +49,7 @@ def test_dst_colormap_red_endpoints():
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_iso_animation_one_frame_per_cycle():
     from types import SimpleNamespace
+
     from fv.model.dataset import load_file
     from fv.render.isosurface import build_iso_animation
     ff = load_file(FPH)
@@ -65,6 +66,7 @@ def test_iso_animation_one_frame_per_cycle():
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_iso_animation_frames_use_own_scalar_range():
     from types import SimpleNamespace
+
     from fv.model.dataset import load_file
     from fv.render.isosurface import build_iso_animation
     ff = load_file(FPH)
@@ -87,8 +89,9 @@ def _pd_points(pd):
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_bump_surface_zero_factor_keeps_vertices():
     from types import SimpleNamespace
+
     from fv.model.dataset import load_file
-    from fv.render.surface import bump_surface_actor, build_surface_polydata
+    from fv.render.surface import build_surface_polydata, bump_surface_actor
     ff = load_file(FPH)
     obj = SimpleNamespace(bump_var="PRES", bump_factor=0.0,
                           contour_var="PRES", selected_regions=None)
@@ -107,8 +110,9 @@ def test_bump_surface_zero_factor_keeps_vertices():
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_bump_surface_moves_high_scalar_region():
     from types import SimpleNamespace
+
     from fv.model.dataset import load_file
-    from fv.render.surface import bump_surface_actor, build_surface_polydata
+    from fv.render.surface import build_surface_polydata, bump_surface_actor
     ff = load_file(FPH)
     obj = SimpleNamespace(bump_var="PRES", bump_factor=0.1,
                           contour_var="PRES", selected_regions=None)

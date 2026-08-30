@@ -7,7 +7,14 @@ import math
 try:
     from PyQt5.QtCore import QPoint, QPointF, QRectF, Qt
     from PyQt5.QtGui import (
-        QBrush, QColor, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap,
+        QBrush,
+        QColor,
+        QFont,
+        QIcon,
+        QPainter,
+        QPainterPath,
+        QPen,
+        QPixmap,
         QPolygon,
     )
     _HAS_QT = True

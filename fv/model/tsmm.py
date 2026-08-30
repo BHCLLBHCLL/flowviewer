@@ -226,7 +226,7 @@ def _parse_csv_max_min(path: str) -> MaxMinData:
     data = MaxMinData()
     with open(path, newline="", encoding="utf-8", errors="replace") as fh:
         rd = csv.reader(fh)
-        header = next(rd, None)
+        next(rd, None)
         for row in rd:
             if len(row) < 3:
                 continue

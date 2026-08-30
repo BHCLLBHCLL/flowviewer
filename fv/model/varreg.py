@@ -20,13 +20,12 @@ token whitelist - no code execution, no attribute access.
 
 from __future__ import annotations
 
+import inspect
 from typing import Optional
 
 import numpy as np
-import inspect
 
 from .dataset import FIELD_KIND_SCALAR, FIELD_KIND_VECTOR, VarInfo
-
 
 # tokeniser
 
@@ -52,7 +51,7 @@ _UNARY = {"-", "+"}
 
 def tokenize(expr: str) -> list:
     """Split an expression into (kind, value) tokens."""
-    toks = []
+    toks: list[tuple[str, object]] = []
     i = 0
     n = len(expr)
     while i < n:
@@ -354,7 +353,7 @@ def _resolved_vars(ff) -> dict:
 
 def _array_len(ff, variables: dict) -> int:
     for a in variables.values():
-        if a is not None and getattr(a, "size", 0):
+        if a is not None and a.size:
             return int(a.shape[0])
     if ff.kind == "fld" and ff.n_vertices:
         return ff.n_vertices
@@ -436,7 +435,7 @@ def _node_neighbors(ff):
             "connectivity/vertex mismatch: node ids span [%d, %d] but "
             "the mesh has %d vertices (index-base detection failed)"
             % (int(valid.min()), int(valid.max()), n_vertices))
-    adj = {}
+    adj: dict[int, set[int]] = {}
     for row, t in zip(conn, types):
         edges = _CELL_EDGES[int(t)]
         for a, b in edges:
@@ -459,7 +458,7 @@ def _node_neighbors(ff):
 def _fph_cell_neighbors(ff):
     """Cell -> set of face-neighbour cell ids from LS_Links (2)."""
     ld = ff.link_data
-    adj = {}
+    adj: dict[int, set[int]] = {}
     if ld is None:
         return adj
     owner = np.asarray(ld["owner"], dtype=np.int64)
@@ -576,7 +575,7 @@ def _cell_centers_fph(ff):
 def _wall_points(ff, surface_regions=None):
     """(m, 3) coordinates of wall-face vertices for DST/NORMAL fields."""
     verts = np.asarray(ff.vertices, dtype=np.float64)
-    ids = set()
+    ids: set[int] = set()
     for name, face_ids in ff.surface_regions:
         if surface_regions and name not in surface_regions:
             continue
@@ -605,7 +604,7 @@ def register_dst(ff, name="DST", surface_regions=None):
     try:
         from scipy.spatial import cKDTree
     except ImportError:
-        raise ValueError("scipy required for DST")
+        raise ValueError("scipy required for DST") from None
     tree = cKDTree(wall)
     if getattr(ff, "poly", False):
         centers = _cell_centers_fph(ff)
@@ -635,7 +634,7 @@ def register_normal(ff, name="NORMAL", surface_regions=None):
     try:
         from scipy.spatial import cKDTree
     except ImportError:
-        raise ValueError("scipy required for NORMAL")
+        raise ValueError("scipy required for NORMAL") from None
     tree = cKDTree(wall)
     if getattr(ff, "poly", False):
         pts = _cell_centers_fph(ff)

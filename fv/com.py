@@ -29,7 +29,7 @@ VERSION = "1.0.0"
 EVENTS_IID = "{E1A2B3C4-5D6E-4F7A-8B9C-0D1E2F3A4B5C}"
 
 try:
-    from .com_typelib import ensure_typelib, TYPELIB_GUID
+    from .com_typelib import TYPELIB_GUID, ensure_typelib
     _TYPLIB_FILE = ensure_typelib()
 except Exception:
     TYPELIB_GUID = "{F1A2B3C4-5D6E-4F7A-8B9C-0D1E2F3A4B5D}"
@@ -1452,12 +1452,12 @@ class FlowviewerApplication:
             raise ValueError(
                 "%s needs a running GUI (scene render window); "
                 "headless COM has no scene" % fname)
-        from .render.export import export_scene_vrml, export_scene_gltf
+        from .render.export import export_scene_gltf, export_scene_vrml
         fn = {"SaveVRML": export_scene_vrml,
               "SaveGLTF": export_scene_gltf}[fname]
         ok = fn(rw, str(writer_name))
         if not ok:
-            raise IOError("scene export failed: %s" % writer_name)
+            raise OSError("scene export failed: %s" % writer_name)
         return True
 
     def SaveVRML(self, filepath):
@@ -1499,8 +1499,8 @@ class FlowviewerApplication:
         ``compare_stats`` result.
         """
         try:
+            from .model.compare import compare_stats, compare_summary
             from .model.dataset import load_file
-            from .model.compare import compare_summary, compare_stats
             a = self._need_ff()
             b = load_file(str(other_path))
             if var:
@@ -1524,8 +1524,6 @@ class FlowviewerApplication:
     def GetBaseScale(self):
         """Scale factor of the main object display (GetBaseScale)."""
         try:
-            from .model.objects import MainObject
-            ff = self._need_ff()
             gui = _bridge_gui()
             main = getattr(gui, "main_object", None) if gui else None
             if main is None:
@@ -2390,7 +2388,7 @@ class FlowviewerApplication:
                 return self._ok(float(millis) / 1000.0)
             # POSIX: uptime from /proc/uptime, else time.monotonic fallback
             try:
-                with open("/proc/uptime", "r", encoding="ascii") as fh:
+                with open("/proc/uptime", encoding="ascii") as fh:
                     return self._ok(float(fh.read().split()[0]))
             except Exception:
                 import time

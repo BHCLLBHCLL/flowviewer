@@ -19,7 +19,6 @@ import numpy as np
 from ..crdl.core import open_buffer
 from ..crdl.fields import parse_cycle_meta
 
-
 _TRAILING_DIGITS = re.compile(r"^(.*?)(\d+)$")
 
 
@@ -415,17 +414,17 @@ class SyncedTimeline:
     def __len__(self) -> int:
         return len(self.filesets)
 
-    def add(self, fs: Optional[FileSet]) -> "SyncedTimeline":
+    def add(self, fs: Optional[FileSet]) -> SyncedTimeline:
         if fs is not None and fs not in self.filesets:
             self.filesets.append(fs)
         return self
 
-    def remove(self, fs: FileSet) -> "SyncedTimeline":
+    def remove(self, fs: FileSet) -> SyncedTimeline:
         if fs in self.filesets:
             self.filesets.remove(fs)
         return self
 
-    def clear(self) -> "SyncedTimeline":
+    def clear(self) -> SyncedTimeline:
         self.filesets = []
         return self
 

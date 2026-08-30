@@ -347,7 +347,7 @@ def plane_from_object(obj):
     return p
 
 
-def cut_grid(ugrid, obj) -> "vtk.vtkPolyData":
+def cut_grid(ugrid, obj) -> vtk.vtkPolyData:
     """Slice the grid with the plane → closed contour polydata."""
     cutter = vtk.vtkCutter()
     cutter.SetCutFunction(plane_from_object(obj))
@@ -376,7 +376,7 @@ def make_plane_actor(pd, color=(1.0, 0.4, 0.7), opacity=0.35):
 # ---------------------------------------------------------------------------
 
 def contour_actor(pd, scalar_array_name: str, obj,
-                  lut=None) -> "vtk.vtkActor":
+                  lut=None) -> vtk.vtkActor:
     """scPOST Contour map on a cut polydata.
 
     ``pd`` carries the scalar in CellData (cell-centred FPH source) or
@@ -413,7 +413,7 @@ def contour_actor(pd, scalar_array_name: str, obj,
     return actor
 
 
-def contour_value_actor(pd, scalar_array_name: str, obj) -> "vtk.vtkActor":
+def contour_value_actor(pd, scalar_array_name: str, obj) -> vtk.vtkActor:
     """Value labels over the cut (scPOST Contour → Value)."""
     # keep only points carrying a value (deduplicate for labels)
     dd = vtk.vtkCleanPolyData()
@@ -432,7 +432,7 @@ def contour_value_actor(pd, scalar_array_name: str, obj) -> "vtk.vtkActor":
     return actor
 
 
-def contour_line_actor(pd, scalar_array_name: str, obj) -> "vtk.vtkActor":
+def contour_line_actor(pd, scalar_array_name: str, obj) -> vtk.vtkActor:
     """Contour-line isolines on the cut (vtkContourFilter)."""
     cf = vtk.vtkContourFilter()
     cf.SetInputData(pd)
@@ -474,7 +474,7 @@ def _data_range(pd, name: str) -> tuple[float, float]:
 # Colorbar / Texture / Font (P3.9)
 # ---------------------------------------------------------------------------
 
-def colorbar_actor(mapper, obj, title: str = "") -> Optional["vtk.vtkScalarBarActor"]:
+def colorbar_actor(mapper, obj, title: str = "") -> Optional[vtk.vtkScalarBarActor]:
     """Global-style ``vtkScalarBarActor`` for a plane's contour/vector map.
 
     The plane's Others tab names a colorbar via ``colorbar_contour`` /
@@ -507,7 +507,7 @@ def colorbar_actor(mapper, obj, title: str = "") -> Optional["vtk.vtkScalarBarAc
     return sb
 
 
-def texture_actor(cut, obj) -> Optional["vtk.vtkActor"]:
+def texture_actor(cut, obj) -> Optional[vtk.vtkActor]:
     """Apply ``texture_file`` (BMP/PNG/JPG) onto the cut plane (P3.9).
 
     ``vtkTextureMapToPlane`` generates UVs from the cut's own coordinates,
@@ -586,7 +586,7 @@ def _apply_font(actor, obj) -> None:
 # ---------------------------------------------------------------------------
 
 def _glyph_actor(pts_pd, obj, scale: float,
-                 project_normal: Optional[np.ndarray] = None) -> "vtk.vtkActor":
+                 project_normal: Optional[np.ndarray] = None) -> vtk.vtkActor:
     """Orient + scale arrow glyphs from ``pts_pd`` PointData vectors.
 
     ``project_normal`` (unit vector, optional) zeroes the normal component of
@@ -649,7 +649,7 @@ def _glyph_actor(pts_pd, obj, scale: float,
 
 
 def vector_actor(ugrid, ff: FieldFile, obj,
-                 cell_centered: bool, rows=None) -> Optional["vtk.vtkActor"]:
+                 cell_centered: bool, rows=None) -> Optional[vtk.vtkActor]:
     """Vector arrows on the cut plane (Uniform/Center/Nodes/Actual).
 
     Cell-centred vector fields are first converted to point data
@@ -824,7 +824,7 @@ def _vector_scale(ugrid, obj) -> float:
 # Mesh / Boundary / Subline
 # ---------------------------------------------------------------------------
 
-def mesh_lines_actor(pd, obj) -> "vtk.vtkActor":
+def mesh_lines_actor(pd, obj) -> vtk.vtkActor:
     """Mesh intersection lines on the cut (vtkExtractEdges)."""
     edges = vtk.vtkExtractEdges()
     edges.SetInputData(pd)
@@ -844,7 +844,7 @@ def mesh_lines_actor(pd, obj) -> "vtk.vtkActor":
     return actor
 
 
-def boundary_line_actor(ff, obj) -> Optional["vtk.vtkActor"]:
+def boundary_line_actor(ff, obj) -> Optional[vtk.vtkActor]:
     """Boundary: line of intersection between cut plane and boundary surface."""
     if not obj.boundary_line:
         return None
@@ -943,7 +943,7 @@ def _exterior_hex_faces(conn: np.ndarray):
     return out
 
 
-def subline_actor(ff, obj) -> Optional["vtk.vtkActor"]:
+def subline_actor(ff, obj) -> Optional[vtk.vtkActor]:
     """External frame + display-location marks (Subline tab)."""
     if not obj.subline_external:
         return None
@@ -991,7 +991,7 @@ def subline_actor(ff, obj) -> Optional["vtk.vtkActor"]:
 # Trim
 # ---------------------------------------------------------------------------
 
-def trim_by_objects(pd, ff, obj, siblings=None) -> "vtk.vtkPolyData":
+def trim_by_objects(pd, ff, obj, siblings=None) -> vtk.vtkPolyData:
     """Clip the cut against objects listed in the Trim 'Trimmed by' tab.
 
     Each sibling whose label matches 'obj.trim_objects' contributes an
@@ -1068,7 +1068,7 @@ def _limited_clip(pd, obj):
     return pd
 
 
-def trim_cut(pd, obj) -> "vtk.vtkPolyData":
+def trim_cut(pd, obj) -> vtk.vtkPolyData:
     """Clip the cut against coordinate ranges (Trim tab).
 
     ``obj.trim_{x,y,z}{min,max}`` are ``Optional[float]`` coordinate bounds;
@@ -1097,7 +1097,7 @@ def trim_cut(pd, obj) -> "vtk.vtkPolyData":
     return out
 
 
-def clip_cut(pd, obj) -> "vtk.vtkPolyData":
+def clip_cut(pd, obj) -> vtk.vtkPolyData:
     """Clip the cut against the Clip tab X/Y region.
 
     ``obj.clip_enabled`` gates the clip; ``clip_xmin/xmax/ymin/ymax`` are
@@ -1128,7 +1128,7 @@ def clip_cut(pd, obj) -> "vtk.vtkPolyData":
     return out
 
 
-def clip_region_actor(obj) -> Optional["vtk.vtkActor"]:
+def clip_region_actor(obj) -> Optional[vtk.vtkActor]:
     """Wireframe rectangle for the Clip region (``clip_display_region``)."""
     if not getattr(obj, "clip_enabled", False):
         return None
@@ -1303,7 +1303,7 @@ def automove_coordinate(obj, t: float, frames: Optional[int] = None) -> tuple:
             rows = []
             with open(csv_path, newline="", encoding="utf-8") as fh:
                 rd = _csv.reader(fh)
-                header = next(rd, None)
+                next(rd, None)
                 for row in rd:
                     try:
                         rows.append([float(v) for v in row[:3]])

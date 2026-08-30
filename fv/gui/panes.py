@@ -3,15 +3,27 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 try:
     from PyQt5.QtCore import Qt, pyqtSignal
     from PyQt5.QtWidgets import (
-        QButtonGroup, QCheckBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
-        QPlainTextEdit, QPushButton, QRadioButton, QSlider, QSplitter,
-        QSplitterHandle, QStackedWidget, QTreeWidget, QTreeWidgetItem,
-        QVBoxLayout, QWidget,
+        QButtonGroup,
+        QCheckBox,
+        QFrame,
+        QHBoxLayout,
+        QLabel,
+        QLineEdit,
+        QPlainTextEdit,
+        QPushButton,
+        QRadioButton,
+        QSlider,
+        QSplitter,
+        QSplitterHandle,
+        QStackedWidget,
+        QTreeWidget,
+        QTreeWidgetItem,
+        QVBoxLayout,
+        QWidget,
     )
     _HAS_QT = True
 except Exception:  # pragma: no cover - headless
@@ -304,8 +316,9 @@ class ObjectTree(QTreeWidget if _HAS_QT else object):
             "point": "point",
         }.get(kind, "project")
 
-    def _add_object_item(self, parent, obj) -> "QTreeWidgetItem":
+    def _add_object_item(self, parent, obj) -> QTreeWidgetItem:
         """Insert one object row under *parent*, recording kind / visibility."""
+        from .icons import AppIcons
         label = obj.label
         it = QTreeWidgetItem([label, ""])
         it.setFlags(it.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
@@ -319,7 +332,7 @@ class ObjectTree(QTreeWidget if _HAS_QT else object):
         self._object_kinds[label] = obj.kind
         return it
 
-    def add_object(self, obj) -> "QTreeWidgetItem":
+    def add_object(self, obj) -> QTreeWidgetItem:
         """Append an object created at runtime under the current Main node."""
         if not _HAS_QT:
             return None
@@ -573,14 +586,34 @@ class PropertyHost(QWidget if _HAS_QT else object):
             return
         from .object_dialogs import ParticleDialog, PlaneDialog, SurfaceDialog
         from .object_dialogs2 import (
-            BarDialog, BitmapDialog, CameraDialog, CircleDialog, ColorbarDialog,
-            CurveDialog, RegionDialog, TurboDialog, UFODialog,
-            GradationDialog, RegionBCDialog,
-            CylinderDialog, GraphDialog, GroupingDialog, InformationDialog,
-            IsosurfaceDialog, LightDialog, MaxMinDialog, MeasureDialog,
-            MirrorCopyDialog, PathlineDialog, PeriodicalCopyDialog,
-            PointDialog, StreamlineDialog, TextDialog, TimeSeriesDialog,
-            VolumeDialog, DrawWindowDialog,
+            BarDialog,
+            BitmapDialog,
+            CameraDialog,
+            CircleDialog,
+            ColorbarDialog,
+            CurveDialog,
+            CylinderDialog,
+            DrawWindowDialog,
+            GradationDialog,
+            GraphDialog,
+            GroupingDialog,
+            InformationDialog,
+            IsosurfaceDialog,
+            LightDialog,
+            MaxMinDialog,
+            MeasureDialog,
+            MirrorCopyDialog,
+            PathlineDialog,
+            PeriodicalCopyDialog,
+            PointDialog,
+            RegionBCDialog,
+            RegionDialog,
+            StreamlineDialog,
+            TextDialog,
+            TimeSeriesDialog,
+            TurboDialog,
+            UFODialog,
+            VolumeDialog,
         )
         cls = {
             "surface": SurfaceDialog,

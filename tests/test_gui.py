@@ -81,8 +81,13 @@ def test_window_without_file(qapp):
 
 def test_open_dialog_chrome(qapp):
     from fv.gui.dialogs import (
-        FILE_TYPE_FILTERS, DialogHeader, OpenDialog, OpenOptions,
-        _filter_label, filter_extensions, qt_file_filters,
+        FILE_TYPE_FILTERS,
+        DialogHeader,
+        OpenDialog,
+        OpenOptions,
+        _filter_label,
+        filter_extensions,
+        qt_file_filters,
     )
     dlg = OpenDialog()
     assert dlg.windowTitle() == "Open"
@@ -139,7 +144,9 @@ def test_scene_reset_with_string_placeholders(qapp):
 
 def test_surface_plane_dialogs(qapp):
     from fv.gui.object_dialogs import (
-        ObjectSettingsPanel, PlaneDialog, SurfaceDialog,
+        ObjectSettingsPanel,
+        PlaneDialog,
+        SurfaceDialog,
     )
     from fv.model.objects import PlaneObject, SurfaceObject
     sd = SurfaceDialog(SurfaceObject(index=1))
@@ -279,7 +286,6 @@ def test_options_wired_into_window(qapp):
 def test_create_object_menu_wiring(qapp):
     """Create menu/toolbar actually instantiates objects (A-gap fix)."""
     w = _make(qapp, FPH)
-    kinds_before = {o.kind for o in w.main_object.children}
     w._create_object("isosurface")
     assert any(o.kind == "isosurface" for o in w.main_object.children)
     assert w.property_host.current_object is not None
@@ -354,9 +360,9 @@ def test_undo_redo_wired(qapp):
     assert {"Undo", "Redo"} <= texts
 
 def test_surface_dialog_all_tabs_and_filter(qapp):
+    from fv.gui.object_dialogs import SurfaceDialog
     from fv.model.dataset import load_file
     from fv.model.objects import SurfaceObject
-    from fv.gui.object_dialogs import SurfaceDialog
     ff = load_file(FPH)
     s = SurfaceObject(index=1)
     sd = SurfaceDialog(s, field_file=ff)
@@ -379,9 +385,9 @@ def test_surface_dialog_all_tabs_and_filter(qapp):
     assert s.show_contour is True
 
 def test_plane_dialog_all_tabs(qapp):
+    from fv.gui.object_dialogs import PlaneDialog
     from fv.model.dataset import load_file
     from fv.model.objects import PlaneObject
-    from fv.gui.object_dialogs import PlaneDialog
     ff = load_file(FPH)
     p = PlaneObject(index=1, axis="Z", coordinate=0.0)
     pd = PlaneDialog(p, field_file=ff)
@@ -405,9 +411,9 @@ def test_plane_dialog_all_tabs(qapp):
     assert p.limited_width == 2.5 and p.limited_height == 3.0
 
 def test_particle_dialog_all_tabs(qapp):
+    from fv.gui.object_dialogs import ParticleDialog
     from fv.model.dataset import load_file
     from fv.model.objects import ParticleObject
-    from fv.gui.object_dialogs import ParticleDialog
     ff = load_file(FPH)
     pt = ParticleObject(index=1)
     pd = ParticleDialog(pt, field_file=ff)
@@ -420,9 +426,9 @@ def test_particle_dialog_all_tabs(qapp):
     assert pt.intersection_regions == [((0.0, 0.0, 0.0), (1.0, 1.0, 1.0))]
 
 def test_mat_filter_from_fld(qapp):
+    from fv.gui.object_dialogs import SurfaceDialog
     from fv.model.dataset import load_file
     from fv.model.objects import SurfaceObject
-    from fv.gui.object_dialogs import SurfaceDialog
     from PyQt5.QtCore import Qt
     ff = load_file(FLD)
     s = SurfaceObject(index=1)
@@ -438,9 +444,9 @@ def test_mat_filter_from_fld(qapp):
 
 def test_plane_automove_roundtrip(qapp):
     """Automove triplet spins round-trip through PlaneDialog.apply_to."""
+    from fv.gui.object_dialogs import PlaneDialog
     from fv.model.dataset import load_file
     from fv.model.objects import PlaneObject
-    from fv.gui.object_dialogs import PlaneDialog
     ff = load_file(FPH)
     p = PlaneObject(index=1, axis="Z", coordinate=0.0)
     p.automove_start_point = (1.0, 2.0, 3.0)
@@ -494,7 +500,7 @@ def test_scene_plane_pipeline_3d():
 def test_automove_math_fph():
     import numpy as np
     from fv.model.objects import PlaneObject
-    from fv.render.plane import automove_coordinate, _rotate_vector
+    from fv.render.plane import _rotate_vector, automove_coordinate
     p = PlaneObject(index=1)
     p.automove_method = "Line"
     p.automove_start_point = (0.0, 0.0, 0.0)
@@ -673,8 +679,8 @@ def test_plane_trim_coordinate_ranges():
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_plane_trim_dialog_roundtrip(qapp):
     """Trim coordinate fields survive dialog apply (P1.1)."""
-    from fv.model.objects import PlaneObject
     from fv.gui.object_dialogs import PlaneDialog
+    from fv.model.objects import PlaneObject
     p = PlaneObject(index=1, trim_xmin=0.2, trim_xmax=0.8)
     d = PlaneDialog(p)
     d.apply_to(p)
@@ -717,9 +723,10 @@ def test_plane_vector_integration(qapp):
 def test_plane_integration_csv_output(qapp, tmp_path):
     """Integration result written to CSV when Output-to-file checked (P1.3)."""
     import csv
+
+    from fv.gui.object_dialogs import PlaneDialog
     from fv.model.dataset import load_file
     from fv.model.objects import PlaneObject
-    from fv.gui.object_dialogs import PlaneDialog
     ff = load_file(FPH)
     obj = PlaneObject(index=1, axis="Z", coordinate=0.0)
     obj.contour_var = "PRES"
@@ -828,10 +835,10 @@ def test_plane_clip_region():
 def test_plane_vector_extras():
     """Vector projection / constant-length / arrow sizing (P2.7)."""
     import numpy as np
-    from vtk.util import numpy_support as vns
     from fv.model.dataset import load_file
     from fv.model.objects import PlaneObject
     from fv.render import plane as rp
+    from vtk.util import numpy_support as vns
     ff = load_file(FPH)
     obj = PlaneObject(index=1, axis="Z", coordinate=0.0)
     obj.show_vector = True
@@ -867,7 +874,7 @@ def test_plane_vector_extras():
 def test_plane_colorbar_texture(tmp_path):
     """Colorbar actor + texture mapping (P3.9)."""
     import struct
-    from pathlib import Path as _Path
+
     from fv.model.dataset import load_file
     from fv.model.objects import PlaneObject
     from fv.render import plane as rp
@@ -1149,11 +1156,10 @@ def test_particle_multiframe_animate(tmp_path):
     from types import SimpleNamespace
 
     import numpy as np
-    from vtk.util import numpy_support as vns
-
     from fv.model.objects import ParticleObject
     from fv.render import particle as pr
     from fv.render.scene import Scene
+    from vtk.util import numpy_support as vns
 
     fph = tmp_path / "two_frames.fph"
     _synthetic_two_frame_fph(fph)
@@ -1188,11 +1194,17 @@ def test_particle_multiframe_animate(tmp_path):
 def test_new_object_dialogs_tabs_and_apply(qapp):
     """Isosurface/Point/Streamline/Volume/Colorbar dialog tabs + apply_to."""
     from fv.gui.object_dialogs2 import (
-        ColorbarDialog, IsosurfaceDialog, PointDialog, StreamlineDialog,
+        ColorbarDialog,
+        IsosurfaceDialog,
+        PointDialog,
+        StreamlineDialog,
         VolumeDialog,
     )
     from fv.model.objects import (
-        ColorbarObject, IsosurfaceObject, PointObject, StreamlineObject,
+        ColorbarObject,
+        IsosurfaceObject,
+        PointObject,
+        StreamlineObject,
         VolumeObject,
     )
     iso = IsosurfaceObject(index=1)
@@ -1230,11 +1242,15 @@ def test_new_object_dialogs_tabs_and_apply(qapp):
 def test_new_object_dialogs_with_field_file(qapp):
     """Dialogs populate variable combos from a real field file."""
     from fv.gui.object_dialogs2 import (
-        IsosurfaceDialog, PointDialog, StreamlineDialog,
+        IsosurfaceDialog,
+        PointDialog,
+        StreamlineDialog,
     )
     from fv.model.dataset import load_file
     from fv.model.objects import (
-        IsosurfaceObject, PointObject, StreamlineObject,
+        IsosurfaceObject,
+        PointObject,
+        StreamlineObject,
     )
     ff = load_file(FPH)
     d = IsosurfaceDialog(IsosurfaceObject(index=1), field_file=ff)
@@ -1462,8 +1478,7 @@ def test_surface_luster_water_material():
     """Luster/Water flags drive specular props on surface actors (P1.4)."""
     from fv.model.dataset import load_file
     from fv.model.objects import SurfaceObject
-    from fv.render.surface import (build_surface_polydata, contour_actor,
-                                   mesh_lines_actor)
+    from fv.render.surface import build_surface_polydata, contour_actor, mesh_lines_actor
     ff = load_file(FPH)
     pd, _, _ = build_surface_polydata(ff, SurfaceObject(index=1))
     obj = SurfaceObject(index=1)
@@ -1512,6 +1527,7 @@ def test_plane_contour_sheen_unified_p14():
 def test_pathline_multi_cycle(tmp_path):
     """Pathline traces seeds across a cycle sequence (P1.5)."""
     import shutil
+
     from fv.model.dataset import load_file
     from fv.model.objects import PathlineObject
     from fv.render.pathline import build_pathline_actors
@@ -1537,6 +1553,7 @@ def test_pathline_multi_cycle(tmp_path):
 def test_pathline_step_and_color_p12(tmp_path):
     """P1.2: pathline honours step_size; color_var colours by point data."""
     import shutil
+
     from fv.model.dataset import load_file
     from fv.model.objects import PathlineObject
     from fv.render.pathline import build_pathline_actors
@@ -1609,8 +1626,7 @@ def test_cylinder_circle_actors():
     """Cylinder/Circle produce cut-surface actors (P2.1)."""
     from fv.model.dataset import load_file
     from fv.model.objects import CircleObject, CylinderObject
-    from fv.render.cylinder import (build_circle_actors,
-                                     build_cylinder_actors)
+    from fv.render.cylinder import build_circle_actors, build_cylinder_actors
     ff = load_file(FPH)
     cyl = CylinderObject(index=1)
     cyl.contour_var = "PRES"
@@ -1644,7 +1660,7 @@ def test_cylinder_circle_dialogs(qapp):
 def test_text_bitmap_actors():
     """Text actor + bitmap texture quad build (P2.3)."""
     import struct
-    from pathlib import Path
+
     from fv.model.objects import BitmapObject, TextObject
     from fv.render.text import bitmap_actor, text_actor
     t = TextObject(index=1)
@@ -1676,7 +1692,7 @@ def test_text_bitmap_actors():
         assert bitmap_uv_corners((2.0, 3.0), (0.5, 0.25)) == [
             (0.5, 0.25), (2.5, 0.25), (0.5, 3.25), (2.5, 3.25)]
     finally:
-        import os; os.unlink(name)
+        os.unlink(name)
 def test_text_bitmap_dialogs(qapp):
     """Text/Bitmap dialogs write back (P2.3)."""
     from fv.gui.object_dialogs2 import BitmapDialog, TextDialog
@@ -1785,8 +1801,7 @@ def test_mirror_copy_surface():
 def test_mirror_periodical_inherit_source_field():
     """R0.5: mirror/periodical copies inherit the source contour field."""
     from fv.model.dataset import load_file
-    from fv.model.objects import (MirrorCopyObject, PeriodicalCopyObject,
-                                  SurfaceObject)
+    from fv.model.objects import MirrorCopyObject, PeriodicalCopyObject, SurfaceObject
     from fv.render.mirror import build_mirror_actors
     from fv.render.periodical import build_periodical_actors
     ff = load_file(FPH)
@@ -1891,8 +1906,8 @@ def test_hardcoded_params_adaptive():
     assert abs(t3.GetPosition()[1] - (0.84 - 0.12)) < 1e-9
 
     # Particle spheres scale by |velocity| (vectors attached)
-    from vtk.util import numpy_support as vns
     import numpy as np
+    from vtk.util import numpy_support as vns
     pd = vtk.vtkPolyData()
     pts = vtk.vtkPoints()
     pts.InsertNextPoint(0.0, 0.0, 0.0)
@@ -2047,7 +2062,6 @@ def test_api_post_processing_facade():
 
 def test_api_topology_queries():
     """fv.api exposes scPOST FLD-class topology accessors (P0.2)."""
-    import numpy as np
     from fv import api
     ff = api.open_file(FPH)
     assert api.node_count(ff) == ff.n_vertices
@@ -2082,7 +2096,6 @@ def test_api_topology_queries():
 
 def test_api_variable_queries():
     """fv.api exposes GetScalar/GetVector/MinMax accessors (P0.3)."""
-    import numpy as np
     from fv import api
     ff = api.open_file(FPH)
     v = api.scalar_at(ff, "PRES", 0)
@@ -2156,6 +2169,7 @@ def test_api_create_var_all_cycles(tmp_path):
     """CreateVarALLCYC registers an expression on every cycle (P1.2)."""
     import shutil
     from pathlib import Path
+
     from fv import api
     from fv.model.fileset import scan_sequence
     base = Path(tmp_path)
@@ -2172,8 +2186,8 @@ def test_fileset_cycle_management(tmp_path):
     """AddCycList/DelCycList/SetCycOpeMode (P2)."""
     import shutil
     from pathlib import Path
-    from fv.model.fileset import (add_cycle, remove_cycle,
-        scan_sequence, set_cycle_operation)
+
+    from fv.model.fileset import add_cycle, remove_cycle, scan_sequence, set_cycle_operation
     base = Path(tmp_path)
     for stale in base.glob("*.fph"):  # pytest_tmp is reused across sessions
         stale.unlink()
@@ -2198,8 +2212,9 @@ def test_fileset_cycle_management(tmp_path):
 def test_fileset_time_interpolation_and_runtime(tmp_path):
     """Fractional cycle ids blend members; runtime API (P2.4)."""
     import shutil
-    import numpy as np
     from pathlib import Path
+
+    import numpy as np
     from fv import api
     from fv.model.dataset import load_file
     from fv.model.fileset import interpolate_at, interpolate_files, scan_sequence
@@ -2336,6 +2351,7 @@ def test_com_scpost_surface(tmp_path):
     """COM scPOST methods: cycle runtime + queries + flags + errors (P3)."""
     import shutil
     from pathlib import Path
+
     from fv.com import FlowviewerApplication
     base = Path(tmp_path)
     for stale in base.glob("*.fph"):
@@ -2460,12 +2476,10 @@ def test_fld_ugrid_batch_build():
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_particle_intersection_cloth():
     """Intersection regions filter particles; cloth connects them (G3)."""
-    import numpy as np
     from fv.crdl.fields import parse_particles
     from fv.model.dataset import load_file
     from fv.model.objects import ParticleObject
-    from fv.render.particle import (build_particle_actors, _cloth_actor,
-                                     _filter_intersections)
+    from fv.render.particle import _cloth_actor, _filter_intersections, build_particle_actors
     ff = load_file(FPH)
     if not ff.has_particles:
         pytest.skip("sample has no particles")
@@ -2524,7 +2538,9 @@ def test_drag_plane_handlers(qapp, monkeypatch):
 def test_colorbar_actor_and_lut():
     from fv.model.objects import ColorbarObject
     from fv.render.colorbar import (
-        ColorbarRegistry, build_lut, colorbar_actor,
+        ColorbarRegistry,
+        build_lut,
+        colorbar_actor,
     )
     cb = ColorbarObject()
     lut = build_lut(16, "Gray")
@@ -2732,6 +2748,7 @@ def test_volume_transfer_3point_ramp():
 def test_open_async_loads_file(qapp):
     """P0.6: launch_load parses on a worker thread and calls back."""
     import time
+
     from fv.gui.tasks import launch_load
     result = {}
     launch_load(FPH, on_finished=lambda ff: result.update(ff=ff),
@@ -2773,8 +2790,9 @@ def test_light_dialog_tabs_and_apply(qapp):
 
 def test_fileset_scan_sequence(tmp_path):
     """Same-stem sibling files become ordered FileSet members."""
-    from fv.model.fileset import scan_sequence
     from pathlib import Path as P
+
+    from fv.model.fileset import scan_sequence
     base = P(tmp_path)
     for cyc in (1, 9, 5):
         (base / f"run_{cyc}.fph").write_bytes(b"\0")
@@ -2900,6 +2918,7 @@ def test_sta_save_load_roundtrip(tmp_path):
 def test_sta_roundtrip_all_kinds(tmp_path):
     """P0.2: every PostObject kind survives an STA save/load round-trip."""
     import dataclasses
+
     from fv.model import objects as objmod
     from fv.model.objects import MainObject
     from fv.render.export import _object_class, load_status, save_status
@@ -2932,6 +2951,7 @@ def test_sta_roundtrip_field_fidelity(tmp_path):
     """
     import dataclasses
     from pathlib import Path as _P
+
     from fv.model import objects as objmod
     from fv.model.objects import MainObject
     from fv.render.export import load_status, save_status
@@ -3143,8 +3163,8 @@ def test_periodical_copy():
 
 def test_mirror_periodical_multi_source_dialog(qapp):
     """Mirror/Periodical dialogs select multiple source surfaces (8)."""
-    from fv.model.objects import MirrorCopyObject, PeriodicalCopyObject
     from fv.gui.object_dialogs2 import MirrorCopyDialog, PeriodicalCopyDialog
+    from fv.model.objects import MirrorCopyObject, PeriodicalCopyObject
     sibs = [type("S", (), {"kind": "surface", "label": "Surface (1)"})(),
             type("S", (), {"kind": "surface", "label": "Surface (2)"})()]
     m = MirrorCopyObject(index=1)
@@ -3189,8 +3209,7 @@ def test_delx_difference():
 def test_grad_div_rot():
     """grad/div/rot operate on node fields (B2)."""
     import numpy as np
-    from fv.model.dataset import FIELD_KIND_SCALAR, VarInfo
-    from fv.model.dataset import load_file
+    from fv.model.dataset import FIELD_KIND_SCALAR, VarInfo, load_file
     from fv.model.varreg import register_variable
     ff = load_file(FLD)
     v = ff.vertices
@@ -3241,6 +3260,7 @@ def test_measure_ratio():
 def test_grouping_members_hierarchy():
     """grouping_members flattens nested subgroups (9)."""
     from types import SimpleNamespace
+
     from fv.model.objects import grouping_members
     g1 = SimpleNamespace(label="G1", subgroups=[], member_labels=["A", "B"])
     g2 = SimpleNamespace(label="G2", subgroups=["G1"], member_labels=["C"])
@@ -3291,9 +3311,7 @@ def test_xdmf_reader(tmp_path):
 
 def test_folder_tree_hierarchy(qapp):
     """Folder nests member objects under a tree node (A3)."""
-    from fv.model.dataset import load_file
-    from fv.model.objects import FolderObject, SurfaceObject
-    ff = load_file(FPH)
+    from fv.model.objects import FolderObject
     folder = FolderObject(index=1)
     folder.member_labels = ["Surface (1)"]
     w = _make(qapp, FPH)
@@ -3409,7 +3427,6 @@ def test_api_queries():
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_particle_trim_filter():
     """Trim tab number range filters particles (E2)."""
-    import numpy as np
     from fv.crdl.fields import parse_particles
     from fv.model.dataset import load_file
     from fv.model.objects import ParticleObject
@@ -3475,6 +3492,7 @@ def test_nastran_reader(tmp_path):
 def test_neutral_ply_variables(tmp_path):
     """PLY per-vertex scalar properties import as node variables (7)."""
     import struct
+
     from fv.model.dataset import neutral_load
     # ASCII PLY
     ply = "\n".join([
@@ -3595,9 +3613,7 @@ def test_r08_camera_presets_statusbar_oilflow(qapp):
 
 def test_camera_keyframes_and_sequence():
     """Camera keyframe interpolation + sequence capture degrade (5b)."""
-    import numpy as np
-    from fv.render.camera import (capture_camera_sequence, interpolate_pose,
-                                  keyframe_poses)
+    from fv.render.camera import capture_camera_sequence, interpolate_pose, keyframe_poses
     kf0 = {"position": (0, 0, 1), "focal_point": (0, 0, 0),
            "view_up": (0, 1, 0), "parallel": True}
     kf1 = {"position": (2, 0, 1), "focal_point": (0, 0, 0),
@@ -3706,9 +3722,9 @@ def test_dispatch_routes_ufo():
 
 def test_ufo_dialog(qapp):
     """UFODialog writes variable/point_size/color back (2)."""
+    from fv.gui.object_dialogs2 import UFODialog
     from fv.model.dataset import load_file
     from fv.model.objects import UFOObject
-    from fv.gui.object_dialogs2 import UFODialog
     ff = load_file(FPH)
     u = UFOObject(index=1)
     d = UFODialog(u, field_file=ff)
@@ -3787,8 +3803,7 @@ def test_turbo_views():
     """Meridional / blade-to-blade transforms produce 2D points (7a)."""
     import numpy as np
     from fv.model.dataset import load_file
-    from fv.render.turbo import (blade_to_blade_points, build_turbo_actors,
-        meridional_points)
+    from fv.render.turbo import blade_to_blade_points, meridional_points
     ff = load_file(FPH)
     rz = meridional_points(ff, "Z")
     assert rz.shape == (ff.n_vertices, 2)
@@ -3804,7 +3819,7 @@ def test_turbo_heatmap_and_polar_p13():
     import numpy as np
     from fv.model.dataset import load_file
     from fv.model.objects import TurboObject
-    from fv.render.turbo import (blade_loading_surfaces, build_turbo_actors)
+    from fv.render.turbo import blade_loading_surfaces, build_turbo_actors
 
     ff = load_file(FPH)
     var = "PRES" if "PRES" in ff.variables else ff.variables[0]
@@ -3858,7 +3873,7 @@ def test_ufo_surface_actor():
     assert pd.GetNumberOfPoints() == 4
 def test_com_interface():
     """COM Application object loads a file and reports metadata (7c)."""
-    from fv.com import FlowviewerApplication, _HAS_COM
+    from fv.com import _HAS_COM, FlowviewerApplication
     app = FlowviewerApplication()
     app.open_file(FPH)
     assert app.kind == "fph"
@@ -3870,7 +3885,7 @@ def test_com_interface():
 
 def test_com_properties_events_lifecycle():
     """COM Application exposes read-only props, events and context mgmt (3)."""
-    from fv.com import FlowviewerApplication, VERSION
+    from fv.com import VERSION, FlowviewerApplication
     app = FlowviewerApplication()
     assert app.version == VERSION
     assert app.has_file is False
@@ -3904,7 +3919,7 @@ def test_com_properties_events_lifecycle():
 
 def test_com_connection_points():
     """COM exposes IConnectionPointContainer semantics (3)."""
-    from fv.com import (EVENTS_IID, FlowviewerApplication, _iid_matches)
+    from fv.com import EVENTS_IID, FlowviewerApplication, _iid_matches
     app = FlowviewerApplication()
     # COM-facing container methods return a wrapped connection point
     cps = app.EnumConnectionPoints()
@@ -3933,7 +3948,7 @@ def test_com_connection_points():
             events.append(("open", path))
         def OnClose(self):
             events.append(("close", None))
-    cookie = app.subscribe(VbsSink())
+    app.subscribe(VbsSink())
     app.open_file(FPH)
     app.close()
     assert ("open", FPH) in events and ("close", None) in events
@@ -3944,8 +3959,8 @@ def test_com_connection_points():
 def test_com_simple_connection():
     """Real COM link: QI IConnectionPointContainer -> Advise -> Invoke (②)."""
     try:
-        import win32com.client.dynamic
         import win32com.client.connect
+        import win32com.client.dynamic
         import win32com.server.util
     except ImportError:
         pytest.skip("pywin32 unavailable")
@@ -3978,8 +3993,9 @@ def test_com_typelib():
     """COM typelib builds and loads with coclass + source interface (②)."""
     import os
     import tempfile
-    from fv import com, com_typelib
+
     import pythoncom
+    from fv import com, com_typelib
     p = os.path.join(tempfile.mkdtemp(), "fv.tlb")
     com_typelib.build_typelib(p)
     lt = pythoncom.LoadTypeLib(p)
@@ -3994,15 +4010,19 @@ def test_com_typelib():
         com.FlowviewerApplication._typelib_guid_ is None
 def test_com_events_smoke_inproc():
     """COM events smoke script runs in-process (②)."""
-    from scripts.com_events_smoke import Sink, run_inproc
+    from scripts.com_events_smoke import run_inproc
     r = run_inproc(FPH)
     assert r["ok"] is True
     assert FPH in r["opened"] and r["closed"] == 1
 
 def test_vr_detection():
     """VR availability detection returns a bool and names a backend (7d)."""
-    from fv.render.vr import (vr_available, vr_render_window_supported,
-                              vr_backend, vr_runtime_available)
+    from fv.render.vr import (
+        vr_available,
+        vr_backend,
+        vr_render_window_supported,
+        vr_runtime_available,
+    )
     assert isinstance(vr_available(), bool)
     assert isinstance(vr_render_window_supported(), bool)
     assert vr_backend() in {"openvr", "openxr", "generic", "none"}
@@ -4026,8 +4046,7 @@ def test_turbo_analysis():
     """Circumferential average / blade loading / polar view (1)."""
     import numpy as np
     from fv.model.dataset import load_file
-    from fv.render.turbo import (blade_loading_curve,
-        circumferential_average, polar_view_points)
+    from fv.render.turbo import blade_loading_curve, circumferential_average, polar_view_points
     ff = load_file(FPH)
     r, z, vals = circumferential_average(ff, "PRES", "Z", 32, 32)
     assert r is not None and vals.shape == (32, 32)
@@ -4044,8 +4063,12 @@ def test_turbo_blade_aero():
     """Blade-aero post-processing: Cp, area/mass averages (5)."""
     import numpy as np
     from fv.model.dataset import load_file
-    from fv.render.turbo import (area_average, circumferential_mass_average,
-        mass_flow_average, pressure_coefficient)
+    from fv.render.turbo import (
+        area_average,
+        circumferential_mass_average,
+        mass_flow_average,
+        pressure_coefficient,
+    )
     ff = load_file(FPH)
     # Cp shape follows PRES (cell-centred) and matches the formula
     p_ref, v_ref, rho = 0.5, 10.0, 1.2
@@ -4070,9 +4093,9 @@ def test_turbo_blade_aero():
 
 def test_turbo_dialog_blade_aero(qapp):
     """TurboDialog exposes Blade Aero analysis tab (5)."""
+    from fv.gui.object_dialogs2 import TurboDialog
     from fv.model.dataset import load_file
     from fv.model.objects import TurboObject
-    from fv.gui.object_dialogs2 import TurboDialog
     ff = load_file(FPH)
     t = TurboObject(index=1, variable="PRES", axis="Z")
     d = TurboDialog(t, field_file=ff)
@@ -4115,10 +4138,12 @@ def test_neutral_reader(tmp_path):
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 def test_neutral_scene():
     """Neutral mesh renders in the scene (1)."""
+    import os
+    import tempfile
+
+    from fv.model.dataset import neutral_load
     from fv.model.objects import MainObject
     from fv.render.scene import Scene
-    from fv.model.dataset import neutral_load
-    import tempfile, os
     fd, path = tempfile.mkstemp(suffix=".obj")
     os.write(fd, b"v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n")
     os.close(fd)
@@ -4134,8 +4159,7 @@ def test_neutral_scene():
 def test_fph_cell_difference():
     """delx on an FPH cell field uses cell-centre differences (2)."""
     import numpy as np
-    from fv.model.dataset import FIELD_KIND_SCALAR, VarInfo
-    from fv.model.dataset import load_file
+    from fv.model.dataset import FIELD_KIND_SCALAR, VarInfo, load_file
     from fv.model.varreg import _cell_centers_fph, register_variable
     ff = load_file(FPH)
     centers = _cell_centers_fph(ff)
@@ -4259,9 +4283,13 @@ def test_r11_probe_at_generic_fph():
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_r11_pick_vars_mapping(qapp):
     """R1.1: _pick_vars maps each object kind to its displayed fields."""
-    from fv.model.objects import (IsosurfaceObject, PlaneObject,
-                                  StreamlineObject, SurfaceObject,
-                                  VolumeObject)
+    from fv.model.objects import (
+        IsosurfaceObject,
+        PlaneObject,
+        StreamlineObject,
+        SurfaceObject,
+        VolumeObject,
+    )
     w = _make(qapp, FPH)
     sur = SurfaceObject(index=1, show_contour=True, contour_var="PRES",
                         show_vector=True, vector_var="VEL")
@@ -4281,8 +4309,14 @@ def test_r11_pick_vars_mapping(qapp):
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_r13_pick_vars_remaining_kinds(qapp):
     """Pick probe covers point/bar/curve/turbo/ufo/graph (not just 9 kinds)."""
-    from fv.model.objects import (BarObject, CurveObject, GraphObject,
-                                  PointObject, TurboObject, UFOObject)
+    from fv.model.objects import (
+        BarObject,
+        CurveObject,
+        GraphObject,
+        PointObject,
+        TurboObject,
+        UFOObject,
+    )
     w = _make(qapp, FPH)
     pt = PointObject(index=1, probe_scalar=True, probe_scalar_var="PRES",
                      probe_vector=True, probe_vector_var="VEL")
@@ -4371,8 +4405,8 @@ def test_r13_measure_actors():
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_r13_measure_dialog_pick(qapp):
     """R1.3: MeasureDialog begin_pick/set_pick_point fill the spinboxes."""
-    from fv.model.objects import MeasureObject
     from fv.gui.object_dialogs2 import MeasureDialog
+    from fv.model.objects import MeasureObject
     obj = MeasureObject(index=1)
     d = MeasureDialog(obj)
     d.begin_pick(1)
@@ -4457,8 +4491,8 @@ def test_r21_set_cyc_ope_mode_numeric():
 def test_r21_get_overlapping_region_count():
     """R2.1: GetOverlappingRegionCount counts regions, not cells."""
     import numpy as np
-    from fv.model.dataset import FieldFile
     from fv import api
+    from fv.model.dataset import FieldFile
     ff = FieldFile(path="x", kind="fph")
     ff.cvol_id = np.array([1, 1, 2, 2], dtype=np.int64)
     ff.parts_with_cvol = [("A", 1), ("B", 2)]
@@ -4472,8 +4506,8 @@ def test_r21_get_overlapping_region_count():
 def test_r21_get_mat_id_of_vol():
     """R2.1: GetMATIDofVOL takes a 1-based volid and reports MAT count."""
     import numpy as np
-    from fv.model.dataset import FieldFile
     from fv import api
+    from fv.model.dataset import FieldFile
     ff = FieldFile(path="x", kind="fph")
     ff.cvol_id = np.array([1, 1, 2, 2], dtype=np.int64)
     ff.material = np.array([5, 5, 7, 7], dtype=np.int64)
@@ -4490,8 +4524,8 @@ def test_r21_get_mat_id_of_vol():
 def test_r21_local_xyz_global_from_file():
     """R2.1: LocalXYZ2GlobalXYZ reads ff.meta['local_coord']."""
     import numpy as np
-    from fv.model.dataset import FieldFile
     from fv import api
+    from fv.model.dataset import FieldFile
     ff = FieldFile(path="x", kind="fph")
     ff.meta = {}
     out = api.local_xyz_to_global_xyz((1.0, 2.0, 3.0), ff=ff)
@@ -4518,8 +4552,8 @@ def test_r21_fld_local_coord_meta():
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_r22_ov_geometry_queries():
     """R2.2: ov-parameter geometry family (thin wrappers over topology)."""
-    from fv.model.dataset import load_file
     from fv import api
+    from fv.model.dataset import load_file
     ff = load_file(FPH)
     assert api.get_node_count(ff) == ff.n_vertices
     assert api.get_element_count(ff) == ff.n_cells
@@ -4557,8 +4591,8 @@ def test_r22_ov_geometry_com():
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_r23_mat_vol_rgn_lookup_fph():
     """R2.3: VOL/RGN lookup family on a poly file."""
-    from fv.model.dataset import load_file
     from fv import api
+    from fv.model.dataset import load_file
     ff = load_file(FPH)
     vols = api.get_vol_org_names(ff)
     assert len(vols) == len(ff.volume_regions)
@@ -4577,8 +4611,8 @@ def test_r23_mat_vol_rgn_lookup_fph():
 def test_r23_mat_lookup_fld():
     """R2.3: MAT lookup family on an FLD file with materials."""
     import numpy as np
-    from fv.model.dataset import load_file
     from fv import api
+    from fv.model.dataset import load_file
     ff = load_file(FLD)
     assert api.get_mat_num(ff) >= 1
     ids = api._mat_ids(ff)
@@ -4602,8 +4636,8 @@ def test_r23_mat_vol_rgn_com():
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_r24_variable_at_point():
     """R2.4: variable_at_point probes a cell-centred field."""
-    from fv.model.dataset import load_file
     from fv import api
+    from fv.model.dataset import load_file
     ff = load_file(FPH)
     p = api.cell_centers(ff)[0]
     res = api.variable_at_point(ff, "PRES", p[0], p[1], p[2])
@@ -4616,8 +4650,8 @@ def test_r24_variable_at_point():
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
 def test_r24_variable_at_point_fld():
     """R2.4: node-centred FLD uses nearest-node lookup."""
-    from fv.model.dataset import load_file
     from fv import api
+    from fv.model.dataset import load_file
     ff = load_file(FLD)
     v = ff.vertices[0]
     res = api.variable_at_point(ff, "PRES", v[0], v[1], v[2])
@@ -4627,9 +4661,8 @@ def test_r24_variable_at_point_fld():
 def test_p06_varreg_mag_div_rot():
     """P0-6: mag() reduces vector expressions; div/rot accept 3 components."""
     import numpy as np
-    from fv.model.dataset import (load_file, FIELD_KIND_SCALAR,
-                                  FIELD_KIND_VECTOR, VarInfo)
     from fv.model import varreg
+    from fv.model.dataset import FIELD_KIND_SCALAR, FIELD_KIND_VECTOR, VarInfo, load_file
     ff = load_file(FLD)
     n = ff.n_vertices
     x = np.linspace(0.0, 1.0, n)
@@ -4657,7 +4690,7 @@ def test_p05_oilflow_fld_numeric():
     """P0-5: oilflow on FLD takes the numeric fallback (no VTK locator crash)."""
     from fv.model.dataset import load_file
     from fv.model.objects import PlaneObject
-    from fv.render.oilflow import build_oilflow_actor, _numeric_trace_fld
+    from fv.render.oilflow import _numeric_trace_fld, build_oilflow_actor
     ff = load_file(FLD)
     assert ff.kind == "fld"
     obj = PlaneObject(index=1)
@@ -4758,8 +4791,8 @@ def test_p02_createvar_all_cycles():
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_r24_get_variable_info_com():
     """R2.4: COM GetVariableInfo/Min/Max."""
-    from fv.com import FlowviewerApplication
     from fv import api
+    from fv.com import FlowviewerApplication
     app = FlowviewerApplication()
     app.open_file(FPH)
     assert app.GetVariableMin("PRES") is not None
@@ -4771,7 +4804,7 @@ def test_r24_get_variable_info_com():
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_p01_create_object_family():
     """P0-1: every scPOST CreateObject* name is callable and attaches to the tree."""
-    from fv.com import FlowviewerApplication, _CREATE_OBJECT_KINDS
+    from fv.com import _CREATE_OBJECT_KINDS, FlowviewerApplication
     app = FlowviewerApplication()
     app.open_file(FPH)
     for name, kind in _CREATE_OBJECT_KINDS.items():
@@ -4792,8 +4825,9 @@ def test_p01_create_object_family():
 def test_r25_save_variable_output_api(tmp_path):
     """R2.5: save_variable_output writes a probe CSV (default probe)."""
     import csv
-    from fv.model.dataset import load_file
+
     from fv import api
+    from fv.model.dataset import load_file
     ff = load_file(FPH)
     out = tmp_path / "r25.csv"
     assert api.save_variable_output(ff, str(out))
@@ -4809,8 +4843,9 @@ def test_r25_save_variable_output_api(tmp_path):
 def test_r25_save_variable_output_items(tmp_path):
     """R2.5: items subset restricts the emitted columns."""
     import csv
-    from fv.model.dataset import load_file
+
     from fv import api
+    from fv.model.dataset import load_file
     ff = load_file(FPH)
     out = tmp_path / "r25_sub.csv"
     assert api.save_variable_output(ff, str(out), items=["title", "coords"])
@@ -4823,9 +4858,10 @@ def test_r25_save_variable_output_items(tmp_path):
 def test_r25_save_variable_output_point_object(tmp_path):
     """R2.5: PointObject probe vars drive the exported scalar/vector."""
     import csv
+
+    from fv import api
     from fv.model.dataset import load_file
     from fv.model.objects import PointObject
-    from fv import api
     ff = load_file(FPH)
     p = api.cell_centers(ff)[0]
     obj = PointObject(index=1, title="P1", position=(p[0], p[1], p[2]),
@@ -4855,6 +4891,7 @@ def test_r26_application_misc():
     """R2.6: Application misc methods (PID/ticks/folder/wildcard/...)."""
     import os
     import tempfile
+
     from fv.com import FlowviewerApplication
     app = FlowviewerApplication()
     assert app.GetPID() > 0
@@ -5075,8 +5112,7 @@ def test_r36_gui_multi_fileset_sync(qapp, tmp_path):
 
 def test_r37_color_table_control_points():
     """R3.7: control points normalize/add/remove with clamped endpoints."""
-    from fv.render.colorbar import (add_control_point, normalize_control_points,
-                                    remove_control_point)
+    from fv.render.colorbar import add_control_point, normalize_control_points, remove_control_point
     pts = [(0.0, (0.0, 0.0, 1.0)), (1.0, (1.0, 0.0, 0.0))]
     p = add_control_point(pts, 0.5, (0.5, 0.5, 0.5))
     assert [t for t, _ in p] == [0.0, 0.5, 1.0]
@@ -5151,7 +5187,7 @@ def test_r34_gradation_colors():
 
 def test_r34_text_gradation_fields():
     """R3.4: TextObject 3D anchor and GradationObject control points exist."""
-    from fv.model.objects import TextObject, GradationObject
+    from fv.model.objects import GradationObject, TextObject
     t = TextObject(anchor_3d=True, anchor_position=(1.0, 2.0, 3.0))
     assert t.anchor_3d is True
     assert t.anchor_position == (1.0, 2.0, 3.0)

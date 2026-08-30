@@ -8,8 +8,6 @@ loading when PyQt5 is unavailable so callers work headless.
 
 from __future__ import annotations
 
-from typing import Optional
-
 try:
     from PyQt5.QtCore import QObject, QRunnable, QThreadPool, pyqtSignal
     _HAS_QT = True

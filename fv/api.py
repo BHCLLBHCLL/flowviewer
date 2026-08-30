@@ -6,8 +6,6 @@ The same calls the GUI uses, minus the Qt chrome.
 
 from __future__ import annotations
 
-from typing import Optional
-
 
 def open_file(path: str):
     """Load a field file (FLD/FPH/GPH/CGNS) -> FieldFile."""
@@ -954,6 +952,7 @@ def get_overlapping_region_count(ff) -> int:
     Two regions overlap when they share at least one cell.
     """
     import numpy as np
+
     from .crdl.mesh_gph import part_cvol_cell_mask
     cvol = getattr(ff, "cvol_id", None)
     if cvol is None:
@@ -1073,7 +1072,6 @@ def get_element_count(ff, ov=0) -> int:
     from .model import topology
     if int(ov) <= 0:
         return topology.element_count(ff)
-    import numpy as np
     return int(ov_cell_mask(ff, ov).sum())
 
 
@@ -1150,6 +1148,7 @@ def get_adjacent_element_of_face(ff, elem, face, ov=0) -> int:
 def get_area_of_face(ff, elem, face, ov=0) -> float:
     """Area of a local element face (GetAreaOfFace)."""
     import numpy as np
+
     from .model import topology
     ids = _local_face_nodes(ff, elem, face)
     if not ids:
@@ -1167,7 +1166,6 @@ def get_volume_of_element(ff, elem, ov=0) -> float:
 def get_elements_of_volume_region(ff, volid) -> list:
     """Element ids in a volume region by name or 1-based id
     (GetElementsOfVolumeRegion)."""
-    from .model import topology
     cells = _resolve_vol_cells(ff, volid)
     return cells or []
 
@@ -1239,6 +1237,7 @@ def volume_region_table(ff) -> list:
     """Registered volume regions as [(name, [cell_id, ...]), ...]
     (companion of GetSurfaceArray for volume regions)."""
     import numpy as np
+
     from .model import topology
     n = int(getattr(ff, "n_cells", 0))
     out = []
@@ -1492,6 +1491,7 @@ def split_view(items, filename: str) -> bool:
     for the magic default scene); one viewport per item, left to right.
     """
     import vtk
+
     from .render.export import snapshot_png
     scenes = []
     for ff, objects in items:
@@ -1601,6 +1601,7 @@ def save_variable_output(ff, path, items="all", objects=None):
     Returns True when the file is written.
     """
     import csv
+
     import numpy as np
 
     if isinstance(items, str):

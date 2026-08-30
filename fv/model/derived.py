@@ -30,8 +30,6 @@ expression engine (varreg) like any other variable.
 
 from __future__ import annotations
 
-from typing import Optional
-
 import numpy as np
 
 from .dataset import FIELD_KIND_SCALAR, FIELD_KIND_VECTOR, VarInfo
@@ -121,7 +119,6 @@ def _fph_green_gauss(ff, phi: np.ndarray) -> np.ndarray:
 
     # orient each face outward from its "primary" cell (owner if valid,
     # else neighbour) using the geometry sign fix
-    valid = (owner >= 0) | (neigh >= 0)
     prim = np.where(owner >= 0, owner, neigh)
     internal = (owner >= 0) & (neigh >= 0)
     ref = np.where(internal[:, None],

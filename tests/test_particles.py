@@ -43,9 +43,12 @@ def _fph_with_two_frames() -> bytes:
 
 def test_particle_frames_synthetic():
     """Two frames x 50 particles accumulate from six 200B blocks."""
-    from fv.crdl.fields import (parse_particle_frames, parse_particles,
-                                parse_particle_variable_frames,
-                                parse_particle_variables)
+    from fv.crdl.fields import (
+        parse_particle_frames,
+        parse_particle_variable_frames,
+        parse_particle_variables,
+        parse_particles,
+    )
     data = _fph_with_two_frames()
     frames = parse_particle_frames(data)
     assert len(frames) == 2

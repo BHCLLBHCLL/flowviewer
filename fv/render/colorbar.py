@@ -10,9 +10,9 @@ and its lookup table (LUT). It stores the current global LUT so the renderer
 pipeline can hand it to each contour mapper.
 """
 
+import csv
 from typing import Optional
 
-import csv
 import numpy as np
 
 try:

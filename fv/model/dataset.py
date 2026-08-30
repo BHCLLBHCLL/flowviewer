@@ -9,13 +9,14 @@ from typing import Optional
 import numpy as np
 
 from ..crdl import (
-    mesh_gph,
-    mesh_fld,
     fields as fld_fields,
-    open_buffer,
-    find_section,
 )
-
+from ..crdl import (
+    find_section,
+    mesh_fld,
+    mesh_gph,
+    open_buffer,
+)
 
 FIELD_KIND_SCALAR = "scalar"
 FIELD_KIND_VECTOR = "vector"
@@ -119,12 +120,16 @@ class FieldFile:
         if vi is None:
             return None
         if vi.array is None and vi.lazy_path:
-            from ..crdl.core import (open_buffer, find_section, section_end,
-                                     iter_data_blocks)
+            from ..crdl.core import (
+                find_section,
+                iter_data_blocks,
+                open_buffer,
+                section_end,
+            )
             with open_buffer(vi.lazy_path) as data:
                 sec_start = find_section(data, vi.lazy_section)
                 if sec_start < 0:
-                    raise IOError(
+                    raise OSError(
                         f"lazy section missing: {vi.lazy_section}")
                 sec_end = section_end(data, sec_start)
                 hit = None
@@ -134,7 +139,7 @@ class FieldFile:
                         hit = blk
                         break
                 if hit is None:
-                    raise IOError(f"lazy block missing: {name}")
+                    raise OSError(f"lazy block missing: {name}")
                 p, bc = hit
                 vi.array = np.frombuffer(
                     data, dtype=vi.lazy_dtype,
@@ -246,7 +251,7 @@ def nastran_load(filepath: str) -> FieldFile:
 
 def neutral_load(filepath: str) -> FieldFile:
     """Neutral geometry loader (OBJ/STL/PLY) (1, 7)."""
-    from ..crdl.neutral import parse_obj, parse_stl, parse_ply
+    from ..crdl.neutral import parse_obj, parse_ply, parse_stl
     path = Path(filepath)
     suf = path.suffix.lower()
     if suf == ".ply":
@@ -351,7 +356,7 @@ def cvff_load(filepath: str) -> FieldFile:
 
 def marc_load(filepath: str) -> FieldFile:
     """Marc/Mentat loader: ``.dat`` mesh, or ``.t16``/``.t19`` post file."""
-    from ..crdl.marc import parse_marc, parse_marc_results, parse_marc_post
+    from ..crdl.marc import parse_marc, parse_marc_post, parse_marc_results
     path = Path(filepath)
     suf = path.suffix.lower()
     if suf in (".t16", ".t19"):
@@ -508,12 +513,11 @@ def _inherit_mesh_from_sibling(mesh: dict, path: Path) -> dict:
     absent).  This copies the mesh sections from the first sibling that has
     them, keeping the current file's fields.
     """
-    prefix, num = path.stem, None
+    prefix = path.stem
     m = None
     for i in range(len(prefix) - 1, -1, -1):
         if not prefix[i].isdigit():
             break
-        num = prefix[i:]
         m = i
     base = prefix[:m] if m is not None else prefix
     try:

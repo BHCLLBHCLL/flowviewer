@@ -203,7 +203,7 @@ def attach_vector(ff: FieldFile, pd, face_idx, base: str,
 # Actors
 # ---------------------------------------------------------------------------
 
-def contour_actor(pd, scalar_array_name: str, obj) -> Optional["vtk.vtkActor"]:
+def contour_actor(pd, scalar_array_name: str, obj) -> Optional[vtk.vtkActor]:
     """Scalar contour map on the surface (CellData/PointData auto-detect)."""
     if not _HAS_VTK:
         return None
@@ -230,7 +230,7 @@ def contour_actor(pd, scalar_array_name: str, obj) -> Optional["vtk.vtkActor"]:
     return actor
 
 
-def vector_actor(pd, obj, cell_centered: bool) -> Optional["vtk.vtkActor"]:
+def vector_actor(pd, obj, cell_centered: bool) -> Optional[vtk.vtkActor]:
     """Vector glyphs at surface nodes from already-attached vectors."""
     if not _HAS_VTK:
         return None
@@ -268,7 +268,7 @@ def vector_actor(pd, obj, cell_centered: bool) -> Optional["vtk.vtkActor"]:
     return actor
 
 
-def mesh_lines_actor(pd, obj) -> "vtk.vtkActor":
+def mesh_lines_actor(pd, obj) -> vtk.vtkActor:
     """Mesh edge lines of the surface."""
     edges = vtk.vtkExtractEdges()
     edges.SetInputData(pd)
@@ -288,7 +288,7 @@ def mesh_lines_actor(pd, obj) -> "vtk.vtkActor":
     return actor
 
 
-def trim_surface(pd, obj) -> "vtk.vtkPolyData":
+def trim_surface(pd, obj) -> vtk.vtkPolyData:
     """Clip the surface against Trim tab X/Y/Z min/max planes."""
     out = pd
     for axis, key in (("X", "xmin"), ("X", "xmax"), ("Y", "ymin"),
@@ -333,7 +333,7 @@ def integrate_surface(pd, scalar_name: Optional[str]):
 
 def bump_surface_actor(ff: FieldFile, obj, pd=None,
                        cell_centered=None, face_idx=None
-                       ) -> Optional["vtk.vtkActor"]:
+                       ) -> Optional[vtk.vtkActor]:
     """Bump-mapped surface: vertices displaced along normals by a scalar.
 
     ``obj.bump_var`` selects the height field (falls back to
@@ -396,7 +396,7 @@ def bump_surface_actor(ff: FieldFile, obj, pd=None,
 
 
 
-def _vertex_normals(pd: "vtk.vtkPolyData", pts: np.ndarray) -> np.ndarray:
+def _vertex_normals(pd: vtk.vtkPolyData, pts: np.ndarray) -> np.ndarray:
     """Area-weighted vertex normals aligned with the polydata point order.
 
     Accumulates each face's Newell normal onto its vertices, then normalises,

@@ -7,7 +7,6 @@ variables (Neutral variable import, item 7).
 from __future__ import annotations
 
 import struct
-from typing import Optional
 
 import numpy as np
 
@@ -17,7 +16,7 @@ def parse_obj(path: str):
     verts = []
     faces = []
     try:
-        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+        with open(path, encoding="utf-8", errors="replace") as fh:
             for line in fh:
                 s = line.strip()
                 if not s or s.startswith("#"):
@@ -41,7 +40,7 @@ def parse_stl(path: str):
     verts = []
     faces = []
     try:
-        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+        with open(path, encoding="utf-8", errors="replace") as fh:
             cur = []
             for line in fh:
                 s = line.strip()

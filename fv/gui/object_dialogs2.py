@@ -9,19 +9,34 @@ from __future__ import annotations
 
 try:
     from PyQt5.QtWidgets import (
-        QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout,
-        QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-        QPushButton, QSpinBox, QVBoxLayout, QWidget,
+        QAbstractItemView,
+        QCheckBox,
+        QComboBox,
+        QDoubleSpinBox,
+        QFormLayout,
+        QHBoxLayout,
+        QLabel,
+        QLineEdit,
+        QListWidget,
+        QListWidgetItem,
+        QPushButton,
+        QSpinBox,
+        QVBoxLayout,
+        QWidget,
     )
     _HAS_QT = True
 except Exception:  # pragma: no cover
     _HAS_QT = False
 
-from .object_dialogs import (
-    ObjectSettingsPanel, _ColorButton, _scalar_vars, _VarRow, _hline,
-)
-
 import os
+
+from .object_dialogs import (
+    ObjectSettingsPanel,
+    _ColorButton,
+    _hline,
+    _scalar_vars,
+    _VarRow,
+)
 
 
 def _var_combo(variables: list[str], value: str) -> QComboBox:
@@ -575,16 +590,16 @@ class PathlineDialog(ObjectSettingsPanel):
         c = getattr(self.pl, "seed_coordinate", None)
         self.coord = _dspin(0.0 if c is None else c, -1e9, 1e9, 6)
         form.addRow("Coordinate:", self.coord)
-        self.du = QSpinBox(page);
-        self.du.setRange(1, 200);
+        self.du = QSpinBox(page)
+        self.du.setRange(1, 200)
         self.du.setValue(int(getattr(self.pl, "density_u", 8)))
         form.addRow("Density U:", self.du)
-        self.dv = QSpinBox(page);
-        self.dv.setRange(1, 200);
+        self.dv = QSpinBox(page)
+        self.dv.setRange(1, 200)
         self.dv.setValue(int(getattr(self.pl, "density_v", 8)))
         form.addRow("Density V:", self.dv)
-        lay = QVBoxLayout(page);
-        lay.addLayout(form);
+        lay = QVBoxLayout(page)
+        lay.addLayout(form)
         lay.addStretch(1)
         return page
 
@@ -599,12 +614,12 @@ class PathlineDialog(ObjectSettingsPanel):
         self.dir.setCurrentIndex(max(0, self.dir.findData(
             self.pl.direction)))
         form.addRow("Direction:", self.dir)
-        self.steps = QSpinBox(page);
-        self.steps.setRange(1, 1000);
+        self.steps = QSpinBox(page)
+        self.steps.setRange(1, 1000)
         self.steps.setValue(int(getattr(self.pl, "steps_per_cycle", 10)))
         form.addRow("Steps per cycle:", self.steps)
-        lay = QVBoxLayout(page);
-        lay.addLayout(form);
+        lay = QVBoxLayout(page)
+        lay.addLayout(form)
         lay.addStretch(1)
         return page
 
@@ -623,9 +638,9 @@ class PathlineDialog(ObjectSettingsPanel):
         form.addRow("Color:", self.color)
         self.transp = QCheckBox("Transparent", page)
         self.transp.setChecked(bool(self.pl.transparent))
-        lay = QVBoxLayout(page);
-        lay.addLayout(form);
-        lay.addWidget(self.transp);
+        lay = QVBoxLayout(page)
+        lay.addLayout(form)
+        lay.addWidget(self.transp)
         lay.addStretch(1)
         return page
 
@@ -670,10 +685,10 @@ class CylinderDialog(ObjectSettingsPanel):
         self.axis.setCurrentIndex(max(0, self.axis.findData(self.obj.axis)))
         form.addRow("Axis:", self.axis)
         cx, cy, cz = self.obj.center
-        self.cx = _dspin(cx, -1e9, 1e9, 6);
-        self.cy = _dspin(cy, -1e9, 1e9, 6);
+        self.cx = _dspin(cx, -1e9, 1e9, 6)
+        self.cy = _dspin(cy, -1e9, 1e9, 6)
         self.cz = _dspin(cz, -1e9, 1e9, 6)
-        row = QHBoxLayout();
+        row = QHBoxLayout()
         row.addWidget(self.cx); row.addWidget(self.cy); row.addWidget(self.cz)
         form.addRow("Center X/Y/Z:", row)
         self.radius = _dspin(self.obj.radius, 1e-6, 1e9, 6)
@@ -771,10 +786,10 @@ class CircleDialog(ObjectSettingsPanel):
         self.coord = _dspin(self.obj.coordinate, -1e9, 1e9, 6)
         form.addRow("Coordinate:", self.coord)
         cx, cy, cz = self.obj.center
-        self.cx = _dspin(cx, -1e9, 1e9, 6);
-        self.cy = _dspin(cy, -1e9, 1e9, 6);
+        self.cx = _dspin(cx, -1e9, 1e9, 6)
+        self.cy = _dspin(cy, -1e9, 1e9, 6)
         self.cz = _dspin(cz, -1e9, 1e9, 6)
-        row = QHBoxLayout();
+        row = QHBoxLayout()
         row.addWidget(self.cx); row.addWidget(self.cy); row.addWidget(self.cz)
         form.addRow("Center X/Y/Z:", row)
         self.radius = _dspin(self.obj.radius, 1e-6, 1e9, 6)
@@ -842,7 +857,7 @@ class TextDialog(ObjectSettingsPanel):
         self.text = QLineEdit(getattr(obj, "text", "Text"), page)
         form.addRow("Text:", self.text)
         px, py = getattr(obj, "position", (0.1, 0.85))
-        self.px = _dspin(px, 0.0, 1.0, 3);
+        self.px = _dspin(px, 0.0, 1.0, 3)
         self.py = _dspin(py, 0.0, 1.0, 3)
         row = QHBoxLayout(); row.addWidget(self.px); row.addWidget(self.py)
         form.addRow("Position X/Y:", row)
@@ -884,7 +899,7 @@ class BitmapDialog(ObjectSettingsPanel):
         row.addWidget(self.file, 1); row.addWidget(btn)
         form.addRow("Image file:", row)
         px, py = getattr(obj, "position", (0.05, 0.05))
-        self.px = _dspin(px, 0.0, 1.0, 3);
+        self.px = _dspin(px, 0.0, 1.0, 3)
         self.py = _dspin(py, 0.0, 1.0, 3)
         row2 = QHBoxLayout(); row2.addWidget(self.px); row2.addWidget(self.py)
         form.addRow("Position X/Y:", row2)
@@ -935,8 +950,8 @@ class InformationDialog(ObjectSettingsPanel):
         page = QWidget(self)
         form = QFormLayout()
         px, py, pz = getattr(obj, "position", (0.0, 0.0, 0.0))
-        self.px = _dspin(px, -1e9, 1e9, 6);
-        self.py = _dspin(py, -1e9, 1e9, 6);
+        self.px = _dspin(px, -1e9, 1e9, 6)
+        self.py = _dspin(py, -1e9, 1e9, 6)
         self.pz = _dspin(pz, -1e9, 1e9, 6)
         row = QHBoxLayout(); row.addWidget(self.px); row.addWidget(self.py); row.addWidget(self.pz)
         form.addRow("X/Y/Z:", row)
@@ -945,22 +960,22 @@ class InformationDialog(ObjectSettingsPanel):
         self.query = QPushButton("Query", page)
         self.query.clicked.connect(self._on_query)
         self.result = QLabel(" ", page)
-        self.result.setWordWrap(True);
+        self.result.setWordWrap(True)
         self.result.setStyleSheet("color:#333; font-size:11px;")
-        lay = QVBoxLayout(page);
+        lay = QVBoxLayout(page)
         lay.addLayout(form); lay.addWidget(self.marker); lay.addWidget(self.query); lay.addWidget(self.result); lay.addStretch(1)
         self.tabs.addTab(page, "Information")
 
     def _on_query(self) -> None:
         if self.field_file is None:
-            self.result.setText("No field file loaded");
+            self.result.setText("No field file loaded")
             return
         from ..render.information import probe_values
         pt = (float(self.px.value()), float(self.py.value()),
               float(self.pz.value()))
         vals = probe_values(self.field_file, pt)
         if not vals:
-            self.result.setText("No variables at this point");
+            self.result.setText("No variables at this point")
             return
         lines = [f"({pt[0]:.6g}, {pt[1]:.6g}, {pt[2]:.6g})"]
         for name in sorted(vals):
@@ -970,7 +985,7 @@ class InformationDialog(ObjectSettingsPanel):
             else:
                 lines.append(f"{name}: {v:.6g}")
         self.result.setText("\n".join(lines))
-        parent = self.parent();
+        parent = self.parent()
         if parent is not None and hasattr(parent, "message_win"):
             for ln in lines:
                 parent.message_win.log(ln)
@@ -1049,7 +1064,7 @@ class TimeSeriesDialog(ObjectSettingsPanel):
         form.addRow("CSV file:", row)
         lay = QVBoxLayout(page); lay.addLayout(form)
         self.info = QLabel(" ", page)
-        self.info.setWordWrap(True);
+        self.info.setWordWrap(True)
         self.info.setStyleSheet("color:#666; font-size:11px;")
         lay.addWidget(self.info); lay.addStretch(1)
         self.tabs.addTab(page, "Time Series")
@@ -1061,14 +1076,14 @@ class TimeSeriesDialog(ObjectSettingsPanel):
             self, "Open Time Series", "",
             "Time Series (*.csv *.tm);;All files (*)")
         if path:
-            self.file.setText(path);
+            self.file.setText(path)
             self._refresh_info()
 
     def _refresh_info(self) -> None:
         path = self.file.text()
         from pathlib import Path
         if not path or not Path(path).exists():
-            self.info.setText("No file loaded");
+            self.info.setText("No file loaded")
             return
         from ..model.tsmm import load_time_series
         data = load_time_series(path)
@@ -1112,7 +1127,7 @@ class MaxMinDialog(ObjectSettingsPanel):
         form.addRow("CSV file:", row)
         lay = QVBoxLayout(page); lay.addLayout(form)
         self.info = QLabel(" ", page)
-        self.info.setWordWrap(True);
+        self.info.setWordWrap(True)
         self.info.setStyleSheet("color:#666; font-size:11px;")
         lay.addWidget(self.info); lay.addStretch(1)
         self.tabs.addTab(page, "Max and Min")
@@ -1124,14 +1139,14 @@ class MaxMinDialog(ObjectSettingsPanel):
             self, "Open Max and Min", "",
             "MaxMin (*.csv *.ot);;All files (*)")
         if path:
-            self.file.setText(path);
+            self.file.setText(path)
             self._refresh_info()
 
     def _refresh_info(self) -> None:
         path = self.file.text()
         from pathlib import Path
         if not path or not Path(path).exists():
-            self.info.setText("No file loaded");
+            self.info.setText("No file loaded")
             return
         from ..model.tsmm import load_max_min
         data = load_max_min(path)
@@ -1197,9 +1212,9 @@ class GraphDialog(ObjectSettingsPanel):
         from ..render.graph import plot_graph
         dlg = plot_graph(self.obj, parent=self, ff0=self.field_file)
         if dlg is None:
-            self.info.setText("Graph unavailable (need >=2 cycles or matplotlib)");
+            self.info.setText("Graph unavailable (need >=2 cycles or matplotlib)")
         else:
-            self.info.setText("Plotted");
+            self.info.setText("Plotted")
 
     def apply_to(self, obj) -> None:
         if not _HAS_QT:
@@ -1393,8 +1408,8 @@ class MeasureDialog(ObjectSettingsPanel):
         self._pick_index = None   # R1.3: point index awaiting a Draw Window pick
         for i in range(3):
             px, py, pz = pts[i]
-            sx = _dspin(px, -1e9, 1e9, 6);
-            sy = _dspin(py, -1e9, 1e9, 6);
+            sx = _dspin(px, -1e9, 1e9, 6)
+            sy = _dspin(py, -1e9, 1e9, 6)
             sz = _dspin(pz, -1e9, 1e9, 6)
             row = QHBoxLayout(); row.addWidget(sx); row.addWidget(sy); row.addWidget(sz)
             pick = QPushButton("Pick", page)
@@ -1428,7 +1443,7 @@ class MeasureDialog(ObjectSettingsPanel):
         from ..render.measure import compute
         self.obj.result = compute(self.obj)
         self.result.setText(self.obj.result)
-        parent = self.parent();
+        parent = self.parent()
         if parent is not None and hasattr(parent, "message_win"):
             parent.message_win.log(self.obj.result)
 
@@ -1713,7 +1728,7 @@ class CameraDialog(ObjectSettingsPanel):
         written = capture_camera_sequence(renderer, kf, n, out)
         if hasattr(self, "message_win"):
             self.message_win.log(
-                "Camera sequence: {} frames -> {}".format(written, out))
+                f"Camera sequence: {written} frames -> {out}")
 class RegionDialog(ObjectSettingsPanel):
     """Region — select one boundary region to display (5d)."""
 
@@ -1808,8 +1823,12 @@ class TurboDialog(ObjectSettingsPanel):
         self.apply_to(self.obj)
         try:
             import numpy as np
-            from ..render.turbo import (circumferential_mass_average,
-                mass_flow_average, pressure_coefficient)
+
+            from ..render.turbo import (
+                circumferential_mass_average,
+                mass_flow_average,
+                pressure_coefficient,
+            )
             ff = self.field_file
             if ff is None or not self.obj.variable:
                 self.aero_result.setText("Select a variable first.")

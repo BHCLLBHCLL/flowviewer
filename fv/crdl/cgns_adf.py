@@ -13,8 +13,6 @@ cgns.read_cgns (HDF5 path) so both backends feed the same loader.
 
 from __future__ import annotations
 
-from typing import Optional
-
 import numpy as np
 
 BLOCK_SIZE = 4096
@@ -362,7 +360,7 @@ def _elem_type(sec):
 
 
 def _read_cells_adf(zone):
-    from .cgns import _read_mixed_stream, _VTK_FOR_CGNS, _VOLUME_TYPES
+    from .cgns import _VOLUME_TYPES, _VTK_FOR_CGNS, _read_mixed_stream
     conns = []
     types = []
     for _name, sec in _elements_sections(zone):

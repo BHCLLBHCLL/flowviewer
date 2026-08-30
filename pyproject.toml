@@ -15,7 +15,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0"]
+dev = [
+    "pytest>=7.0",
+    "ruff>=0.15",
+    "mypy>=1.11",
+]
 
 [project.scripts]
 flowviewer = "fv.gui.main:run_gui"
@@ -26,3 +30,38 @@ exclude = ["tests*", "analysis*", "scripts*"]
 
 [tool.setuptools.package-data]
 fv = ["*.tlb"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+src = ["fv"]
+
+[tool.ruff.lint]
+# Rules: real defects (E9), unused/undefined names (F), whitespace (W),
+# import sorting (I), bug-bear maintainability (B).  The whole "UP"
+# (modernisation) rule family is deliberately excluded (R24 whitelist of
+# pre-existing style debt; see §8.15) because it requires unsafe bulk
+# rewrites (UP031 printf->f-string, UP045 Optional->X|None needs py310)
+# with no runtime defect payoff.  Per-rule ignores below are also style-only:
+#   E501  line-too-long        pre-existing long lines (not enforced)
+#   E701/E702/E703  semicolon  style choice in turbo/ufo renderers
+#   E731  lambda-assignment    headless no-qt fallbacks
+#   E741  ambiguous var name   legacy single-letter loop vars
+#   B007  unused loop var      intentional .items()/enumerate unpacking
+select = ["E", "F", "W", "I", "B"]
+ignore = [
+    "E501", "E701", "E702", "E703", "E731", "E741",
+    "B007",
+]
+[extend-per-file-ignores]
+"tests/*.py" = ["E501"]
+
+[tool.mypy]
+# Progressive typing (R24): typecheck the core modules explicitly listed on
+# the command line / CI; every other import is treated as opaque (Any) so the
+# whole dependency chain (crdl, h5py, VTK, PyQt) does not block the gate.
+follow_imports = "skip"
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_unused_ignores = true
+python_version = "3.9"

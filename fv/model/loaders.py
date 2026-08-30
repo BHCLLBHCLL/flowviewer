@@ -8,7 +8,7 @@ CGNS, Marc ``.dat``/``.t16``/``.t19``, Nastran, Neutral, …).
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable
 
 # extension (lowercase) → loader function returning a FieldFile
 LOADERS: dict[str, Callable] = {}

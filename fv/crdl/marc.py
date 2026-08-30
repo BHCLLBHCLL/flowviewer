@@ -82,7 +82,7 @@ def _post_name(code: int, label: str = "") -> str:
 def parse_marc(path: str):
     """Parse Marc .dat (Mentat cards or comma-separated) -> mesh-dict."""
     try:
-        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+        with open(path, encoding="utf-8", errors="replace") as fh:
             text = fh.read()
     except OSError:
         return None
@@ -130,7 +130,6 @@ def _parse_mentat_dat(text: str):
         return None
     nodes = {}
     cells = []
-    cell_types = []
     section = ""
     coord_header_seen = False
     default_type = 0
@@ -229,7 +228,7 @@ def parse_marc_results(path: str, order: dict, n_vertices: int,
         return {}
     cols = []
     try:
-        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+        with open(path, encoding="utf-8", errors="replace") as fh:
             for line in fh:
                 s = line.strip()
                 if not s or s[0] in ("$", "*", "!", "#"):
