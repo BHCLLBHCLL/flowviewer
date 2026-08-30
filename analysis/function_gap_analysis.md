@@ -1,9 +1,14 @@
 # flowviewer 功能差距全面分析（2026-08-16，第七轮评估）
 
-> **最新状态（2026-08-30 第十七轮）见文末 §8.13**：R17–R22 六轮落地复评——
-> CradleViewer `cvw` 解码+逐字节写回闭环（§8.12 最后一个非外部格式项解除）、
-> 派生函数注册、ugrid 指纹缓存、多数据集 CSV 报告、DST/等值面动画/bump、
-> pyproject 打包；端到端深度 ~97%。
+> **最新状态（2026-08-30 第十八轮）见文末 §8.14**：R23 涡识别预设库落地——
+> Green-Gauss 梯度核（FPH 全向量化 / FLD-CGNS 逐单元）+ 涡量/Q 准则/λ₂/
+> 螺旋度预设 + VGRAD 分量库，11 新测试全过、全量 394 passed 零回退。
+> 其前第十七轮（§8.13）：R17–R22 六轮落地复评——CradleViewer `cvw`
+> 解码+逐字节写回闭环（§8.12 最后一个非外部格式项解除）、派生函数注册、
+> ugrid 指纹缓存、多数据集 CSV 报告、DST/等值面动画/bump、pyproject 打包；
+> 端到端深度 ~97%。
+> **§9 R23–R26 路线图（同日定稿）**：超越 scPOST 增量轮——涡识别预设库（
+> §9.1 已落地）/ 质量门禁 / 呈现纵深 / 性能纵深，评审通过后按序开工。
 
 > 分析日期：2026-08-16（会话执行）
 > 对比基准：Cradle CFD 2025.2 scPOST（VB 接口 41 个公开类 + FLD File 类 125 方法面）
@@ -669,3 +674,113 @@ R17–R22 将第十六轮尚存的最大格式缺口（CradleViewer 专有格式
 ShellExecute 沙箱 / FBX 三个纯外部项），对 scPOST 2025.2 的功能完整度为
 **覆盖 ~100%、端到端深度 ~97%**；工程化维度首次超出基线。剩余差距全部为
 外部依赖，可实现范围内已无已知功能缺口。
+
+### 8.14 第十八轮执行记录：R23 涡识别预设库（2026-08-30，§9.1 落地）
+
+**交付物**（`fv/model/derived.py` 378 行 + `fv/api.py` 7 个包装 +
+`tests/test_r23.py` 11 用例 + 基准热路径）：
+
+1. **Green-Gauss 梯度核** `velocity_gradient(ff, base)` → (n,3,3)，
+   `g[:, i, j] = ∂u_i/∂x_j`：
+   - FPH/PPH（LS_Links 多面体）：**全向量化** Newell 面积向量
+     （bincount 段求和）、逐面几何定向修正（内面按 owner→neighbour、
+     边界面按 胞心→面心）、散度定理求体积；内面**距离加权插值**
+     （畸变网格上线性场精度优于中点插值）；退化体积/空面跳过。
+   - FLD/CGNS（cell_conn hex/tet/penta/pyra）：逐单元 Green-Gauss
+     （面均值）→ 顶点平均回投；0/1 基自动检测与 varreg 共口径；
+     非法单元类型显式报错。
+   - 线性场在规则网格/四面体上**精确**（1e-9）；tr03_9.fph 畸变
+     多面体网格上线性场中位误差 <5%、均值 <8%。
+2. **涡识别预设**（梯度张量的纯函数）：涡量 ω=∇×u（向量）、
+   Q 准则 ½(‖Ω‖²−‖S‖²)、λ₂（S²+Ω² 中特征值，eigvalsh）、
+   螺旋度 u·ω。
+3. **注册通道**：`register_vortex_presets` 一次注册 13 变量
+   （VGRADXX..VGRADZZ 9 个梯度分量 + VORT/QCRIT/LAMBDA2/HELI），
+   名称冲突/缺速度/缺拓扑显式 ValueError；VGRAD* 为普通标量，
+   可直接进表达式引擎；VORT 向量接 auto_scalarize（VORT_mag/_X…）
+   幂等。
+
+**验收核对**（§9.1 验收标准逐条）：
+
+- 均匀流 → ω=0、Q=0：tr03_9.fph 实测 atol 1e-9 精确通过（闭合面
+  求和相消）✓
+- 线性剪切 u=(y,0,0) → ω_z=−1（且 Q=0，旋转/应变平衡）✓
+- tr03_9.fph 真实速度场：QCRIT/HELI 与表达式引擎经 VGRAD* 分量的
+  独立重算一致（rtol 1e-9）✓；注册变量可见、auto_scalarize 幂等 ✓
+- 新增回归测试 11 个全过；全量 **394 passed, 3 skipped, 2
+  deselected**（含并行代理新增测试，零回退）✓
+- 基准热路径无回退（load 1.48s / ugrid 2.11s / register 0.001s），
+  新增 vortex grad 1.25s（tr03_9.fph，含胞心计算）✓
+
+## 9. R23–R26 路线图（2026-08-30 定稿，超越 scPOST 增量轮）
+
+**前提**：第十七轮复评后 scPOST 可实现范围内无缺口，R23+ 性质从「补差距」
+转为「深化与超越」。规划前代码核实（2026-08-30 Grep 实证）：流线/粒子
+（streamline.py / pathline.py / oilflow.py）、体渲染（volume.py）、时序动画
+（R21 周期动画 + scene/com 时序接口）均已存在，**不重复规划**；涡识别/
+梯度量、质量门禁、多视口联动为**真实空白**。
+
+### 9.1 R23 涡识别与梯度量预设库
+
+**目标**：补齐商用 CFD 后处理标准导出量（CFD-Post/Tecplot 级别），在
+R18 varreg 之上注册，纯 numpy 实现、零表达式解析。
+
+**范围**：
+1. 梯度重建：C2P 三棱柱网格 Green-Gauss 单元梯度 → 顶点分配；FPH/P2
+   网格适配；退化单元跳过。
+2. 预设量注册（`register_derived_function` 驱动）：
+   - vorticity：ω = ∇×u（`_X/_Y/_Z/_mag` 由 auto_scalarize 派生）
+   - Q-criterion：Q = ½(‖Ω‖² − ‖S‖²)
+   - lambda2：速度梯度对称部分第二特征值（涡核判据）
+   - helicity：u·ω（含归一化选项）
+   - 速度梯度张量 ∇u 九分量（高级用户）
+3. 联动：DST 色表、等值面/切割面/曲面管线直接可用；变量进 GUI 变量树。
+
+**验收**：
+- 均匀流 → ω=0、Q=0（解析恒等，容差 1e-9 级）
+- 线性剪切 u=(y,0,0) → ω_z=−1，∇u 分量逐点对解析值
+- tr03_9.fph 速度场上 Q/λ2 与 numpy 独立复算一致（若样件无速度场则
+  以合成场验证）
+- 注册后变量清单可见、auto_scalarize 幂等不重复注册
+- 新增回归 ≥6 项全过；benchmark 热路径无回退
+
+**产出**：fv/model/derived.py（梯度核）+ varreg 预设注册 + tests/test_r23.py。
+
+### 9.2 R24 质量门禁与可持续性
+
+**范围**：
+1. benchmark 阈值断言：load / ugrid 冷建 / 缓存命中 / register_var 四项
+   热路径设倍数上限（避免绝对时间脆弱），超限失败退出码。
+2. ruff（lint）+ mypy（渐进标注：varreg/report/derived 优先），现存告警
+   清零或显式豁免清单。
+3. 门禁入口 `scripts/check.py`：pytest + lint + benchmark 一键跑；附
+   GitHub Actions 即用模板（当前无 `.github/`，托管后启用）。
+
+**验收**：check.py 全绿；阈值写入 README；豁免清单 ≤ 既有债务。
+
+### 9.3 R25 呈现纵深
+
+**范围**：
+1. 离屏导出 PNG 序列 + MP4/AVI（复用 R21 `build_iso_animation` 帧管线，
+   vtkWindowToImageFilter，DPI/帧率参数）。
+2. 2×2 多视口 + 相机联动（link cameras）与布局切换。
+3. GUI 内嵌 Python 控制台：暴露 com API 子集（scPOST 脚本化定位的 GUI 化）。
+
+**验收**：无头环境 PNG 序列导出（帧数/尺寸断言）；多视口联动单测；
+控制台内 `register_derived_function` 冒烟通过。
+
+### 9.4 R26 性能纵深
+
+**范围**：
+1. 平面切割结果缓存：按 (ugrid 指纹, 平面法向+偏移) 键控，命中直接复用
+   cutter 输出；缓存上限 + 淘汰。
+2. CGNS 多块并行解析（块间独立解码，进程/线程池）。
+3. benchmark 阈值收紧（在 R24 门禁上验证收益）。
+
+**验收**：二次同位切面命中路径 <10ms 级；多块加载 ≥1.5× 加速；回归全过。
+
+### 9.5 顺序与依赖
+
+R23 → R24 → R25 → R26：R24 门禁保护 R25/R26 重构面；R23 预设库是 R25
+控制台演示的最佳素材。每轮沿用既定模式（实现 + 测试 + README 更新 +
+提交），并在本文件追加轮次小节。
