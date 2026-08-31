@@ -741,6 +741,27 @@ ShellExecute 沙箱 / FBX 三个纯外部项），对 scPOST 2025.2 的功能完
 - 阈值写入 README ✓；豁免清单 = E501/E7xx/E731/E741/B007 遗留债务，
   ≤ 既有可接受范围 ✓
 
+### 8.16 第二十轮执行记录：R25-S1 离屏导出（2026-08-31，§9.3 首块）
+
+**范围落地**（§9.3-1）：
+- `snapshot_png` 增 `scale`/`dpi` 参数（W2I `SetScale`，VTK 9.3 该 API 仅收
+  int，按 `round(dpi/72)` 折算）；`export_iso_png_frames` 逐帧驱动时用新增
+  `_frame_actors/_show_frame/_hide_frame` 在渲染器上挂装/卸载帧 actor 后
+  快照 `base_%04d.png`；`export_iso_video` 先落 PNG 序列，`.mp4` 走
+  ffmpeg(libx264，运行时 `shutil.which` 探测)，无 ffmpeg 或非 mp4 回退
+  `_write_frame_video`（vtkOggTheoraWriter/.avi）。
+
+**验收**（§9.3）：
+- 无头 PNG 序列导出 ✓：`test_iso_png_frame_sequence` 断言 2 周期→2 帧、
+  每帧非空；`snapshot_png` scale=2 / dpi=144 均产出更大像素图 ✓。
+- 无 ffmpeg 环境视频回退 ✓：`test_iso_video_fallback_ogv` 走 .ogv 断言
+  非空（本机 ffmpeg 未装，MP4 分支仅在存在 ffmpeg 的 CI/环境验证）。
+- R24 门禁：`export.py` ruff 通过；新增 4 测试全过。
+
+**说明**：ffmpeg 为本机未安装（`shutil.which` 空），故显式选择「额外集成
+ffmpeg 出 MP4」的编码器已接入，实际验证走 VTK 回退 .ogv 路径；CI 端如无
+ffmpeg 自动回退同样绿。
+
 ## 9. R23–R26 路线图（2026-08-30 定稿，超越 scPOST 增量轮）
 
 **前提**：第十七轮复评后 scPOST 可实现范围内无缺口，R23+ 性质从「补差距」

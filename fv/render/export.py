@@ -25,12 +25,18 @@ except Exception:  # pragma: no cover - headless / no vtk
     _HAS_VTK = False
 
 
-def snapshot_png(renderer_or_window, filename: str) -> bool:
-    """Capture the VTK render window to a PNG file.
+def snapshot_png(renderer_or_window, filename: str,
+                 scale: float = 1.0, dpi: float = 72.0) -> bool:
+    """Capture the VTK render window to a PNG file (R25-S1: hires export).
 
     ``renderer_or_window``: a renderer (during tests) or a
     ``vtkRenderWindow``. Returns True on success, False if VTK is missing or
     the window has nothing to render (headless).
+
+    ``scale`` multiplies the native window resolution (e.g. 2.0 => 2x pixels
+    for print / poster export); ``dpi`` is honoured when given a non-default
+    value by deriving ``scale = max(scale, dpi / 72.0)``. Both are
+    back-compatible - callers that omit them keep the old 1x capture.
     """
     if not _HAS_VTK:
         return False
@@ -41,6 +47,8 @@ def snapshot_png(renderer_or_window, filename: str) -> bool:
         win = win.GetRenderWindow()
     if win is None:
         return False
+    if dpi and dpi > 0 and dpi != 72.0:
+        scale = max(float(scale), float(dpi) / 72.0)
     try:
         base, ext = os.path.splitext(filename)
         if ext.lower() not in (".png", ".jpg", ".jpeg", ".bmp", ".tif"):
@@ -48,6 +56,10 @@ def snapshot_png(renderer_or_window, filename: str) -> bool:
         w2i = vtk.vtkWindowToImageFilter()
         w2i.SetInput(win)
         w2i.SetInputBufferTypeToRGB()
+        if scale and scale > 1.0:
+            # vtkWindowToImageFilter.SetScale takes an integer magnification
+            # in this VTK line; round to honour the requested dpi/scale.
+            w2i.SetScale(int(round(float(scale))))
         w2i.Update()
         # Honest writers per extension (P0.6): BMP/TIF get their native
         # VTK writers instead of PNG bytes in a mismatched container.
@@ -619,3 +631,225 @@ def export_surface_cvff(ff, filename: str) -> bool:
     except (OSError, ValueError, IndexError):
         return False
     return True
+
+
+# ── R25-S1: off-screen frame sequences + video (PNG / MP4 / ogv / avi) ─────
+
+def _frame_actors(frame) -> list:
+    """Flatten one animation frame into a printable actor list.
+
+    ``frame`` is either one of :func:`~fv.render.isosurface.build_iso_animation`'s
+    per-cycle actor dicts (``{"contour":..,"contour_line":..,"vector":..}``) or
+    a plain list/tuple of actors/render props. Empty entries are skipped.
+    """
+    out: list = []
+    if isinstance(frame, dict):
+        frames_ = frame.values()
+    elif frame is None:
+        frames_ = []
+    elif isinstance(frame, (list, tuple)):
+        frames_ = frame
+    else:
+        frames_ = [frame]
+    for a in frames_:
+        if a is not None:
+            out.append(a)
+    return out
+
+
+def _show_frame(renderer, render_window, actors) -> None:
+    """Add a frame's actors to the renderer and paint once (offscreen-safe)."""
+    if render_window is None:
+        return
+    for a in actors:
+        if isinstance(a, vtk.vtkActor2D):
+            renderer.AddActor2D(a)
+        else:
+            renderer.AddActor(a)
+    render_window.Render()
+
+
+def _hide_frame(renderer, actors) -> None:
+    """Remove a frame's actors from the renderer (paint happens next frame)."""
+    for a in actors:
+        if isinstance(a, vtk.vtkActor2D):
+            try:
+                renderer.RemoveActor2D(a)
+            except Exception:  # pragma: no cover
+                pass
+        else:
+            try:
+                renderer.RemoveActor(a)
+            except Exception:  # pragma: no cover
+                pass
+
+
+def export_iso_png_frames(frames, renderer_or_window, out_dir: str,
+                          base: str = "frame", scale: float = 1.0,
+                          dpi: float = 72.0) -> int:
+    """Render each animation frame to a PNG in *out_dir* (R25-S1).
+
+    ``frames`` is the list produced by ``build_iso_animation``; every frame is
+    added to *renderer_or_window*'s renderer, rendered, and snapped to
+    ``out_dir/base_%04d.png`` at the given ``scale``/``dpi`` before the next
+    frame replaces it. Returns the number of frames written (0 if no render
+    window / VTK missing).
+    """
+    if not _HAS_VTK:
+        return 0
+    win = renderer_or_window
+    renderer = None
+    if hasattr(win, "GetRenderWindow"):
+        renderer = win
+        win = win.GetRenderWindow()
+    elif hasattr(win, "GetLayers") or hasattr(win, "Render"):
+        renderer = getattr(win, "GetRenderers", None) and win.GetRenderers() \
+            and win.GetRenderers().GetFirstRenderer()
+    if win is None:
+        return 0
+    out_dir = Path(out_dir)
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return 0
+    written = 0
+    for t, frame in enumerate(frames or []):
+        actors = _frame_actors(frame)
+        if renderer is not None:
+            _show_frame(renderer, win, actors)
+        path = out_dir / f"{base}_{t:04d}.png"
+        if snapshot_png(win, str(path), scale=scale, dpi=dpi):
+            written += 1
+        if renderer is not None:
+            _hide_frame(renderer, actors)
+    return written
+
+
+def _ffmpeg_path() -> Optional[str]:
+    """Locate ffmpeg on PATH (R25-S1 optional video encoder)."""
+    import shutil
+    return shutil.which("ffmpeg")
+
+
+def _encode_video_ffmpeg(png_dir: str, pattern: str, filename: str,
+                         fps: int) -> int:
+    """Encode a ``glob`` PNG sequence into a video via ffmpeg (R25-S1).
+
+    Returns the number of input frames ffmpeg reported, or 0 on any failure.
+    Explicit closes of stdin are harmless on Windows (the child reads the
+    glob, not stdin).
+    """
+    import subprocess
+    png_dir = os.fspath(png_dir)
+    pattern = os.path.join(png_dir, pattern) if not os.path.isabs(pattern) \
+        else pattern
+    cmd = ["ffmpeg", "-y", "-framerate", str(int(fps)),
+           "-i", pattern, "-c:v", "libx264", "-pix_fmt", "yuv420p",
+           "-loglevel", "error", str(filename)]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, timeout=300)
+    except Exception:  # pragma: no cover - ffmpeg failed to launch
+        return 0
+    if proc.returncode != 0:
+        return 0
+    if os.path.exists(filename) and os.path.getsize(filename) > 0:
+        return 1
+    return 0
+
+
+def export_iso_video(frames, renderer_or_window, filename: str,
+                     fps: int = 15, scale: float = 1.0, dpi: float = 72.0,
+                     tmp_dir: Optional[str] = None) -> int:
+    """Render an iso/animation frame list to a video (R25-S1).
+
+    Frames are first we-written into a temporary PNG sequence, then encoded:
+
+    - ``.mp4`` -> ffmpeg (libx264) when available on PATH;
+    - otherwise the VTK-native path (``.ogv`` via vtkOggTheoraWriter, or
+      ``.avi`` via vtkAVIWriter when that writer exists) is driven by the same
+      actor frames.
+
+    Returns the number of frames the encoder consumed (>0 on success) or 0.
+    """
+    if not _HAS_VTK:
+        return 0
+    import tempfile
+    win = renderer_or_window
+    renderer = None
+    if hasattr(win, "GetRenderWindow"):
+        renderer = win
+        win = win.GetRenderWindow()
+    if win is None:
+        return 0
+    frames = list(frames or [])
+    cleaned = None
+    if tmp_dir is None:
+        cleaned = tempfile.mkdtemp(prefix="fv_export_")
+        tmp_dir = cleaned
+    written = export_iso_png_frames(frames, renderer_or_window, tmp_dir,
+                                    base="frame", scale=scale, dpi=dpi)
+    if not written:
+        if cleaned is not None:
+            import shutil
+            shutil.rmtree(cleaned, ignore_errors=True)
+        return 0
+    ext = os.path.splitext(filename)[1].lower()
+    if ext == ".mp4" and _ffmpeg_path():
+        n = _encode_video_ffmpeg(
+            tmp_dir, "frame_%04d.png", filename,
+            fps=int(fps))
+        ok = n > 0
+    else:
+        n = _write_frame_video(frames, renderer, win, filename,
+                               fps=int(fps))
+        ok = n > 0
+    if cleaned is not None:
+        import shutil
+        shutil.rmtree(cleaned, ignore_errors=True)
+    return n if ok else 0
+
+
+def _write_frame_video(frames, renderer, render_window, filename: str,
+                       fps: int = 15) -> int:
+    """Drive a VTK video writer frame-by-frame (R25-S1, non-ffmpeg path).
+
+    Picks ``vtkOggTheoraWriter`` for ``.ogv`` or ``vtkAVIWriter`` for ``.avi``
+    when that writer is present, adds each frame's actors, paints, encodes a
+    frame, then replaces them - unlike :func:`_write_vtk_video` which reuses
+    ``scene.animate``. Returns frames written, or 0 on failure.
+    """
+    import vtk
+    writer = None
+    ext = os.path.splitext(filename)[1].lower()
+    if ext == ".avi" and hasattr(vtk, "vtkAVIWriter"):
+        writer = vtk.vtkAVIWriter()
+    elif hasattr(vtk, "vtkOggTheoraWriter"):
+        writer = vtk.vtkOggTheoraWriter()
+    if writer is None:
+        return 0
+    try:
+        writer.SetFileName(str(filename))
+        if hasattr(writer, "SetRate"):
+            writer.SetRate(int(fps))
+        w2i = vtk.vtkWindowToImageFilter()
+        w2i.SetInput(render_window)
+        w2i.SetInputBufferTypeToRGB()
+        writer.SetInputConnection(w2i.GetOutputPort())
+        writer.Start()
+        written = 0
+        for frame in frames or []:
+            actors = _frame_actors(frame)
+            if renderer is not None:
+                _show_frame(renderer, render_window, actors)
+            render_window.Render()
+            w2i.Modified()
+            writer.Write()
+            written += 1
+            if renderer is not None:
+                _hide_frame(renderer, actors)
+        writer.End()
+        if os.path.exists(filename) and os.path.getsize(filename) > 0:
+            return written
+        return 0
+    except Exception:  # pragma: no cover
+        return 0
