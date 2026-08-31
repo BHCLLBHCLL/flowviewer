@@ -779,6 +779,24 @@ ffmpeg 自动回退同样绿。
 - GUI 接线（main.py 单 renderer → 4 renderer 分屏）留待在 GUI 面板上把
   `viewport.layout` + `sync_cameras` 挂到相机事件，本轮交付可单测核。
 
+### 8.18 第二十二轮执行记录：R25-S3 内嵌 Python 控制台（2026-08-31，§9.3 尾块）
+
+**范围落地**（§9.3-3，scPOST 脚本化的 GUI 化）：
+- `fv/console.py`：`ConsoleSession`（无 Qt 沙盒，`run(code)->(ok,out)` 捕获
+  stdout/stderr/异常，namespace 隔离）+ `default_context(ff)`（定点注入
+  `open_file / register_variable / register_derived_function / auto_scalarize /
+  velocity_gradient / register_velocity_gradient / register_vorticity /
+  register_q_criterion` + 当前 `ff`）。
+- `fv/gui/console.py`：`ConsolePane`（只读 QPlainTextEdit 日志 + QLineEdit
+  单行输入，Enter 执行，Up/Down 历史，会话预置 default_context）。
+
+**验收**（§9.3-3）：
+- 控制台内 `register_derived_function` 冒烟 ✓：`test_console_register_derived_
+  function_smoke` 在 ConsoleSession(default_context(ff)) 内执行 lambda **kw
+  注册 `PRES2=2*PRES`，断言 `ff.variables['PRES2']` 落地且形状一致。
+- 无 GUI 依赖可测 ✓：stdout 捕获、异常上抛、namespace 延续三测全过
+  （5 passed）；GUI `ConsolePane` offscreen 实例化 run(print) 正常。
+
 ## 9. R23–R26 路线图（2026-08-30 定稿，超越 scPOST 增量轮）
 
 **前提**：第十七轮复评后 scPOST 可实现范围内无缺口，R23+ 性质从「补差距」
