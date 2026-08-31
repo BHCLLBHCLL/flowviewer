@@ -118,3 +118,5 @@ gate on push/PR.
   vorticity / Q-criterion / lambda-2 / helicity, VGRAD component library.
 - R24 - quality gate & sustainability: ruff + mypy + benchmark thresholds,
   `scripts/check.py` one-click gate, GitHub Actions CI.
+- R25 - presentation depth: off-screen PNG sequence + MP4/ogv video,
+  2x2 multi-viewport + camera linking, embedded Python console.
