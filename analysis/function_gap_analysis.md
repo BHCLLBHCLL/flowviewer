@@ -762,6 +762,23 @@ ShellExecute 沙箱 / FBX 三个纯外部项），对 scPOST 2025.2 的功能完
 ffmpeg 出 MP4」的编码器已接入，实际验证走 VTK 回退 .ogv 路径；CI 端如无
 ffmpeg 自动回退同样绿。
 
+### 8.17 第二十一轮执行记录：R25-S2 多视口 + 相机联动（2026-08-31，§9.3 次块）
+
+**范围落地**（§9.3-2，渲染层单测级）：新增 `fv/render/viewport.py`：
+- `viewport_rects`：single / 2x2 规范化视口矩形（2x2 = TL/TR/BL/BR）。
+- `layout`：把布局应用到 N 个 renderer 并渲染一次（headless 安全）。
+- `read_pose` / `copy_pose`：相机 pose dict 读写；`copy_pose` **不做**
+  `ResetCamera`，保证联动视口逐字节同姿（区别 `camera.apply_pose`）。
+- `sync_cameras(source, targets)`：把 source 相机姿态镜像到全部兄弟。
+
+**验收**（§9.3-2）：
+- 多视口联动单测 ✓：`viewport_rects_2x2` 断言四点分划 [0,1]^2 无缝隙／
+  重叠；`layout_2x2_assigns_distinct_viewports` 断言四象限互异；
+  `test_sync_cameras_links_all_viewports` 断言 source 改姿后 3 兄弟
+  `read_pose` 与 source 完全相等（position/focal/viewup）。
+- GUI 接线（main.py 单 renderer → 4 renderer 分屏）留待在 GUI 面板上把
+  `viewport.layout` + `sync_cameras` 挂到相机事件，本轮交付可单测核。
+
 ## 9. R23–R26 路线图（2026-08-30 定稿，超越 scPOST 增量轮）
 
 **前提**：第十七轮复评后 scPOST 可实现范围内无缺口，R23+ 性质从「补差距」
