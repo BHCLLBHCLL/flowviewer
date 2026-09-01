@@ -1,12 +1,18 @@
 {
   "_comment": "R24 benchmark thresholds (seconds, upper bounds per phase).",
   "_comment2": "Set as 'permissive multiples' of the 2026-08-30 dev-machine baseline (load~1.5, ugrid_build~2.1, ugrid_cached~0.0, register_var~0.001, vortex_grad~1.25) so CI speed differences don't cause false failures; a real regression must blow these bounds. Update by re-running `python scripts/benchmark.py` (plain mode) and refreshing the numbers.",
-  "_baseline_dev": {"load": 1.5, "ugrid_build": 2.1, "ugrid_cached": 0.0, "register_var": 0.001, "vortex_grad": 1.25},
+  "_comment3": "R26-S1/S2 phases added 2026-09-01: plane_cut_cold~0.009, plane_cut_warm~0.000, cgns_load_serial~0.014, cgns_load_parallel~0.979 (Windows process-pool spawn overhead dominates a tiny synthetic multi-zone sample; the thread-pool fallback cgns_load_thread~0.020 is the practical path -- see fv/crdl/cgns.py `use_threads`).",
+  "_baseline_dev": {"load": 1.5, "ugrid_build": 2.1, "ugrid_cached": 0.0, "register_var": 0.001, "vortex_grad": 1.25, "plane_cut_cold": 0.009, "plane_cut_warm": 0.0, "cgns_load_serial": 0.014, "cgns_load_parallel": 0.979, "cgns_load_thread": 0.02},
   "default": {
     "load": 6.0,
     "ugrid_build": 10.0,
     "ugrid_cached": 1.0,
     "register_var": 0.5,
-    "vortex_grad": 5.0
+    "vortex_grad": 5.0,
+    "plane_cut_cold": 1.0,
+    "plane_cut_warm": 0.1,
+    "cgns_load_serial": 5.0,
+    "cgns_load_parallel": 5.0,
+    "cgns_load_thread": 3.0
   }
 }

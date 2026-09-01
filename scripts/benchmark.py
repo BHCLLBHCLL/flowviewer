@@ -26,7 +26,36 @@ DEFAULTS = [r"D:\training\cgns\examples\tr03_9.fph"]
 _DEFAULT_THRESHOLDS = str(Path(__file__).with_name("benchmarks.json"))
 
 # measured phase key -> human label
-_PHASES = ["load", "ugrid_build", "ugrid_cached", "register_var", "vortex_grad"]
+_PHASES = ["load", "ugrid_build", "ugrid_cached", "register_var",
+           "vortex_grad", "plane_cut_cold", "plane_cut_warm",
+           "cgns_load_serial", "cgns_load_parallel", "cgns_load_thread"]
+
+
+def _ensure_multi_zone_cgns(path: Path) -> bool:
+    """Write a synthetic multi-zone CGNS-HDF5 for the S2 loader phase."""
+    try:
+        import h5py
+        import numpy as np
+    except Exception:
+        return False
+    if path.exists():
+        return True
+    nx, ny, nz = 8, 8, 8
+    xx, yy, zz = np.meshgrid(np.arange(nx), np.arange(ny), np.arange(nz),
+                             indexing="ij")
+    coords = np.stack([xx, yy, zz], axis=-1).astype(np.float64)
+    with h5py.File(str(path), "w") as f:
+        base = f.create_group("Base")
+        for i in range(4):
+            z = base.create_group("Zone%d" % i)
+            zt = z.create_group("ZoneType")
+            zt.create_dataset(" data", data=np.array([b"Structured"]))
+            gc = z.create_group("GridCoordinates")
+            for ax, idx in zip(("CoordinateX", "CoordinateY", "CoordinateZ"),
+                               range(3)):
+                g = gc.create_group(ax)
+                g.create_dataset(" data", data=coords[..., idx] + i * 10.0)
+    return True
 
 
 def _t(fn, *a):
@@ -53,9 +82,21 @@ def bench(path: str) -> list:
         row.append(("ugrid_build", dt, "%d cells" % ug.GetNumberOfCells()))
         dt, _ = _t(build_ugrid, ff)
         row.append(("ugrid_cached", dt, "cache hit"))
+
+        # R26-S1: cold (cache miss) vs warm (LRU hit) plane cut
+        from fv.model.objects import PlaneObject
+        from fv.render.plane import clear_cut_cache, cut_grid
+        clear_cut_cache()
+        obj = PlaneObject(point=(0.5, 0.5, 0.5), normal=(0.0, 0.0, 1.0))
+        dt, _ = _t(cut_grid, ug, obj)
+        row.append(("plane_cut_cold", dt, "vtkCutter miss"))
+        dt, _ = _t(cut_grid, ug, obj)
+        row.append(("plane_cut_warm", dt, "LRU hit"))
     except Exception as e:        # vtk absent
         row.append(("ugrid_build", 0.0, "skip: %s" % e))
         row.append(("ugrid_cached", 0.0, "skip"))
+        row.append(("plane_cut_cold", 0.0, "skip: %s" % e))
+        row.append(("plane_cut_warm", 0.0, "skip"))
 
     from fv.model.varreg import register_variable
     if "PRES" in ff.variables:
@@ -68,6 +109,28 @@ def bench(path: str) -> list:
         row.append(("vortex_grad", dt, "Green-Gauss VEL"))
     except Exception as e:
         row.append(("vortex_grad", 0.0, "skip: %s" % e))
+
+    # R26-S2: multi-zone CGNS load, serial vs process-pool worker count
+    try:
+        import tempfile
+        from fv.crdl.cgns import read_cgns
+        multi = Path(tempfile.gettempdir()) / "flowviewer_bench_multi.cgns"
+        if _ensure_multi_zone_cgns(multi):
+            dt, m0 = _t(read_cgns, str(multi), 0)
+            n = m0["n_cells"] if m0 else 0
+            row.append(("cgns_load_serial", dt, "workers=0 %d cells" % n))
+            dt, _ = _t(read_cgns, str(multi), 4)
+            row.append(("cgns_load_parallel", dt, "workers=4 proc"))
+            dt, _ = _t(read_cgns, str(multi), 4, True)
+            row.append(("cgns_load_thread", dt, "workers=4 thread"))
+        else:
+            row.append(("cgns_load_serial", 0.0, "skip: no h5py"))
+            row.append(("cgns_load_parallel", 0.0, "skip"))
+            row.append(("cgns_load_thread", 0.0, "skip"))
+    except Exception as e:
+        row.append(("cgns_load_serial", 0.0, "skip: %s" % e))
+        row.append(("cgns_load_parallel", 0.0, "skip"))
+        row.append(("cgns_load_thread", 0.0, "skip"))
 
     return row
 
