@@ -125,3 +125,5 @@ gate on push/PR.
   thresholds.
 - R27 - GUI viewport wiring: multi-viewport layout (single/2x2) +
   shared-camera camera linking in the Draw Window (headless-safe wiring).
+- R28 - data depth: CGNS variable-level lazy materialization
+  (lazy open + on-demand field read, HDF5 paths).

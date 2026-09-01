@@ -1074,6 +1074,69 @@ R23 → R24 → R25 → R26：R24 门禁保护 R25/R26 重构面；R23 预设库
 R26 + 本文件追加 §8.19 执行记录，逐子块提交；R25 未推送的 4 个提交
 （`8445208` `f3ef14c` `0d760b9` `b2fe55e`）在用户确认后与 R26 一并推送。
 
+### 8.22 第二十六轮执行记录：R28 数据纵深（2026-09-01，§9.8 落地）
+
+按 §9.8 规划逐段实现（读取器层 → 模型层 → 测试 → 门禁），全程
+「默认 eager 路径逐行为不变」回归防线把关。
+
+**S1 读取器层**（`fv/crdl/cgns.py`）
+- `read_cgns(..., lazy_fields=False)`：lazy 时几何（坐标/连接/BC）
+  照常解码，`_read_flow_solution(lazy=True)` 仅从 dataset shape 元数据
+  记录 `(ds_path, size)` 描述符，**零 payload 读取**。
+- `_merge_zones(lazy_fields)`：lazy 分支产出与 eager 完全同形的 NaN
+  占位数组（含多 zone NaN padding 与 node/cell 边选择）+
+  `field_lazy[name] = [(ds_path, offset, size)]`（仅胜出侧）。
+- 新增 `materialize_lazy_field(path, parts, total)`：单开 HDF5 文件
+  按 parts 填充，结果与 eager 合并全等（含 NaN 位置）。
+- R26 并行路径同样支持（worker 4 元组 args，串/并行结果一致）。
+
+**S1 模型层**（`fv/model/dataset.py`）
+- `VarInfo` 增 `lazy_kind`（""=r15 CRDL 遗留 / "cgns"）与 `lazy_parts`；
+  `load_variable()` 先查 cgns 分支再走 r15 CRDL 分支，二者互不干扰。
+- `cgns_load(filepath, lazy_vars=False)`；`load_file` 对 `.cgns` 扩展
+  透传 `lazy_vars`。ADF 老格式维持 eager（规划内显式豁免）。
+
+**S2 测试**（`tests/test_r28_lazy.py` 5 项）：lazy 几何与 eager 逐字段
+一致 + 占位全 NaN + 描述符计数；物化数组与 eager 全等（含 C 场
+NaN padding）；二次访问缓存（对象同一）；`load_file(lazy_vars=True)`
+分发；R26 并行 lazy 与串行一致 + 物化全等。首次运行发现并修复
+field_lazy 未剥 side 标签的 4 元组 bug。
+
+**S3 门禁**：`python scripts/check.py` 四阶段全绿（lint + types + 全量
+**429 passed, 3 skipped, 2 deselected**（424+5）+ bench 各相位 OK），
+零回退 ✓。
+
+### 9.8 R28 数据纵深：CGNS 变量级延迟物化（2026-09-01 固化）
+
+**动机**：r15 已为 FLD/FPH 提供 `load_file(lazy_vars=True)` 变量级延迟
+加载（open 只读元数据，首次 `variable_array()` 才读 payload），但 CGNS
+（HDF5）路径仍是全量 eager 解码（R26 并行只提速不省内存）。大 CGNS
+文件打开即物化全部 FlowSolution 数组，与「大文件快速打开、按需付费」
+的 r15 模式不一致。§8.21 建议的首个纵深方向。
+
+**范围**：
+1. **S1 读取器层**（`fv/crdl/cgns.py`）：`read_cgns(..., lazy_fields=False)`
+   新参。lazy 时几何（坐标/连接/BC）照常解码，FlowSolution 仅记录
+   描述符（HDF5 dataset 绝对路径 + 偏移 + 计数）不读数据；`_merge_zones`
+   在 lazy 模式产出 NaN 占位数组（形状与 eager 完全一致，含多 zone
+   NaN padding）+ `field_lazy` 描述符表。新增 `materialize_lazy_field(path,
+   parts)` 单开文件按需物化。串行/并行（R26-S2）路径均支持。
+2. **S1 模型层**（`fv/model/dataset.py`）：`VarInfo` 增 `lazy_kind`
+   （""=r15 CRDL 遗留 / "cgns"）与 `lazy_parts`；`load_variable()` 分支
+   分发；`cgns_load(filepath, lazy_vars=False)`；`load_file` 对 `.cgns`
+   扩展透传 `lazy_vars`。ADF 老格式维持 eager（显式文档化）。
+3. **S2 测试**（`tests/test_r28_lazy.py`）：合成多 zone 样件——lazy 占位
+   与 eager 几何逐字段一致、物化后数组与 eager 全等（含 NaN padding
+   位置）、二次访问命中缓存、`variable_array()` 透明物化、
+   `load_file(lazy_vars=True)` 走 lazy VarInfo。
+4. **S3 门禁**：`scripts/check.py` 四阶段全绿，无回退。
+
+**回归防线**：`lazy_fields=False`（默认）时代码路径逐行为与现状相同；
+lazy 物化结果与 eager 解码全等（测试断言 `np.array_equal` 含 NaN 位置）。
+
+**验收标准**：lazy open 后所有 VarInfo.array 为 None（零 payload 读取）；
+物化数组与 eager 全等；eager 默认路径门禁 424+ 项全绿零回退。
+
 ### 9.7 R27 GUI 多视口 / 相机联动接线（2026-09-01 固化）
 
 **前提**：R26 已完整落地（9.6 四阶段门禁全绿，commit `fe17f6f` 推送
