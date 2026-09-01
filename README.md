@@ -127,3 +127,5 @@ gate on push/PR.
   shared-camera camera linking in the Draw Window (headless-safe wiring).
 - R28 - data depth: CGNS variable-level lazy materialization
   (lazy open + on-demand field read, HDF5 paths).
+- R29 - GUI depth: independent multi-viewport cameras
+  (Linked/Independent mode switch + Standard Views four-view).

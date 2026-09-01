@@ -1106,6 +1106,87 @@ field_lazy 未剥 side 标签的 4 元组 bug。
 **429 passed, 3 skipped, 2 deselected**（424+5）+ bench 各相位 OK），
 零回退 ✓。
 
+### 8.23 第二十七轮执行记录：R29 多视口独立相机模式（2026-09-01，§9.9 落地）
+
+按 §9.9 规划逐段实现（构建块 → 接线 → 测试 → 门禁）。
+
+**S1 构建块**（`fv/render/viewport.py`）
+- `unlink_camera(renderer)`：读姿态 → 新建 `vtkCamera` 逐分量复制（含
+  ParallelScale）→ `SetActiveCamera` 替换。切换瞬间零跳变；之后旧
+  （主）相机的移动不再影响克隆。
+- `standard_views(bounds)` → front/right/top/iso 四姿态（视距=包围盒
+  对角线，top 用 y 上向）；`apply_standard_views(renderers, bounds)`
+  按 TL/TR/BL/BR 象限序套用。
+- 测试断言 front/right/top 视向两两正交、iso 为角点视角、四姿态互异。
+
+**S2 接线**（`fv/render/scene.py` + `fv/gui/main.py`）
+- `Scene.add_renderer(ren, share_camera=True)`：默认保持 R27 共享
+  行为；`share_camera=False` 不共享（renderer 自带独立相机）。
+- GUI：`_camera_mode`（默认 "linked"）+ View→Camera Mode 子菜单
+  （QActionGroup 互斥 Linked/Independent）+ Standard Views 动作；
+  `set_camera_mode()`（linked→independent 逐视口 `unlink_camera`；
+  反向 `SetActiveCamera(主相机)` 直接恢复）；
+  `on_standard_views()`（独立模式四视图；linked 模式主相机取 iso）；
+  `_dataset_bounds()`（scene._bounds (lo,hi) 二元组或 datasets 顶点，
+  单位立方回退）；`_apply_viewport_layout` 按当前模式分配相机。
+- `on_standard_views` 的重绘走 `_repaint_draw_window()`：offscreen
+  平台跳过（规避已知 QVTK GL 访问违例），桌面正常重绘。
+
+**S3 测试**（`tests/test_r29_camera.py` 6 项）：unlink 对象独立/姿态
+相等/主相机隔离、四视图正交性与取景、apply 四象限互异、GUI 模式切换
+无跳变 + 切回恢复共享对象、布局往返保持独立模式、Standard Views 与
+预设逐分量一致。过程修复：`_qapp` fixture 本地化、iso 视距期望修正
+（d/2 角点）、scene 补丁漏执行、Render() offscreen 守卫。
+
+**S4 门禁**：`python scripts/check.py` 四阶段全绿（lint + types + 全量
+**435 passed, 3 skipped, 2 deselected**（429+6）+ bench 各相位 OK），
+零回退 ✓。
+
+### 9.9 R29 GUI 纵深：多视口独立相机模式（2026-09-01 固化）
+
+**动机**：R27 的 2×2 布局只有共享相机联动一种模式（所有视口同一
+`vtkCamera` 对象）。CFD 检视常需要「四视图」工作流——各视口独立
+姿态（前/右/俯/等轴）对照观察，scPOST Draw Window 亦支持各窗口独立
+视角。R29 为多视口补上**独立相机模式**与 Linked/Independent 运行时
+切换。
+
+**范围**：
+1. **S1 构建块**（`fv/render/viewport.py`）：
+   - `unlink_camera(renderer)`：读当前姿态 → 新建 `vtkCamera` 逐分量
+     复制（含 ParallelProjection/视向）→ `SetActiveCamera` 替换。切换
+     到独立模式的瞬间无跳变（初始姿态=共享姿态）。
+   - `standard_views(bounds)` → `{"front","right","top","iso"}` 姿态
+     字典，视距取包围盒对角线长度；平行投影与主相机一致。
+   - `apply_standard_views(renderers, bounds)`：按 2×2 象限顺序
+     TL=front / TR=right / BL=top / BR=iso 一次性套用。
+2. **S2 接线**（`fv/render/scene.py` + `fv/gui/main.py`）：
+   - `Scene.add_renderer(ren, share_camera=True)` 增参（默认保持
+     R27 共享行为）；`share_camera=False` 不设相机（renderer 自带
+     独立相机）。
+   - GUI 增 `self._camera_mode`（"linked"/"independent"，默认
+     linked）；View→Camera Mode 菜单（QActionGroup 互斥
+     Linked/Independent）；`set_camera_mode()`：linked→independent
+     对每个 extra renderer `unlink_camera`（主相机不动）；
+     independent→linked 用 `SetActiveCamera(主相机)` 恢复共享（姿态
+     天然一致，无需 sync）。布局切换时按当前模式分配相机；View→
+     Standard Views 动作（2×2+独立模式下套用四视图）。
+   - headless 防线：模式切换复用 R27 的无渲染接线模式（`_apply_*`
+     风格），不触发 QVTK GL 渲染。
+3. **S3 测试**（`tests/test_r29_camera.py`）：S1 构建块（unlink 后
+   相机对象独立但姿态相等、standard_views 姿态正交性、apply 套用）；
+   S2 GUI（切换后各视口相机对象互异、姿态保持、切回 linked 恢复共享
+   对象、布局往返保持模式、Standard Views 套用后四视口姿态互异且
+   与预设一致）。
+4. **S4 门禁**：`scripts/check.py` 四阶段全绿零回退。
+
+**回归防线**：`_camera_mode` 默认 "linked"，`add_renderer` 默认
+`share_camera=True`，现有 R27 测试（共享相机对象断言）不改动即全过；
+单视口布局下模式切换为无操作。
+
+**验收标准**：独立模式下各视口相机对象互异且姿态独立；切回 linked
+后所有视口回到同一主相机对象；初始切换无姿态跳变；Standard Views
+四象限姿态与预设一致；门禁 429+ 项全绿。
+
 ### 9.8 R28 数据纵深：CGNS 变量级延迟物化（2026-09-01 固化）
 
 **动机**：r15 已为 FLD/FPH 提供 `load_file(lazy_vars=True)` 变量级延迟
