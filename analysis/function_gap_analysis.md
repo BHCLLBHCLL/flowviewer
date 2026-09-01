@@ -871,6 +871,91 @@ types + 全量 **424 passed, 3 skipped, 2 deselected** + bench 各相位 OK）�
 加 R27（本文件 §8.20）。
 
 
+### 8.21 第二十五轮：R23–R27 落地后全量完整度刷新（2026-09-01，scPOST 对比复评）
+
+**方法**：距上次全量复评（§8.13，R17–R22 窗口）已隔 5 轮执行记录
+（§8.14–§8.20），本轮独立复核不沿用结论。证据：`fv/` 全量 AST 盘点
+（72 模块 / 33,732 行）、`git log` 提交链、`scripts/check.py` 四阶段门禁
+实测（HEAD = `1877017`，已推 origin/main）、`analysis/vb_fldfile.txt` /
+`vb_application.txt` 对照重算。
+
+#### 代码规模与质量基线（实测）
+
+| 指标 | §8.13 时 | 本轮 | 说明 |
+|---|---|---|---|
+| `fv/` 模块数 | 68 | **72** | +viewport.py/console.py/derived.py 等 |
+| `fv/` 总行数 | — | **33,732** | render 9.2k / gui 9.1k / crdl 6.4k / model 4.4k / api+com 4.5k |
+| 测试文件 | — | 31 个 | R23–R27 新增 test_r23/r25×3/r26×2/r27 |
+| 门禁 | 无 | **四阶段全绿** | **424 passed / 3 skipped / 2 deselected**（R24 时 394，+30） |
+| CI | 无 | quality-gate.yml（push/PR） | R24 落地 |
+
+#### R23–R27 落地清单（对照 §9 路线图）
+
+| 轮次 | 内容 | 提交 | 状态 |
+|---|---|---|---|
+| R23 | 涡识别预设库：Green-Gauss 梯度核 + 13 变量注册（VORT/QCRIT/LAMBDA2/HELI/VGRAD*） | `d51a9bd` | ✅ §8.14 |
+| R24 | 质量门禁：ruff + mypy 渐进 + bench 阈值断言 + `check.py` + CI 矩阵 | `1f1d43c` | ✅ §8.15 |
+| R25 | 呈现纵深：离屏导出 scale/dpi + PNG 序列 + MP4/OGV 视频；多视口构建块；内嵌 Python 控制台 | `8445208`/`f3ef14c`/`0d760b9` | ✅ §8.16–8.18 |
+| R26 | 性能纵深：平面切割 LRU 缓存 + CGNS 多 zone 并行加载 + bench 阈值收紧 | `0104bf0`/`d0de533`/`5b97984` | ✅ §8.19 |
+| R27 | GUI 多视口接线：Scene 多渲染目标广播 + 共享相机联动 + Layout 菜单 | `f4ea6e6` | ✅ §8.20 |
+
+#### API 覆盖率重算（本轮 AST 实测，非沿用）
+
+- **FLDFile 106/106**：21 个 `CreateObject*` 由泛型工厂
+  `api.create_object(ff, kind=...)`（32 kind）承接，COM 层别名表补齐
+  `CreateObjectOT→maxmin` / `CreateObjectPCL→pathline` /
+  `CreateObjectRNAT→regionbc` / `CreateObjectCutplane→plane` 等映射。
+- **Application 62/62**：`com.py FlowviewerApplication` 名字级零缺失
+  （本轮逐名核对 missing=0）；其公开方法已达 **192 个**，约为 VB 基线
+  3 倍（COM 面超出 scPOST）。
+- R23 新增 13 个涡量/梯度派生变量 + `register_vortex_presets` 注册通道，
+  表达式引擎能力超出 scPOST 表达式面。
+
+#### 分维度完整度 × 深度（第二十五轮权威版）
+
+| 维度 | 完整度 | 深度 | 较 §8.13 | 实测证据 |
+|---|---|---|---|---|
+| 对象面（41 VB 类 → 32 kind） | ~100% | ~96% | 持平 | R27 为渲染目标扩容而非新 kind |
+| 数据格式面 | ~97% | ~96% | 持平/+1pp | 无新格式；R26 多 zone 并行为深度增益 |
+| 数据 API / COM | 100% / 100% | ~98% | +1pp | 62/62、106/106 重算确认 |
+| 交互/GUI | ~98% | ~96% | +1pp | Layout 菜单 2×2 联动、内嵌控制台 |
+| 渲染面 | ~97% | ~94% | +1pp/+2pp | 离屏 scale/dpi、PNG 序列→MP4/OGV、多视口 |
+| 导出 | ~95% | ~91% | +2pp | 视频导出矩阵 + 高分辨率快照 |
+| 性能 | ~95% | ~92% | +2pp | LRU 缓存、CGNS 并行、bench 阈值化 |
+| 工程化 | **超出 scPOST** | — | 强化 | 四阶段门禁 + CI 矩阵 + 收紧阈值 |
+
+**整体端到端深度：~98%**（§8.13 为 ~97%，+1pp）。覆盖完整度维持
+~100%；本轮增量集中在性能工程（R26）、呈现/导出纵深（R25）、GUI
+多视口（R27）、质量门禁（R24）。
+
+#### 剩余外部项修正（到不了字面 100% 的原因）
+
+| 项 | 状态 | 说明 |
+|---|---|---|
+| VR 实机 HMD | 外部阻塞 | 需自编译 VTK + 设备 |
+| ShellExecute | 外部阻塞 | 沙箱拦截（第十轮已知） |
+| FBX | **修正 §8.13 表述** | ASCII FBX 7.3 导出 r15 已 live（`SaveFBX` 真导出）；仅二进制 FBX 无 writer |
+| VTK ≥9.4.2 | 环境约束 | vtkCutter 对 vtkConvexPointSet 0xC0000005；固定 vtk==9.3.1 |
+| headless QVTK GL | 环境约束（R27 实测） | offscreen 平台下 QVTK Render() 硬崩溃；测试走无渲染接线路径 |
+
+#### 超出 scPOST 的能力（R23–R27 新增）
+
+1. 涡识别预设库（VORT/Q/λ₂/螺旋度 + Green-Gauss 梯度核）——scPOST 无对应。
+2. 质量门禁与 CI（四阶段、阈值断言）——scPOST 无工程面。
+3. 离屏批处理导出（PNG 序列 → MP4/OGV，scale/dpi 可控）。
+4. 性能工程：平面切割 LRU 结果缓存 + CGNS 多 zone 并行加载。
+5. GUI 多视口（2×2 共享相机联动）+ 内嵌 Python 控制台。
+
+#### 总评
+
+在可实现范围内（VR HMD / ShellExecute 沙箱 / 二进制 FBX 三个纯外部项
+之外），对 scPOST 2025.2 的功能完整度为**覆盖 ~100%、端到端深度
+~98%**（§8.13 ~97%）。路线图 §9（R23–R27）五轮全部落地，`git log`
+与门禁 424 项测试双证据闭环；工程化与 COM API 面维持超出基线。剩余
+差距全部为外部依赖，**可实现范围内已无已知功能缺口**；后续轮次建议
+转向 scPOST 基线之外的纵深方向（更大规模数据流式加载、Web 呈现、
+协作自动化）。
+
 ## 9. R23–R26 路线图（2026-08-30 定稿，超越 scPOST 增量轮）
 
 **前提**：第十七轮复评后 scPOST 可实现范围内无缺口，R23+ 性质从「补差距」
