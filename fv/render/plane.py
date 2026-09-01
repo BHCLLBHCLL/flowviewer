@@ -16,6 +16,7 @@ FLD hexahedra), slices it with ``vtkCutter`` on the plane defined by a
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from typing import Optional
 
 import numpy as np
@@ -347,15 +348,51 @@ def plane_from_object(obj):
     return p
 
 
+# R26-S1: LRU cache for the cut-plane output. The cut is a pure function of
+# (grid identity, plane pose); re-running vtkCutter on an unchanged grid and
+# plane is wasted work (the grid build itself is already memoised by R19's
+# build_ugrid). Keyed by the grid id + a geometric fingerprint + the plane
+# origin/normal, bounded by _CUT_CACHE_MAX with LRU eviction.
+_CUT_CACHE_MAX = 32
+_cut_cache: "OrderedDict[tuple, vtk.vtkPolyData]" = OrderedDict()
+
+
+def _cut_key(ugrid, obj) -> tuple:
+    """Cache key for a cut: grid identity + plane pose."""
+    p = tuple(float(x) for x in obj.point)
+    n = tuple(float(x) for x in obj.normal)
+    grid_id = (id(ugrid), ugrid.GetNumberOfCells(), ugrid.GetNumberOfPoints())
+    return grid_id, p, n
+
+
+def clear_cut_cache() -> None:
+    """Drop all cached cut outputs (used by tests and cache-reset paths)."""
+    _cut_cache.clear()
+
+
 def cut_grid(ugrid, obj) -> vtk.vtkPolyData:
-    """Slice the grid with the plane → closed contour polydata."""
+    """Slice the grid with the plane → closed contour polydata.
+
+    R26-S1: LRU-caches the cutter output keyed by (grid, plane pose) so a
+    repeated cut on the same grid & plane reuses the previous polydata
+    instead of re-running ``vtkCutter``.
+    """
+    key = _cut_key(ugrid, obj)
+    cached = _cut_cache.get(key)
+    if cached is not None:
+        _cut_cache.move_to_end(key)
+        return cached
     cutter = vtk.vtkCutter()
     cutter.SetCutFunction(plane_from_object(obj))
     cutter.SetInputData(ugrid)
     cutter.GenerateValues(1, 0.0, 0.0)
     cutter.GenerateTrianglesOn()
     cutter.Update()
-    return cutter.GetOutput()
+    out = cutter.GetOutput()
+    _cut_cache[key] = out
+    while len(_cut_cache) > _CUT_CACHE_MAX:
+        _cut_cache.popitem(last=False)
+    return out
 
 
 def make_plane_actor(pd, color=(1.0, 0.4, 0.7), opacity=0.35):
