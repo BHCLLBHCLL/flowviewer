@@ -123,3 +123,5 @@ gate on push/PR.
 - R26 - performance depth: plane-cut result LRU cache, multi-zone CGNS
   parallel parse (process pool + thread-pool fallback), tightened benchmark
   thresholds.
+- R27 - GUI viewport wiring: multi-viewport layout (single/2x2) +
+  shared-camera camera linking in the Draw Window (headless-safe wiring).

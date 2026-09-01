@@ -833,6 +833,43 @@ ffmpeg 自动回退同样绿。
 **415 passed, 3 skipped, 2 deselected** + bench 各相位 OK）。阈值数值承接：
 plane_cut_cold 0.007s / plane_cut_warm 0.000s / cgns_load_serial 0.013s /
 cgns_load_parallel 0.830s / cgns_load_thread 0.016s。
+### 8.20 第二十四轮执行记录：R27 GUI 多视口/相机联动接线（2026-09-01，§9.7 落地）
+
+按 §9.7 固化规划逐段实现（S1→S2→S3），下一行启用的「extra 列表为空 → 原
+行为不变」回归防线全程把关；联动用**共享 camera 对象**而非逐帧 sync。
+
+**S1 场景级多渲染目标**（`fv/render/scene.py`）
+- 新增 `_extra_renderers` 列表与 `renderers()` 生成器（先主 renderer 后
+  extra）；`add_renderer()` 注册额外视口并把主 camera 对象直接复用到该
+  renderer（同一 `vtkCamera` 身份 → 相机共享即联动）。
+- `add_actor` 把 3D actor 广播到全部 renderer，2D actor 仅主 renderer（避
+  免 overlay/colorbar 重复）；`reset` / `remove_object_actors` /
+  `_remove_layer_prefix` / `fit` 改为遍历 `renderers()`。extra 为空时
+  逐行为等同原单 renderer 逻辑，headless（enable_3d=False）零差异。
+- 测试 `tests/test_r27_layout.py` 6 项（S1）：3D actor 广播、相机对象身份
+  共享、add_renderer 幂等去重、remove_object_actors 清全部视口、reset 释放
+  extra、actor_names 在各渲染器一致 ✓。
+
+**S2 GUI 布局切换接线**（`fv/gui/main.py` + `fv/render/viewport.py`）
+- View 菜单加「Layout」子菜单，`QActionGroup` 互斥切换 Single / 2×2；
+  `set_viewport_layout` 在 2×2 时创建 3 个额外 `vtkRenderer`，按
+  `viewport_rects(LAYOUT_2x2)` 设 viewport 并把主 camera 设为共享相机
+  （`SetActiveCamera`），切回 single 移除 extra。headless 下无操作。
+- **环境约束（实测）**：`QT_QPA_PLATFORM=offscreen` 下 live 的
+  `QVTKRenderWindowInteractor` 调用 `Render()` 会硬崩溃（access violation
+  0xC0000005）——`QtWidgets` 的 offscreen 平台在 Windows 提供不了该 GL 上下文；
+  既存 test_gui 依赖此墙一律用 `enable_3d=False`。故把纯接线抽出为
+  `_apply_viewport_layout(layout, render_window)`（不渲染、返回视口总数），
+  公开 `set_viewport_layout` 调它后再 `Render()`（真实桌面路径不变）。
+- S2 测试 3 项走无渲染接线路径（headless-safe）：2×2 后 render_window 4 个
+  renderer 且 viewport 四象限互异、单→双→单往返恢复 1 个、改主相机后共享
+  相机各视口逐分量一致 ✓。
+
+**S3 门禁回归 + 收尾**：`python scripts/check.py` 四阶段全绿 ✓（lint +
+types + 全量 **424 passed, 3 skipped, 2 deselected** + bench 各相位 OK）。
+基准门禁解释器为 anaconda3（vtk 9.3.1，契合 §R17 环境教训）；README 开发地图
+加 R27（本文件 §8.20）。
+
 
 ## 9. R23–R26 路线图（2026-08-30 定稿，超越 scPOST 增量轮）
 
@@ -951,3 +988,60 @@ R23 → R24 → R25 → R26：R24 门禁保护 R25/R26 重构面；R23 预设库
 **收尾（沿用 R24/R25 既定模式）**：逐子块实现 + 测试 + README 开发地图加
 R26 + 本文件追加 §8.19 执行记录，逐子块提交；R25 未推送的 4 个提交
 （`8445208` `f3ef14c` `0d760b9` `b2fe55e`）在用户确认后与 R26 一并推送。
+
+### 9.7 R27 GUI 多视口 / 相机联动接线（2026-09-01 固化）
+
+**前提**：R26 已完整落地（9.6 四阶段门禁全绿，commit `fe17f6f` 推送
+origin/main）。§8.17 记录 R25-S2 交付 `fv/render/viewport.py` 时明确标注
+「GUI 接线留待」：多视口构建块已可单测，但主窗口仍只建单个 `self.renderer`
+（`fv/gui/main.py:271-278`），viewport/layout/sync_cameras 未接入。此行属
+文档化的真实留白，为 R27 目标。
+
+**代码核实（2026-09-01）**
+- `fv/render/scene.py`：`Scene.renderer` 唯一；`add_actor`（L87-93）、
+  `reset`（L61-85）、`remove_object_actors`（L99-121）、
+  `set_layer_visible`、`apply_gradation`、`fit`、`pick_actor`、
+  `area_pick`、`_remove_layer_prefix`、`animate`、`set_overlay`、
+  `show_object_name`、`apply_light` 均只作用于 `self.renderer`。
+- `fv/gui/main.py`：单 `vtkRenderer` 绑定到 scene；全局相机视图
+  （plane_view/iso_metric，main.py ~618-642）与姿态均属单 camera；
+  交互样式（trackball/one-button/rubber，L1903-1986）作用于
+  `iren`（单一 interactor）。多 renderer 只在 dialogs.py 的
+  G2 对比/Diff 面板单独建（每面板一个 renderer，非主窗口）。
+- `fv/render/viewport.py`：`viewport_rects` / `layout` / `read_pose` /
+  `copy_pose` / `sync_cameras` 已就绪（R25-S2），headless 单测通过。
+
+**范围**（S1→S2→S3）
+1. **S1 场景级多渲染目标**：给 `Scene` 增加第二渲染目标集合
+   `_extra_renderers`（list[vtkRenderer]），在其上镜像主 renderer 的
+   actor/2D actor/相机姿态；`add_actor` / `reset` / `remove_object_actors`
+   / `set_layer_visible` / `apply_gradation` / `show_object_name` /
+   `apply_light` / `fit` 同步作用于 extra renderers。单一 renderer 时
+   保持零行为差异（列表为空即原逻辑）。后备：`SetupLights`/相机在新增
+   renderer 时显式复用主 camera 对象以保联动（相机共享）。
+2. **S2 GUI 布局切换接线**：主窗口支持「Single / 2×2」两种布局。View 菜单
+   加「Layout」子菜单；切换到 2×2 时创建 3 个额外 `vtkRenderer` 挂到
+   `render_window`，按 `viewport_rects(LAYOUT_2x2)` 设每个 viewport，
+   并把主 renderer 的现有 actors 复制/镜像到 extra；相机共享同一
+   `vtkCamera` 保证拖动联动。切回 single 移除 extra。headless
+   （enable_3d=False）下无操作。
+3. **S3 门禁回归 + 收尾**：pytest 新增布局切换/相机联动测试（2×2 四象限
+   viewport 断言、单→双→单往返、联动后姿态一致）；`check.py` 四阶段全绿；
+   README 开发地图加 R27；本文件追加 §8.20 执行记录；逐子块提交。
+
+**回归防线**：多视口为纯 GUI 增强，主 renderer 路径为既有场景；改造通过
+「extra 列表为空 → 原行为不变」的等价性保持，搭配现有全量 GUI 测试
+（test_gui / test_render 等）回归把关。相机联动用**共享 camera 对象**
+而非逐帧 sync 回调，避免 2×2 下抖动与 mute。
+
+**验收**：
+- S1：extra renderer 镜像 actor 后，两 renderer `actor_names` 一致；
+  增删对象同步；headless 下 extra 为空不影响既有测试。
+- S2：切换 2×2 后 render_window 有 4 个 renderer 且 viewport 覆盖
+  [0,1]^2 四象限互异；切回 single 恢复 1 个；联动下改主相机姿态后
+  extra 相机姿态逐分量相等。
+- S3：check.py（ruff+mypy+pytest+bench）四阶段全绿。
+
+**交付物**：`fv/render/scene.py`（S1）+ `fv/gui/main.py` 与
+`fv/render/viewport.py`（S2）+ `tests/test_r27_layout.py`（S2 测试）+
+README + gap analysis §8.20。
