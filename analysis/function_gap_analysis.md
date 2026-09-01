@@ -797,6 +797,43 @@ ffmpeg 自动回退同样绿。
 - 无 GUI 依赖可测 ✓：stdout 捕获、异常上抛、namespace 延续三测全过
   （5 passed）；GUI `ConsolePane` offscreen 实例化 run(print) 正常。
 
+### 8.19 第二十三轮执行记录：R26 性能纵深（2026-09-01，§9.6 落地）
+
+按 §9.6 固化规划逐段实现（S1→S2→S3），并启用规划中预留的回归防线。
+
+**S1 平面切割结果缓存**（`fv/render/plane.py`）
+- 模块级 LRU（`OrderedDict`，`_CUT_CACHE_MAX=32`）缓存 `cut_grid` 的
+  `vtkPolyData` 输出；键 `(网格指纹, 平面法向, 平面原点)`，命中
+  `move_to_end` 复用、超限 `popitem(last=False)` 淘汰；另给
+  `clear_cut_cache` 供基准冷/热相位复位。
+- 测试 `tests/test_r26_plane.py` 3 项：同位切面复用输出对象、异位切面产出新
+  对象、LRU 容量上限生效 ✓。
+
+**S2 CGNS 多块并行解析**（`fv/crdl/cgns.py`、`fv/crdl/cgns_adf.py`）
+- HDF5 与 ADF 两条路径均按 zone 拆解，`multiprocessing.Pool` 并行解码，
+  主线程严格按 zone 顺序归并，保证与串行输出逐位一致；worker 均设计为
+  module-level、可 pickle（HDF5 重开文件定位 zone；ADF 重读定位 zone）。
+- 公开接口 `read_cgns(path, workers=0, use_threads=False)` 与
+  `read_cgns_adf(...)`；`workers>1` 时进程池，`use_threads=True` 时线程池。
+- 测试 `tests/test_r26_parallel.py` 4 项：HDF5/ADF 并行（workers=2/3/thread）
+  与串行逐位相等、worker 可 pickle 且返回定长 tuple ✓。
+
+**回归防线确认（实测）**：Windows 上进程池 spawn 开销对小样本完全主导，
+`cgns_load_parallel≈0.83s` 仍**慢于**串行 `cgns_load_serial≈0.014s`，不满足
+§9.4 的 ≥1.5× 指标；按 §9.6 的「不硬凑」原则启用线程池后备路径
+`cgns_load_thread≈0.016s` 作为实际最优路径，并保留进程池供进程隔离场景。
+
+**S3 benchmark 阈值收紧**（`scripts/benchmark.py` + `scripts/benchmarks.json`）
+- 新增相位 `plane_cut_cold / plane_cut_warm` 与多 zone CGNS
+  `cgns_load_serial / cgns_load_parallel / cgns_load_thread`（含
+  `_ensure_multi_zone_cgns` 合成 4-zone 样本）。
+- 更新阈值并将实测基线写入 `_baseline_dev` 与 `_comment3`。
+
+**门禁回归**：`python scripts/check.py` 四阶段全绿 ✓（lint + types + 全量
+**415 passed, 3 skipped, 2 deselected** + bench 各相位 OK）。阈值数值承接：
+plane_cut_cold 0.007s / plane_cut_warm 0.000s / cgns_load_serial 0.013s /
+cgns_load_parallel 0.830s / cgns_load_thread 0.016s。
+
 ## 9. R23–R26 路线图（2026-08-30 定稿，超越 scPOST 增量轮）
 
 **前提**：第十七轮复评后 scPOST 可实现范围内无缺口，R23+ 性质从「补差距」
@@ -869,3 +906,48 @@ R18 varreg 之上注册，纯 numpy 实现、零表达式解析。
 R23 → R24 → R25 → R26：R24 门禁保护 R25/R26 重构面；R23 预设库是 R25
 控制台演示的最佳素材。每轮沿用既定模式（实现 + 测试 + README 更新 +
 提交），并在本文件追加轮次小节。
+
+### 9.6 R26 性能纵深 —— 固化规划（2026-08-31 定稿）
+
+承接 §9.4，代码核实（2026-08-31 Grep/Read 实证）后拆分为 S1→S2→S3 三段，
+实施顺序即数值顺序（S3 阈值严格度建立在 S1/S2 实测收益之上，不得提前收紧）。
+
+**S1 平面切割结果缓存**
+- 现状：R19 已把 ugrid 构建按 `(网格指纹, cell_mask)` 内存缓存于
+  `fv/render/plane.build_ugrid`；但 `cut_grid`（`fv/render/plane.py:350`）仍
+  每次新建 `vtkCutter` 全量切面，是本轮实际热点。
+- 做法：模块级 LRU（`OrderedDict`，maxsize≈32）缓存 cutter 输出，键为
+  `(网格指纹, 平面法向, 平面原点/偏移)`；命中直接复用已切 `vtkPolyData`；
+  上限 + 有序淘汰（FIFO/LRU）。
+- 验收:二次同位切面（同法向+偏移）命中路径 <10ms 级；benchmark 新增切面相位。
+
+**S2 CGNS 多块并行解析（并发模型：进程池 —— 用户决策）**
+- 现状：`read_cgns`（`fv/crdl/cgns.py:317`，HDF5）与
+  `read_cgns_adf`（`fv/crdl/cgns_adf.py:462`，ADF）均为串行
+  `for zone: 解码 → 追加归并`，多 zone 是唯一可并行点。
+- 做法：每 worker 独立解码一块 → 主线程严格按 zone 顺序归并，
+  保证输出与串行逐位一致（vertex 索引按 zone 偏移拼装）。
+- 取舍：进程池彻底隔离 h5py/内存共享风险；代价是每块 pickling 传输 +
+  进程启动开销。**回归防线**：若现有样本因块过小导致进程池达不到 §9.4
+  的 ≥1.5×（甚至更慢），则 S2 提供线程池后备路径并在执行记录里如实标注，
+  不强行硬凑指标。
+- 验收：多 zone CGNS 加载 ≥1.5× 加速，且并行/串行结果逐位相等。
+
+**S3 benchmark 阈值收紧**
+- 现状：`scripts/benchmark.py` 相位仅
+  `load / ugrid_build / ugrid_cached / register_var / vortex_grad`，
+  无切面相位、无多 zone CGNS 加载相位。
+- 做法：新增 `plane_cut`（命中/未命中）与多 zone CGNS load 相位，
+  再在 S1/S2 实测收益上收紧 `scripts/benchmarks.json`。
+- 验收：`python scripts/check.py`（ruff + mypy + pytest + bench）四阶段全绿，
+  R24 门禁继续生效。
+
+**测试**
+- S1：同法向+偏移二次调用输出一致/对象复用；LRU 淘汰；上限生效。
+- S2：并行 vs 串行输出逐位相等（多 zone 样本为驱动）；
+      为进程池与后备线程路径各留烟囱。
+- S3：进 check.py 门禁后阈值断言生效。
+
+**收尾（沿用 R24/R25 既定模式）**：逐子块实现 + 测试 + README 开发地图加
+R26 + 本文件追加 §8.19 执行记录，逐子块提交；R25 未推送的 4 个提交
+（`8445208` `f3ef14c` `0d760b9` `b2fe55e`）在用户确认后与 R26 一并推送。

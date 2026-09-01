@@ -120,3 +120,6 @@ gate on push/PR.
   `scripts/check.py` one-click gate, GitHub Actions CI.
 - R25 - presentation depth: off-screen PNG sequence + MP4/ogv video,
   2x2 multi-viewport + camera linking, embedded Python console.
+- R26 - performance depth: plane-cut result LRU cache, multi-zone CGNS
+  parallel parse (process pool + thread-pool fallback), tightened benchmark
+  thresholds.
