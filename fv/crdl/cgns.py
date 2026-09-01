@@ -260,25 +260,42 @@ def _structured_zone(zone):
     return vertices, conn
 
 
-def _read_flow_solution(zone, n_nodes: int):
-    """FlowSolution fields -> dict name -> (array, location)."""
+def _read_flow_solution(zone, n_nodes: int, lazy: bool = False):
+    """FlowSolution fields -> dict name -> (array, location).
+
+    ``lazy=True`` (R28) skips payload reads: each field maps to a
+    ``(ds_path, size)`` descriptor — the HDF5 dataset's absolute path and
+    element count taken from shape metadata only, so a lazy open never
+    touches field payloads.
+    """
     out = {}
     fs = zone.get("FlowSolution")
     if fs is None:
         return out
     for name, obj in _children(fs):
-        if isinstance(obj, h5py.Group):
-            raw = _data_of(obj)
-            if raw is None:
+        if not isinstance(obj, h5py.Group):
+            continue
+        ds = None
+        if "data" in obj:
+            ds = obj["data"]
+        elif " data" in obj:
+            ds = obj[" data"]
+        if not isinstance(ds, h5py.Dataset):
+            continue
+        if lazy:
+            shape = ds.shape
+            if len(shape) != 1 or shape[0] == 0:
                 continue
-            try:
-                arr = np.asarray(raw, dtype=np.float64)
-            except Exception:
-                continue
-            if arr.ndim != 1 or arr.size == 0:
-                continue
-            loc = "node" if arr.size == n_nodes else "cell"
-            out[name] = (arr, loc)
+            out[name] = (ds.name, int(shape[0]))
+            continue
+        try:
+            arr = np.asarray(ds[()], dtype=np.float64)
+        except Exception:
+            continue
+        if arr.ndim != 1 or arr.size == 0:
+            continue
+        loc = "node" if arr.size == n_nodes else "cell"
+        out[name] = (arr, loc)
     return out
 
 
@@ -315,7 +332,7 @@ def _pad_stack(arrays: list) -> np.ndarray:
     return out
 
 
-def _decode_zone(zone, ztype: str):
+def _decode_zone(zone, ztype: str, lazy_fields: bool = False):
     """Decode one HDF5 zone -> (verts, conn, ctypes, fields, bcs, n_v, n_c).
 
     ``fields`` is the per-zone FlowSolution dict name -> (array, location);
@@ -340,7 +357,8 @@ def _decode_zone(zone, ztype: str):
     if ztype != "Structured":
         for n, ids in _read_bcs(zone, 0):
             bcs.append((n, ids))
-    return verts, conn, ctypes, _read_flow_solution(zone, n_v), bcs, n_v, n_c
+    return (verts, conn, ctypes,
+            _read_flow_solution(zone, n_v, lazy=lazy_fields), bcs, n_v, n_c)
 
 
 def _decode_zone_hdf5(args: tuple) -> Optional[tuple]:
@@ -349,16 +367,18 @@ def _decode_zone_hdf5(args: tuple) -> Optional[tuple]:
     Reopens the file in the worker and decodes a single zone; returns the
     same 7-tuple as :func:`_decode_zone` (numpy arrays pickle cleanly).
     """
-    path, base_name, zone_name = args
+    path, base_name, zone_name = args[:3]
+    lazy_fields = len(args) > 3 and bool(args[3])
     if not _HAS_H5:
         return None
     with h5py.File(path, "r") as f:
         base = f[base_name]
         zone = base[zone_name]
-        return _decode_zone(zone, _zone_type(zone))
+        return _decode_zone(zone, _zone_type(zone), lazy_fields)
 
 
-def _merge_zones(zone_results, zone_names, base_name):
+def _merge_zones(zone_results, zone_names, base_name,
+                 lazy_fields: bool = False):
     """Merge per-zone ``_decode_zone`` results into the mesh dict.
 
     The merge is identical for the serial and parallel paths: vertices are
@@ -402,7 +422,37 @@ def _merge_zones(zone_results, zone_names, base_name):
             if n not in names:
                 names.append(n)
     fields = {}
+    field_lazy = {}
+    n_cells = int(cell_conn.shape[0]) if cell_conn is not None else 0
     for fname in names:
+        if lazy_fields:
+            # R28 lazy merge: NaN placeholders shaped exactly like the
+            # eager result, plus per-field (ds_path, offset, size) parts
+            # on the winning side for on-demand materialisation.
+            node_arr = np.full(vertices.shape[0], np.nan)
+            cell_arr = np.full(n_cells, np.nan)
+            parts = []
+            n_node_finite = n_cell_finite = 0
+            v_off = c_off = 0
+            for zf, n_v, n_c in zip(zone_fields, zone_nv, zone_nc):
+                desc = zf.get(fname)
+                if desc is not None:
+                    ds_path, size = desc
+                    if size == n_v and n_v != n_c:
+                        n_node_finite += size
+                        parts.append((ds_path, v_off, size, "node"))
+                    elif size == n_c:
+                        n_cell_finite += size
+                        parts.append((ds_path, c_off, size, "cell"))
+                v_off += n_v
+                c_off += n_c
+            if n_node_finite >= n_cell_finite:
+                fields[fname] = (node_arr, "node")
+                field_lazy[fname] = [q[:3] for q in parts if q[3] == "node"]
+            else:
+                fields[fname] = (cell_arr, "cell")
+                field_lazy[fname] = [q[:3] for q in parts if q[3] == "cell"]
+            continue
         node_parts = []
         cell_parts = []
         for zf, n_v, n_c in zip(zone_fields, zone_nv, zone_nc):
@@ -422,7 +472,6 @@ def _merge_zones(zone_results, zone_names, base_name):
             fields[fname] = (node_arr, "node")
         else:
             fields[fname] = (cell_arr, "cell")
-    n_cells = int(cell_conn.shape[0]) if cell_conn is not None else 0
     return {
         "vertices": vertices,
         "cell_conn": cell_conn,
@@ -430,6 +479,7 @@ def _merge_zones(zone_results, zone_names, base_name):
         "n_vertices": int(vertices.shape[0]),
         "n_cells": n_cells,
         "fields": fields,
+        "field_lazy": field_lazy,
         "surface_regions": surface_regions,
         "volume_regions": list(zone_names),
         "zone_name": zone_names[0],
@@ -437,8 +487,8 @@ def _merge_zones(zone_results, zone_names, base_name):
     }
 
 
-def read_cgns(path: str, workers: int = 0,
-              use_threads: bool = False) -> Optional[dict]:
+def read_cgns(path: str, workers: int = 0, use_threads: bool = False,
+              lazy_fields: bool = False) -> Optional[dict]:
     """Read a CGNS-HDF5 file into the mesh-dict shape (P1.2, P2.1).
 
     Multiple zones (Unstructured or Structured) are merged into a single
@@ -471,7 +521,7 @@ def read_cgns(path: str, workers: int = 0,
             return None
     base_name = bases[0]
     if workers and workers > 1 and len(zone_names) > 1:
-        jobs = [(path, base_name, z) for z in zone_names]
+        jobs = [(path, base_name, z, lazy_fields) for z in zone_names]
         if use_threads:
             with ThreadPoolExecutor(max_workers=workers) as ex:
                 zone_results = list(ex.map(_decode_zone_hdf5, jobs))
@@ -482,9 +532,29 @@ def read_cgns(path: str, workers: int = 0,
     else:
         with h5py.File(path, "r") as f:
             base = f[base_name]
-            zone_results = [_decode_zone(base[z], _zone_type(base[z]))
+            zone_results = [_decode_zone(base[z], _zone_type(base[z]),
+                                         lazy_fields)
                             for z in zone_names]
-    return _merge_zones(zone_results, zone_names, base_name)
+    return _merge_zones(zone_results, zone_names, base_name, lazy_fields)
+
+
+def materialize_lazy_field(path: str, parts: list, total: int) -> np.ndarray:
+    """R28: materialise one lazily-merged CGNS field (on demand).
+
+    ``parts`` is the ``(ds_path, offset, size)`` list recorded by a lazy
+    :func:`_merge_zones`; the result matches the eager merge exactly,
+    including NaN padding for zones that lack the field.
+    """
+    out = np.full(total, np.nan)
+    if not parts:
+        return out
+    if not _HAS_H5:
+        raise OSError(f"h5py unavailable, cannot read: {path}")
+    with h5py.File(path, "r") as f:
+        for ds_path, off, size in parts:
+            arr = np.asarray(f[ds_path][()], dtype=np.float64).ravel()
+            out[off:off + size] = arr[:size]
+    return out
 
 
 def is_cgns_hdf5(path: str) -> bool:

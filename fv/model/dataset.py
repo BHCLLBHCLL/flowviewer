@@ -36,7 +36,12 @@ class VarInfo:
     lazy_section: str = ""            # file section holding the block
     lazy_block: int = -1              # block index within the section
     lazy_dtype: str = ""              # ">f4" | ">f8"
-    lazy_count: int = 0               # element count
+    lazy_count: int = 0
+    # R28 CGNS lazy descriptor: lazy_kind="cgns" routes load_variable()
+    # through crdl.cgns.materialize_lazy_field with (ds_path, offset,
+    # size) parts instead of the r15 CRDL block layout.
+    lazy_kind: str = ""               # "" (r15 CRDL) | "cgns"
+    lazy_parts: list = field(default_factory=list)               # element count
 
 
 @dataclass
@@ -119,6 +124,12 @@ class FieldFile:
         vi = self.variables.get(name)
         if vi is None:
             return None
+        if vi.array is None and vi.lazy_kind == "cgns":
+            from ..crdl.cgns import materialize_lazy_field
+            vi.array = materialize_lazy_field(
+                vi.lazy_path, vi.lazy_parts,
+                self.n_vertices if vi.location == "node" else self.n_cells)
+            return vi.array
         if vi.array is None and vi.lazy_path:
             from ..crdl.core import (
                 find_section,
@@ -160,15 +171,21 @@ def _looks_like_fld(data) -> bool:
 
 
 
-def cgns_load(filepath: str) -> FieldFile:
-    """CGNS-HDF5 loader (P1.2): mesh + fields -> FieldFile(kind='cgns')."""
+def cgns_load(filepath: str, lazy_vars: bool = False) -> FieldFile:
+    """CGNS-HDF5 loader (P1.2): mesh + fields -> FieldFile(kind='cgns').
+
+    ``lazy_vars=True`` (R28) mirrors the r15 FLD pattern: geometry loads
+    eagerly but FlowSolution payloads stay unread — each variable carries
+    an HDF5 part descriptor and materialises on first
+    ``variable_array()`` access. ADF files always load eagerly.
+    """
     from ..crdl.cgns import read_cgns
     path = Path(filepath)
     mesh = None
     try:
         import h5py
         if h5py.is_hdf5(str(path)):
-            mesh = read_cgns(str(path))
+            mesh = read_cgns(str(path), lazy_fields=lazy_vars)
     except Exception:  # pragma: no cover - h5py absent or file rejected
         mesh = None
     if mesh is None:
@@ -185,7 +202,19 @@ def cgns_load(filepath: str) -> FieldFile:
     ff.surface_regions = mesh["surface_regions"]
     ff.volume_regions = mesh["volume_regions"]
     ff.file_size = mesh["vertices"].nbytes
+    lazy_map = mesh.get("field_lazy") or {}
     for name, (arr, loc) in mesh["fields"].items():
+        if lazy_vars and name in lazy_map:
+            ff.variables[name] = VarInfo(
+                name=name,
+                kind=FIELD_KIND_SCALAR,
+                location=loc,
+                array=None,
+                lazy_path=str(path),
+                lazy_kind="cgns",
+                lazy_parts=list(lazy_map[name]),
+            )
+            continue
         ff.variables[name] = VarInfo(
             name=name,
             kind=FIELD_KIND_SCALAR,
@@ -631,6 +660,8 @@ def load_file(filepath: str, lazy_vars: bool = False) -> FieldFile:
         from . import loaders
         fn = loaders.LOADERS.get(ext)
         if fn is not None:
+            if lazy_vars and ext == "cgns":
+                return cgns_load(str(path), lazy_vars=True)
             return fn(str(path))
     with open_buffer(str(path)) as data:
         if _looks_like_fld(data) or path.suffix.lower() == ".fld":
