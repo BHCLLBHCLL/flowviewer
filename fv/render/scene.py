@@ -96,16 +96,19 @@ class Scene:
             if r is not None and r is not self.renderer:
                 yield r
 
-    def add_renderer(self, renderer) -> int:
-        """Register an extra viewport renderer; share the primary camera.
+    def add_renderer(self, renderer, share_camera: bool = True) -> int:
+        """Register an extra viewport renderer.
 
-        Returns the new count of extra renderers. Mirroring the primary
-        camera object (not copying pose) keeps every viewport camera-linked
-        for free — a drag on one is a drag on all (R27 GUI wiring).
+        ``share_camera=True`` (default, R27 behaviour) mirrors the primary
+        camera object so every viewport stays camera-linked for free.
+        ``share_camera=False`` (R29) leaves the renderer on its own camera
+        for independent-camera mode.
+        Returns the new count of extra renderers.
         """
         if renderer is None or renderer is self.renderer:
             return len(self._extra_renderers)
-        if self.enable_3d and self.renderer is not None:
+        if (share_camera and self.enable_3d
+                and self.renderer is not None):
             renderer.SetActiveCamera(self.renderer.GetActiveCamera())
         if renderer not in self._extra_renderers:
             self._extra_renderers.append(renderer)

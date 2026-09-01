@@ -179,6 +179,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.scene = Scene(enable_3d=enable_3d)
         self._viewport_layout = "single"    # R27: single / 2x2
         self._extra_renderers = []          # R27: extra 2x2 viewport renderers
+        self._camera_mode = "linked"        # R29: linked / independent
         self._apply_style()
         self._build_central()
         self._build_menus()
@@ -435,6 +436,24 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             lambda on: on and self.set_viewport_layout("2x2"))
         sub.addAction(self._act_layout_2x2)
         layout_group.addAction(self._act_layout_2x2)
+        sub = m.addMenu("Camera Mode")       # R29 independent cameras
+        cam_group = QtWidgets.QActionGroup(self)
+        cam_group.setExclusive(True)
+        self._act_cam_linked = QAction("Linked", self, checkable=True)
+        self._act_cam_linked.setChecked(True)
+        self._act_cam_linked.toggled.connect(
+            lambda on: on and self.set_camera_mode("linked"))
+        sub.addAction(self._act_cam_linked)
+        cam_group.addAction(self._act_cam_linked)
+        self._act_cam_independent = QAction("Independent", self,
+                                             checkable=True)
+        self._act_cam_independent.toggled.connect(
+            lambda on: on and self.set_camera_mode("independent"))
+        sub.addAction(self._act_cam_independent)
+        cam_group.addAction(self._act_cam_independent)
+        self._act_std_views = QAction("Standard Views", self)
+        self._act_std_views.triggered.connect(self.on_standard_views)
+        m.addAction(self._act_std_views)
         m.addSeparator()
         self._act_view_msg = QAction("Message Window", self, checkable=True)
         self._act_view_msg.setChecked(True)
@@ -1034,17 +1053,118 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 pass
         self._extra_renderers = []
         self.scene._extra_renderers = []
+        independent = self._camera_mode == "independent"
         for rect in rects[1:]:       # quadrant 1 == primary viewport
             ren = vtk.vtkRenderer()
             ren.SetBackground(*self.renderer.GetBackground())
             ren.SetViewport(*rect)
-            ren.SetActiveCamera(self.renderer.GetActiveCamera())
             render_window.AddRenderer(ren)
-            self.scene.add_renderer(ren)
+            # R29: linked mode shares the primary camera object (R27
+            # behaviour); independent mode keeps each viewport on its
+            # own camera, cloned from the primary so nothing jumps.
+            if independent:
+                ren.SetActiveCamera(self.renderer.GetActiveCamera())
+                self.scene.add_renderer(ren, share_camera=False)
+                from ..render.viewport import unlink_camera
+                unlink_camera(ren)
+            else:
+                self.scene.add_renderer(ren, share_camera=True)
             self._extra_renderers.append(ren)
         self._viewport_layout = layout
         return len(rects)
 
+
+    def set_camera_mode(self, mode: str) -> None:
+        """View -> Camera Mode: switch linked / independent viewport cameras.
+
+        linked -> independent swaps every extra renderer onto its own
+        camera with the pose cloned component-wise, so nothing jumps at
+        the switch; independent -> linked simply re-points them at the
+        primary camera object (the primary pose wins, R27 behaviour).
+        Single-viewport layout makes this a no-op.
+        """
+        if not self._enable_3d or self.renderer is None:
+            return
+        if mode not in ("linked", "independent"):
+            mode = "linked"
+        if mode == self._camera_mode:
+            return
+        from ..render.viewport import unlink_camera
+        if mode == "independent":
+            for ren in self._extra_renderers:
+                unlink_camera(ren)
+        else:
+            cam = self.renderer.GetActiveCamera()
+            for ren in self._extra_renderers:
+                ren.SetActiveCamera(cam)
+        self._camera_mode = mode
+        if self._viewport_layout != "single":
+            try:
+                self.vtk_widget.GetRenderWindow().Render()
+            except Exception:
+                pass
+
+    def on_standard_views(self) -> None:
+        """View -> Standard Views: front/right/top/iso on a 2x2 grid.
+
+        Requires the 2x2 layout; in independent mode each viewport keeps
+        its own camera (classic four-view workflow). In linked mode the
+        primary camera takes the iso pose (single shared view).
+        """
+        if not self._enable_3d or self.renderer is None:
+            return
+        if self._viewport_layout != "2x2":
+            self.message_win.log(
+                "Standard Views: switch View -> Layout -> 2 x 2 first",
+                "WARN")
+            return
+        from ..render.viewport import apply_standard_views, copy_pose
+        renderers = list(self.scene.renderers())
+        if self._camera_mode == "independent":
+            apply_standard_views(renderers, self._dataset_bounds())
+            self.message_win.log(
+                "Standard Views: front / right / top / iso applied")
+        else:
+            views = apply_standard_views([renderers[0]],
+                                         self._dataset_bounds())
+            if not views:
+                copy_pose(renderers[0], {
+                    "position": (1.0, 1.0, 1.0),
+                    "focal_point": (0.0, 0.0, 0.0),
+                    "view_up": (0.0, 0.0, 1.0), "parallel": True})
+            self.message_win.log(
+                "Standard Views: iso view applied (cameras linked)")
+        self._repaint_draw_window()
+
+    def _repaint_draw_window(self) -> None:
+        """Repaint the VTK window on desktop runs only.
+
+        Under QT_QPA_PLATFORM=offscreen a live QVTK Render() hard-crashes
+        (access violation, see the R27 layout record) — headless tests use
+        the no-render wiring path instead, so skip the repaint there.
+        """
+        import os
+        if os.environ.get("QT_QPA_PLATFORM") == "offscreen":
+            return
+        try:
+            self.vtk_widget.GetRenderWindow().Render()
+        except Exception:
+            pass
+
+    def _dataset_bounds(self) -> tuple:
+        """Model bounding box (xmin..zmax) for view framing; unit cube default."""
+        b = getattr(self.scene, "_bounds", None) if self.scene else None
+        if b is not None:
+            lo, hi = b[0], b[1]
+            return (float(lo[0]), float(lo[1]), float(lo[2]),
+                    float(hi[0]), float(hi[1]), float(hi[2]))
+        for ff in getattr(self, "datasets", [])[-1:]:
+            v = getattr(ff, "vertices", None)
+            if v is not None:
+                return (float(v[:, 0].min()), float(v[:, 1].min()),
+                        float(v[:, 2].min()), float(v[:, 0].max()),
+                        float(v[:, 1].max()), float(v[:, 2].max()))
+        return (0.0, 0.0, 0.0, 1.0, 1.0, 1.0)
 
     def on_compare_view(self) -> None:
         """View → Compare: side-by-side snapshot of the two last datasets."""
