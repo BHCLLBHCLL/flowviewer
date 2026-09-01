@@ -34,6 +34,7 @@ class Scene:
     def __init__(self, enable_3d: bool = True):
         self.enable_3d = enable_3d and _HAS_VTK
         self.renderer = None
+        self._extra_renderers: list = []   # R27: mirrored multi-viewport targets
         self._layer_actors: dict[str, list] = {}
         self._overlay = None
         self._overlay_text = ""
@@ -60,23 +61,25 @@ class Scene:
 
     def reset(self) -> None:
         if self.enable_3d and self.renderer is not None:
-            for actors in self._layer_actors.values():
-                for a in actors:
-                    if isinstance(a, str):
-                        continue
-                    if getattr(a, "IsA", None) and a.IsA("vtkActor2D"):
-                        try:
-                            self.renderer.RemoveActor2D(a)
-                        except Exception:
-                            pass
-                    else:
-                        self.renderer.RemoveActor(a)
-            if self._overlay is not None:
-                try:
-                    self.renderer.RemoveActor2D(self._overlay)
-                except Exception:
-                    pass
-                self._overlay = None
+            for r in list(self.renderers()):
+                for actors in self._layer_actors.values():
+                    for a in actors:
+                        if isinstance(a, str):
+                            continue
+                        if getattr(a, "IsA", None) and a.IsA("vtkActor2D"):
+                            try:
+                                r.RemoveActor2D(a)
+                            except Exception:
+                                pass
+                        else:
+                            r.RemoveActor(a)
+                if self._overlay is not None:
+                    try:
+                        r.RemoveActor2D(self._overlay)
+                    except Exception:
+                        pass
+        self._extra_renderers = []
+        self._overlay = None
         self._layer_actors = {}
         self._overlay_text = ""
         self._bounds = None
@@ -84,12 +87,44 @@ class Scene:
         self._light_obj = None
         self._plane_cut_cache = {}
 
+    def renderers(self):
+        """Yield the primary renderer then every extra viewport renderer."""
+        if not self.enable_3d or self.renderer is None:
+            return
+        yield self.renderer
+        for r in self._extra_renderers:
+            if r is not None and r is not self.renderer:
+                yield r
+
+    def add_renderer(self, renderer) -> int:
+        """Register an extra viewport renderer; share the primary camera.
+
+        Returns the new count of extra renderers. Mirroring the primary
+        camera object (not copying pose) keeps every viewport camera-linked
+        for free — a drag on one is a drag on all (R27 GUI wiring).
+        """
+        if renderer is None or renderer is self.renderer:
+            return len(self._extra_renderers)
+        if self.enable_3d and self.renderer is not None:
+            renderer.SetActiveCamera(self.renderer.GetActiveCamera())
+        if renderer not in self._extra_renderers:
+            self._extra_renderers.append(renderer)
+        return len(self._extra_renderers)
+
     def add_actor(self, layer: str, actor) -> None:
         if self.enable_3d:
-            if isinstance(actor, vtk.vtkActor2D) if _HAS_VTK else False:
-                self.renderer.AddActor2D(actor)
-            else:
-                self.renderer.AddActor(actor)
+            # vtkProp can be rendered by several renderers at once; push the
+            # 3D actor into every viewport so a 2x2 split shows the same
+            # scene. Screen-space actors (2D) stay in the primary renderer
+            # to avoid duplicate overlays/colorbars.
+            is2d = (isinstance(actor, vtk.vtkActor2D) if _HAS_VTK else False)
+            for r in list(self.renderers()):
+                if is2d and r is not self.renderer:
+                    continue
+                if is2d:
+                    r.AddActor2D(actor)
+                else:
+                    r.AddActor(actor)
         self._layer_actors.setdefault(layer, []).append(actor)
 
     def register_actor_object(self, actor, kind: str, obj) -> None:
@@ -105,13 +140,15 @@ class Scene:
         owned = [a for a, (k, o) in self._actor_object.items() if o is obj]
         for a in owned:
             if self.enable_3d and not isinstance(a, str):
-                if getattr(a, "IsA", None) and a.IsA("vtkActor2D"):
+                is2d = getattr(a, "IsA", None) and a.IsA("vtkActor2D")
+                for r in list(self.renderers()):
                     try:
-                        self.renderer.RemoveActor2D(a)
+                        if is2d:
+                            r.RemoveActor2D(a)
+                        else:
+                            r.RemoveActor(a)
                     except Exception:  # pragma: no cover
                         pass
-                else:
-                    self.renderer.RemoveActor(a)
             self._actor_object.pop(a, None)
         for layer, actors in list(self._layer_actors.items()):
             kept = [a for a in actors if a not in owned]
@@ -329,7 +366,8 @@ class Scene:
 
     def fit(self) -> None:
         if self.enable_3d and self.renderer:
-            self.renderer.ResetCamera()
+            for r in list(self.renderers()):
+                r.ResetCamera()
 
     def pick_actor(self, x: int, y: int):
         """Return ``(world_point, (kind, obj) or None)`` at display (x, y).
@@ -383,10 +421,11 @@ class Scene:
         for k in stale:
             for a in self._layer_actors.pop(k, []):
                 if self.enable_3d and not isinstance(a, str):
-                    try:
-                        self.renderer.RemoveActor(a)
-                    except Exception:
-                        pass
+                    for r in list(self.renderers()):
+                        try:
+                            r.RemoveActor(a)
+                        except Exception:
+                            pass
 
     def animate(self, t: float, *, fps: int = 0) -> None:
         """Advance automove-enabled Planes and particle frames to ``t``.

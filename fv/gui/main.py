@@ -177,6 +177,8 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
         from ..render.scene import Scene
         self.scene = Scene(enable_3d=enable_3d)
+        self._viewport_layout = "single"    # R27: single / 2x2
+        self._extra_renderers = []          # R27: extra 2x2 viewport renderers
         self._apply_style()
         self._build_central()
         self._build_menus()
@@ -418,6 +420,21 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         add(m, "Iso Metric", self.on_iso_metric, "I")
         add(m, "Compare", self.on_compare_view)
         add(m, "VR Mode", self.on_vr_mode)
+        m.addSeparator()
+        sub = m.addMenu("Layout")           # R27 multi-viewport wiring
+        layout_group = QtWidgets.QActionGroup(self)
+        layout_group.setExclusive(True)
+        self._act_layout_single = QAction("Single", self, checkable=True)
+        self._act_layout_single.setChecked(True)
+        self._act_layout_single.toggled.connect(
+            lambda on: on and self.set_viewport_layout("single"))
+        sub.addAction(self._act_layout_single)
+        layout_group.addAction(self._act_layout_single)
+        self._act_layout_2x2 = QAction("2 x 2", self, checkable=True)
+        self._act_layout_2x2.toggled.connect(
+            lambda on: on and self.set_viewport_layout("2x2"))
+        sub.addAction(self._act_layout_2x2)
+        layout_group.addAction(self._act_layout_2x2)
         m.addSeparator()
         self._act_view_msg = QAction("Message Window", self, checkable=True)
         self._act_view_msg.setChecked(True)
@@ -977,6 +994,58 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._vr_handle = handle
         self.message_win.log(
             f"VR: {backend} window created (HMD driver required to render)")
+    def set_viewport_layout(self, layout: str) -> None:
+        """View -> Layout: switch between a single and a 2x2 viewport grid.
+
+        Wires the R25-S2 ``viewport_rects`` cadence into the Draw Window:
+        extra renderers share the primary renderer's camera (via
+        ``Scene.add_renderer``) so any camera drag / view change mirrors
+        across every viewport. 2D overlay/colorbar actors stay in the
+        primary renderer (Scene.add_actor keeps them primary-only); 3D
+        scene actors land in every viewport automatically.
+        """
+        if not self._enable_3d or self.renderer is None:
+            return
+        from ..render.viewport import LAYOUT_SINGLE, LAYOUT_2x2
+        if layout not in (LAYOUT_SINGLE, LAYOUT_2x2):
+            layout = LAYOUT_SINGLE
+        if layout == self._viewport_layout:
+            return
+        rw = self.vtk_widget.GetRenderWindow()
+        self._apply_viewport_layout(layout, rw)
+        rw.Render()
+
+    def _apply_viewport_layout(self, layout: str, render_window) -> int:
+        """Pure layout wiring, no render: (re)build the viewport grid.
+
+        Tear down any existing extra renderers then create the ones for
+        *layout*, each sharing ``self.renderer``'s camera so all viewports
+        stay linked. Rendering nothing lets headless/offscreen tests
+        exercise the wiring without a live GL context. Returns the total
+        number of viewports (primary + extra) after applying *layout*.
+        """
+        from ..render.viewport import LAYOUT_SINGLE, LAYOUT_2x2, viewport_rects
+        rects = (viewport_rects(LAYOUT_2x2) if layout == LAYOUT_2x2
+                 else viewport_rects(LAYOUT_SINGLE))
+        for ren in self._extra_renderers:
+            try:
+                render_window.RemoveRenderer(ren)
+            except Exception:
+                pass
+        self._extra_renderers = []
+        self.scene._extra_renderers = []
+        for rect in rects[1:]:       # quadrant 1 == primary viewport
+            ren = vtk.vtkRenderer()
+            ren.SetBackground(*self.renderer.GetBackground())
+            ren.SetViewport(*rect)
+            ren.SetActiveCamera(self.renderer.GetActiveCamera())
+            render_window.AddRenderer(ren)
+            self.scene.add_renderer(ren)
+            self._extra_renderers.append(ren)
+        self._viewport_layout = layout
+        return len(rects)
+
+
     def on_compare_view(self) -> None:
         """View → Compare: side-by-side snapshot of the two last datasets."""
         if len(self.datasets) < 2:
