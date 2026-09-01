@@ -11,6 +11,7 @@ into one mesh with vertex indices offset per zone.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 import numpy as np
@@ -314,7 +315,130 @@ def _pad_stack(arrays: list) -> np.ndarray:
     return out
 
 
-def read_cgns(path: str) -> Optional[dict]:
+def _decode_zone(zone, ztype: str):
+    """Decode one HDF5 zone -> (verts, conn, ctypes, fields, bcs, n_v, n_c).
+
+    ``fields`` is the per-zone FlowSolution dict name -> (array, location);
+    ``bcs`` the ZoneBC [(name, ids)] list. All rows are zone-local (no
+    vertex offset applied) so the caller can merge in zone order.
+    """
+    if ztype == "Structured":
+        out = _structured_zone(zone)
+        if out is None:
+            return None
+        verts, conn = out
+        ctypes = (np.full(conn.shape[0], 12, dtype=np.int64)
+                  if conn is not None else None)
+    else:
+        verts = _read_coordinates(zone)
+        if verts is None:
+            return None
+        conn, ctypes = _read_cells(zone)
+    n_v = verts.shape[0]
+    n_c = conn.shape[0] if conn is not None else 0
+    bcs = []
+    if ztype != "Structured":
+        for n, ids in _read_bcs(zone, 0):
+            bcs.append((n, ids))
+    return verts, conn, ctypes, _read_flow_solution(zone, n_v), bcs, n_v, n_c
+
+
+def _decode_zone_hdf5(args: tuple) -> Optional[tuple]:
+    """Module-level worker for :func:`read_cgns` (picklable for a Pool).
+
+    Reopens the file in the worker and decodes a single zone; returns the
+    same 7-tuple as :func:`_decode_zone` (numpy arrays pickle cleanly).
+    """
+    path, base_name, zone_name = args
+    if not _HAS_H5:
+        return None
+    with h5py.File(path, "r") as f:
+        base = f[base_name]
+        zone = base[zone_name]
+        return _decode_zone(zone, _zone_type(zone))
+
+
+def _merge_zones(zone_results, zone_names, base_name):
+    """Merge per-zone ``_decode_zone`` results into the mesh dict.
+
+    The merge is identical for the serial and parallel paths: vertices are
+    concatenated with per-zone index offsets, connectivity/types
+    concatenated, and same-name node/cell fields padded with NaN.
+    """
+    all_verts = []
+    all_conn = []
+    all_types = []
+    zone_fields = []
+    zone_nv = []
+    zone_nc = []
+    surface_regions = []
+    vert_offset = 0
+    merged_any = False
+    for res in zone_results:
+        if res is None:
+            continue
+        verts, conn, ctypes, fields, bcs, n_v, n_c = res
+        merged_any = True
+        if conn is not None:
+            if vert_offset:
+                conn = conn + vert_offset
+            all_conn.append(conn)
+            all_types.append(ctypes)
+        all_verts.append(verts)
+        zone_fields.append(fields)
+        zone_nv.append(n_v)
+        zone_nc.append(n_c)
+        for n, ids in bcs:
+            surface_regions.append((n, ids))
+        vert_offset += n_v
+    if not merged_any:
+        return None
+    vertices = np.vstack(all_verts)
+    cell_conn = _pad_stack(all_conn) if all_conn else None
+    cell_types = np.concatenate(all_types) if all_types else None
+    names = []
+    for zf in zone_fields:
+        for n in zf:
+            if n not in names:
+                names.append(n)
+    fields = {}
+    for fname in names:
+        node_parts = []
+        cell_parts = []
+        for zf, n_v, n_c in zip(zone_fields, zone_nv, zone_nc):
+            arr = zf.get(fname)
+            if arr is not None and arr[0].size == n_v and n_v != n_c:
+                node_parts.append(arr[0])
+                cell_parts.append(np.full(n_c, np.nan))
+            elif arr is not None and arr[0].size == n_c:
+                node_parts.append(np.full(n_v, np.nan))
+                cell_parts.append(arr[0])
+            else:
+                node_parts.append(np.full(n_v, np.nan))
+                cell_parts.append(np.full(n_c, np.nan))
+        node_arr = np.concatenate(node_parts)
+        cell_arr = np.concatenate(cell_parts)
+        if np.isfinite(node_arr).sum() >= np.isfinite(cell_arr).sum():
+            fields[fname] = (node_arr, "node")
+        else:
+            fields[fname] = (cell_arr, "cell")
+    n_cells = int(cell_conn.shape[0]) if cell_conn is not None else 0
+    return {
+        "vertices": vertices,
+        "cell_conn": cell_conn,
+        "cell_types": cell_types,
+        "n_vertices": int(vertices.shape[0]),
+        "n_cells": n_cells,
+        "fields": fields,
+        "surface_regions": surface_regions,
+        "volume_regions": list(zone_names),
+        "zone_name": zone_names[0],
+        "base_name": base_name,
+    }
+
+
+def read_cgns(path: str, workers: int = 0,
+              use_threads: bool = False) -> Optional[dict]:
     """Read a CGNS-HDF5 file into the mesh-dict shape (P1.2, P2.1).
 
     Multiple zones (Unstructured or Structured) are merged into a single
@@ -322,6 +446,14 @@ def read_cgns(path: str) -> Optional[dict]:
     connectivity/types concatenated, and same-name node/cell fields
     concatenated in zone order (missing contributions padded with NaN).
     Returns None when the file is not a readable CGNS-HDF5.
+
+    ``workers`` (R26-S2) > 1 decodes zones concurrently and 0/1 keeps the
+    serial path. By default a process pool is used (``use_threads=False``);
+    when process-pool pickling/spawn overhead dominates on a tiny sample
+    (regression-guard) pass ``use_threads=True`` to fall back to a thread
+    pool — harness decode is numpy-vectorised and releases the GIL, so
+    threads can still overlap. The merge order and output are identical
+    regardless of concurrency model or worker count.
     """
     if not _HAS_H5:
         return None
@@ -337,95 +469,22 @@ def read_cgns(path: str) -> Optional[dict]:
                       and "ZoneType" in base[k]]
         if not zone_names:
             return None
-        all_verts = []
-        all_conn = []
-        all_types = []
-        zone_fields = []   # per-zone dict name -> (arr, location)
-        zone_nv = []
-        zone_nc = []
-        surface_regions = []
-        vert_offset = 0
-        merged_any = False
-        for zname in zone_names:
-            zone = base[zname]
-            ztype = _zone_type(zone)
-            if ztype == "Structured":
-                out = _structured_zone(zone)
-                if out is None:
-                    continue
-                verts, conn = out
-                ctypes = None
-                if conn is not None:
-                    ctypes = np.full(conn.shape[0], 12, dtype=np.int64)
-            else:
-                verts = _read_coordinates(zone)
-                if verts is None:
-                    continue
-                conn, ctypes = _read_cells(zone)
-            merged_any = True
-            n_v = verts.shape[0]
-            n_c = conn.shape[0] if conn is not None else 0
-            if conn is not None:
-                if vert_offset:
-                    conn = conn + vert_offset
-                all_conn.append(conn)
-                all_types.append(ctypes)
-            all_verts.append(verts)
-            zone_fields.append(_read_flow_solution(zone, n_v))
-            zone_nv.append(n_v)
-            zone_nc.append(n_c)
-            # structured zones have no Elements_t BCs in our scope;
-            # unstructured BC PointList indexes zone-local element ids
-            if ztype != "Structured":
-                for n, ids in _read_bcs(zone, 0):
-                    surface_regions.append((n, ids))
-            vert_offset += n_v
-        if not merged_any:
-            return None
-        vertices = np.vstack(all_verts)
-        cell_conn = _pad_stack(all_conn) if all_conn else None
-        cell_types = np.concatenate(all_types) if all_types else None
-        # merge fields across zones, padding missing contributions
-        # with NaN; final location = whichever merge has more data
-        names = []
-        for zf in zone_fields:
-            for n in zf:
-                if n not in names:
-                    names.append(n)
-        fields = {}
-        for fname in names:
-            node_parts = []
-            cell_parts = []
-            for zf, n_v, n_c in zip(zone_fields, zone_nv, zone_nc):
-                arr = zf.get(fname)
-                if arr is not None and arr[0].size == n_v and n_v != n_c:
-                    node_parts.append(arr[0])
-                    cell_parts.append(np.full(n_c, np.nan))
-                elif arr is not None and arr[0].size == n_c:
-                    node_parts.append(np.full(n_v, np.nan))
-                    cell_parts.append(arr[0])
-                else:
-                    node_parts.append(np.full(n_v, np.nan))
-                    cell_parts.append(np.full(n_c, np.nan))
-            node_arr = np.concatenate(node_parts)
-            cell_arr = np.concatenate(cell_parts)
-            if np.isfinite(node_arr).sum() >= np.isfinite(cell_arr).sum():
-                fields[fname] = (node_arr, "node")
-            else:
-                fields[fname] = (cell_arr, "cell")
-        n_cells = int(cell_conn.shape[0]) if cell_conn is not None else 0
-        return {
-            "vertices": vertices,
-            "cell_conn": cell_conn,
-            "cell_types": cell_types,
-            "n_vertices": int(vertices.shape[0]),
-            "n_cells": n_cells,
-            "fields": fields,
-            "surface_regions": surface_regions,
-            "volume_regions": list(zone_names),
-            "zone_name": zone_names[0],
-            "base_name": bases[0],
-        }
+    base_name = bases[0]
+    if workers and workers > 1 and len(zone_names) > 1:
+        jobs = [(path, base_name, z) for z in zone_names]
+        if use_threads:
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                zone_results = list(ex.map(_decode_zone_hdf5, jobs))
+        else:
+            import multiprocessing as mp
+            with mp.Pool(processes=workers) as pool:
+                zone_results = pool.map(_decode_zone_hdf5, jobs)
+    else:
+        with h5py.File(path, "r") as f:
+            base = f[base_name]
+            zone_results = [_decode_zone(base[z], _zone_type(base[z]))
+                            for z in zone_names]
+    return _merge_zones(zone_results, zone_names, base_name)
 
 
 def is_cgns_hdf5(path: str) -> bool:

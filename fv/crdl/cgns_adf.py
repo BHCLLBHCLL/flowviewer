@@ -13,6 +13,8 @@ cgns.read_cgns (HDF5 path) so both backends feed the same loader.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+
 import numpy as np
 
 BLOCK_SIZE = 4096
@@ -459,12 +461,88 @@ def _bcs_adf(zone):
     return out
 
 
-def read_cgns_adf(path):
+def _decode_zone_adf(args):
+    """Module-level worker for :func:`read_cgns_adf` (picklable for a Pool).
+
+    args = (path, base_name, zone_name). Re-reads the ADF file in the
+    worker, locates the base/zone, decodes to a picklable 8-tuple:
+    (verts, conn, ctypes, fields, bcs, n_v, n_c, vol_name).
+    """
+    path, base_name, zone_name = args
+    root = read_adf(path)
+    if root is None:
+        return None
+    bases = [n for n in root.children.values() if n.label == "CGNSBase_t"]
+    if not bases:
+        bases = [root]
+    multi_base = len(bases) > 1
+    base = next((b for b in bases if b.name == base_name), bases[0])
+    zone = base.get(zone_name)
+    if zone is None:
+        return None
+    if _zone_type(zone) == "Structured":
+        out = _structured_adf(zone)
+        if out is None:
+            return None
+        verts, conn = out
+        ctypes = (np.full(conn.shape[0], 12, dtype=np.int64)
+                  if conn is not None else None)
+    else:
+        verts = _coordinates(zone)
+        if verts is None:
+            return None
+        conn, ctypes = _read_cells_adf(zone)
+    n_v = verts.shape[0]
+    n_c = conn.shape[0] if conn is not None else 0
+    bcs = []
+    for n, ids in _bcs_adf(zone):
+        n = ("%s/%s" % (base.name, n)) if multi_base else n
+        bcs.append((n, ids))
+    vol_name = ("%s/%s" % (base.name, zone.name)) if multi_base else zone.name
+    return verts, conn, ctypes, _fields_adf(zone, n_v), bcs, n_v, n_c, vol_name
+
+
+def _decode_zone_adf_local(base, zone, multi_base):
+    """Serial-path decoder for :func:`read_cgns_adf`.
+
+    base/zone are already-parsed :class:`AdfNode` values; returns the same
+    picklable 8-tuple as :func:`_decode_zone_adf` so both paths merge
+    identically.
+    """
+    if _zone_type(zone) == "Structured":
+        out = _structured_adf(zone)
+        if out is None:
+            return None
+        verts, conn = out
+        ctypes = (np.full(conn.shape[0], 12, dtype=np.int64)
+                  if conn is not None else None)
+    else:
+        verts = _coordinates(zone)
+        if verts is None:
+            return None
+        conn, ctypes = _read_cells_adf(zone)
+    n_v = verts.shape[0]
+    n_c = conn.shape[0] if conn is not None else 0
+    bcs = []
+    for n, ids in _bcs_adf(zone):
+        n = ("%s/%s" % (base.name, n)) if multi_base else n
+        bcs.append((n, ids))
+    vol_name = ("%s/%s" % (base.name, zone.name)) if multi_base else zone.name
+    return verts, conn, ctypes, _fields_adf(zone, n_v), bcs, n_v, n_c, vol_name
+
+
+def read_cgns_adf(path, workers: int = 0, use_threads: bool = False):
     """Read a CGNS ADF file into the mesh-dict shape (R3.5).
 
     Mirrors cgns.read_cgns (HDF5 path): merged multi-zone mesh, per-cell
     types, node/cell fields, surface regions from ZoneBC PointList/
     PointRange.  Returns None for a non-ADF file.
+
+    ``workers`` (R26-S2) > 1 decodes zones concurrently and 0/1 keeps the
+    serial path. By default a process pool is used (``use_threads=False``);
+    pass ``use_threads=True`` to use a thread pool (regression-guard when
+    process-pool spawn overhead dominates a tiny sample). The merge order
+    and output are identical either way.
     """
     if not is_cgns_adf(path):
         return None
@@ -481,6 +559,20 @@ def read_cgns_adf(path):
             zone_jobs.append((base, zone))
     if not zone_jobs:
         return None
+    multi_base = len(bases) > 1
+    if workers and workers > 1 and len(zone_jobs) > 1:
+        args = [(path, b.name, z.name) for b, z in zone_jobs]
+        if use_threads:
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                zone_outs = list(ex.map(_decode_zone_adf, args))
+        else:
+            import multiprocessing as mp
+            with mp.Pool(processes=workers) as pool:
+                zone_outs = pool.map(_decode_zone_adf, args)
+    else:
+        zone_outs = []
+        for base, zone in zone_jobs:
+            zone_outs.append(_decode_zone_adf_local(base, zone, multi_base))
     all_verts = []
     all_conn = []
     all_types = []
@@ -490,36 +582,21 @@ def read_cgns_adf(path):
     surface_regions = []
     volume_regions = []
     vert_offset = 0
-    multi_base = len(bases) > 1
-    for base, zone in zone_jobs:
-        if _zone_type(zone) == "Structured":
-            out = _structured_adf(zone)
-            if out is None:
-                continue
-            verts, conn = out
-            ctypes = (np.full(conn.shape[0], 12, dtype=np.int64)
-                      if conn is not None else None)
-        else:
-            verts = _coordinates(zone)
-            if verts is None:
-                continue
-            conn, ctypes = _read_cells_adf(zone)
-        n_v = verts.shape[0]
-        n_c = conn.shape[0] if conn is not None else 0
+    for out in zone_outs:
+        if out is None:
+            continue
+        verts, conn, ctypes, fields, bcs, n_v, n_c, vol_name = out
         if conn is not None:
             if vert_offset:
                 conn = conn + vert_offset
             all_conn.append(conn)
             all_types.append(ctypes)
         all_verts.append(verts)
-        zone_fields.append(_fields_adf(zone, n_v))
+        zone_fields.append(fields)
         zone_nv.append(n_v)
         zone_nc.append(n_c)
-        for n, ids in _bcs_adf(zone):
-            if multi_base:
-                n = "%s/%s" % (base.name, n)
+        for n, ids in bcs:
             surface_regions.append((n, ids))
-        vol_name = ("%s/%s" % (base.name, zone.name)) if multi_base else zone.name
         volume_regions.append(vol_name)
         vert_offset += n_v
     if not all_verts:
