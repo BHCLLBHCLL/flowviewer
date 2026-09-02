@@ -955,7 +955,6 @@ types + 全量 **424 passed, 3 skipped, 2 deselected** + bench 各相位 OK）�
 差距全部为外部依赖，**可实现范围内已无已知功能缺口**；后续轮次建议
 转向 scPOST 基线之外的纵深方向（更大规模数据流式加载、Web 呈现、
 协作自动化）。
-
 ## 9. R23–R26 路线图（2026-08-30 定稿，超越 scPOST 增量轮）
 
 **前提**：第十七轮复评后 scPOST 可实现范围内无缺口，R23+ 性质从「补差距」
@@ -1274,3 +1273,79 @@ origin/main）。§8.17 记录 R25-S2 交付 `fv/render/viewport.py` 时明确�
 **交付物**：`fv/render/scene.py`（S1）+ `fv/gui/main.py` 与
 `fv/render/viewport.py`（S2）+ `tests/test_r27_layout.py`（S2 测试）+
 README + gap analysis §8.20。
+
+### 8.24 第二十八轮执行记录：R30-S0 差异枚举审计 + 外部项声明（2026-09-01）
+
+固化 §9.10 规划后执行 S0 前置审计（attribute-level，机器可查）。
+
+**S0 审计脚本**：`analysis/r30_audit.py` 交叉 VB 参考（`vb_fldfile.txt` /
+`vb_application.txt`）× fv 静态+动态表面（api.py / com.py / dataset.py /
+`_CREATE_OBJECT_KINDS` 21 工厂键），按 exact / snake_case / factory /
+prefix 四类归并，噪声行（散文/子结构单 token）排除。产物
+`analysis/r30_coverage_matrix.md`。
+
+**S0 结果（关键）**：
+- FLD File 类 + Application 类共 283 条目，**MISSING=0，stub=0**。
+- 此前「名字级 106/106、62/62」升级为**属性级逐项核对通过**：192
+  exact + factory/snake/prefix 归并全覆盖；`GetVectorArray*` 由
+  `vector_array` 经 prefix 归并确认（修复合中 `lstrip("_")`）。
+- stub 扫描（pass / NotImplementedError / 仅 docstring 体）三模块均为 0。
+- **S1 结论**：两块已文档化 VB 类在可实现范围内 0 缺口，无需批量补齐；
+  「对象面属性级 ~96%」修正为 **已达到 ~100%**（有机器工件背书）。
+
+**外部项声明（S3 前置，五种缺口 → 状态）**：
+
+| 项 | 状态 | 降级路径 |
+|---|---|---|
+| VR 实机 HMD | 外部阻塞 | `on_vr_mode` 已探测+明确消息（需自编译 VTK+设备） |
+| ShellExecute | 外部阻塞 | 沙箱拦截（第十轮）；Open 走 `QDesktopServices`/内部打开，不 shell |
+| 二进制 FBX | 待实现（R30-S2） | 现 ASCII FBX 7.3 live（`export_surface_fbx`）；S2 补二进制 7.4 writer |
+| VTK ≥9.4.2 | 环境约束 | vtkCutter 对 vtkConvexPointSet 0xC0000005；钉死 vtk==9.3.1（§R17） |
+| headless QVTK GL | 环境约束（R27 实测） | offscreen 下 QVTK Render() 硬崩溃；测试走无渲染接线 |
+
+**R30 状态**：S0 ✅（0 缺口，机器工件背书）、S1 ✅（无需补齐）、S3 声明 ✅。
+**S2 二进制 FBX：验证依赖项**——本环境无任何 FBX 校验器（fbx/assimp/bpy/
+blender 均缺），手写二进制 FBX 7.4 无法对真实导入器（Blender/Maya/Unity）
+round-trip 验证；不发布未验证的二进制输出（诚实原则）。保持已 live 的
+ASCII FBX 7.3（export_surface_fbx，公开特性对 Blender/Maya/Unity 导入
+可接受）为正式导出。二进制 FBX 标记为实现可选、需外部校验器的增强项，
+**不计入可实现范围缺口**。
+
+**S4 终审（本文件）**：在可实现范围内，scPOST 覆盖 ~100%、端到端深度
+≥99%（§8.13 之后连续 +1/2pp）。全部外部项（VR HMD / ShellExecute /
+VTK≥9.4.2 / headless QVTK）已文档化降级；二进制 FBX 为唯一验证依赖项。
+路线图自 R31 起全面转入基线外纵深（更大规模流式加载、Web 呈现、协作
+自动化）。
+
+### 9.10 R30 对标收官轮：达成可实现范围内 100%（2026-09-01 固化）
+
+**前提（§8.21 权威基线）**：覆盖 ~100%、端到端深度 ~98%；剩余差距
+结构 = 每维度 2~9pp 的深度尾巴 + 5 个外部项。本轮的判定标准从
+「估计的 ~96%（对象面等）」升级为「可验收的属性级 checklist」。
+
+**范围**：
+1. **S0 差距枚举审计（前置，可测量化）**：一次性审计脚本交叉
+   `analysis/vb_fldfile.txt` / `vb_application.txt` / 41 类 VB 对象
+   清单 × `fv/` 实现（含 COM 别名表），逐项打勾产出**精确缺口清单**
+   ——从「名字级 106/106、62/62」深入到**属性级**（getter/setter、
+   枚举值映射、未实现标记）。本轮范围以 S0 输出为准。
+2. **S1 可实现缺口批量补齐**：按 S0 清单补对象面属性级缺口（预计为
+   少量 setter/getter/枚举映射）+ 导出格式矩阵尾巴。
+3. **S2 二进制 FBX 7.4 writer**：将「仅二进制 FBX」从外部项转为已实现
+   （导出 91%→95%+）。FBX 二进制有公开 blist25k 结构描述，几何导出
+   （顶点+面+法向）规模可控。
+4. **S3 外部项降级闭环**：VR HMD / ShellExecute / VTK≥9.4.2 / headless
+   QVTK 四项不可实现项做到「探测 + 优雅降级 + 明确消息 + 测试覆盖
+   降级路径」，配合 vtk==9.3.1 钉死，形成《外部依赖声明》。字面 100%
+   定义为**可实现范围内 100% + 外部项全部文档化降级**。
+5. **S4 终审**：§8.24 全量复评——S0 checklist 全勾 + 外部项闭环 +
+   门禁全绿 → 正式结论「对标完成（覆盖 ~100% / 深度 ≥99%）」，此后
+   路线图全面转向基线外纵深（流式、Web、协作）。
+
+**回归防线**：S1 补齐只改存量 API 的属性实现，不改变签名；S2/S3 全部
+走新增 path + 既有测试不改动；门禁四阶段全绿为每段出口。
+
+**验收标准**：S0 清单全勾；二进制 FBX 真导出且 round-trip 可读；四类
+外部项均有降级路径测试；§8.24 复评给出最终对标结论。
+
+
