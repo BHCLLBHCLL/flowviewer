@@ -557,6 +557,53 @@ def materialize_lazy_field(path: str, parts: list, total: int) -> np.ndarray:
     return out
 
 
+def materialize_lazy_window(path: str, parts: list, total: int,
+                            lo: int, hi: int) -> np.ndarray:
+    """R31-S1: materialise only ``out[lo:hi]`` of a lazy CGNS field.
+
+    Unlike :func:`materialize_lazy_field` this does **not** allocate the
+    full-length placeholder — it bounds allocation to the requested
+    window (the core of beyond-memory streaming). ``parts`` is the
+    ``(ds_path, offset, size)`` list from a lazy :func:`_merge_zones`;
+    ``lo``/``hi`` are half-open indices into the merged (length ``total``)
+    field. Only the sub-rows overlapping ``(lo, hi)`` are read.
+    Returns a length ``hi - lo`` array (NaN outside any zone coverage).
+    """
+    lo = max(0, int(lo))
+    hi = min(total, int(hi))
+    width = hi - lo
+    out = np.full(width, np.nan)
+    if width <= 0 or not parts or not _HAS_H5:
+        return out
+    with h5py.File(path, "r") as f:
+        for ds_path, off, size in parts:
+            seg_lo = max(lo, off)
+            seg_hi = min(hi, off + size)
+            if seg_hi <= seg_lo:
+                continue
+            arr = np.asarray(f[ds_path][()], dtype=np.float64).ravel()
+            out[seg_lo - lo:seg_hi - lo] = arr[seg_lo - off:seg_hi - off]
+    return out
+
+
+def iter_field_tiles(path: str, parts: list, total: int, tile: int,
+                     lo: int = 0, hi: Optional[int] = None):
+    """R31-S1: yield non-overlapping window (lo, arr) covering [lo, hi).
+
+    ``tile`` is the tile size; each yielded ``arr`` is at most the tile
+    length and is produced without allocating the whole field, so peak
+    memory stays bounded. The union of yielded windows tiles exactly the
+    requested ``[lo, hi)`` range (NaN-filled for gaps/zone padding).
+    """
+    hi = total if hi is None else min(total, int(hi))
+    lo = max(0, int(lo))
+    if hi <= lo or tile <= 0:
+        return
+    for start in range(lo, hi, int(tile)):
+        end = min(hi, start + int(tile))
+        yield start, materialize_lazy_window(path, parts, total, start, end)
+
+
 def is_cgns_hdf5(path: str) -> bool:
     """Best-effort HDF5 + CGNS format-marker check."""
     if not _HAS_H5:

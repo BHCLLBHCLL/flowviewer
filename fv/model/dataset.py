@@ -737,3 +737,168 @@ def _field_kind(name: str) -> str:
 
 
 _register_loaders()
+
+
+class CachedWindows:
+    """R31-S2: bounded LRU of materialised field windows.
+
+    Keys are ``(field_name, start, end)``; values are dense 1-D arrays.
+    Keeps total byte volume <= ``budget_bytes`` by evicting least-recently
+    used tiles — the memory-budget/eviction hook the streaming reader uses
+    so a beyond-memory CGNS stays within a caller-specified ceiling.
+    """
+
+    __slots__ = ("budget_bytes", "_data", "_order")
+
+    def __init__(self, budget_bytes: int):
+        self.budget_bytes = max(1, int(budget_bytes))
+        self._data: dict = {}
+        self._order: list = []
+
+    def _touch(self, key) -> None:
+        if key in self._order:
+            self._order.remove(key)
+        self._order.append(key)
+
+    def _evict_under_budget(self) -> None:
+        while self._bytes() > self.budget_bytes and self._order:
+            key = self._order.pop(0)
+            self._data.pop(key, None)
+
+    def _bytes(self) -> int:
+        return sum(a.nbytes for a in self._data.values())
+
+    def get(self, key):
+        if key not in self._data:
+            return None
+        self._touch(key)
+        return self._data[key]
+
+    def put(self, key, arr) -> None:
+        if arr is None:
+            return
+        self._data[key] = arr
+        self._touch(key)
+        self._evict_under_budget()
+
+    def clear(self) -> None:
+        self._data.clear()
+        self._order.clear()
+
+    @property
+    def size(self) -> int:
+        return len(self._data)
+
+
+class StreamCgnsHandle:
+    """R31-S1/S2: streaming reader for a merged-CGNS field surface.
+
+    Built from :func:`fv.crdl.cgns.read_cgns` with ``lazy_fields=True``
+    (fields kept as part descriptors, zero payload loaded). Exposes field
+    metadata and windowed/tile reads served through a bounded LRU so peak
+    memory stays under ``budget_bytes``. It never allocates a whole field
+    unless a window covering all of it is explicitly requested.
+    """
+
+    def __init__(self, path: str, fields: dict, cache: CachedWindows):
+        self.path = path
+        # fields: name -> (parts, total)
+        self.fields = dict(fields)
+        self.cache = cache
+
+    # -- metadata -----------------------------------------------------------
+    def field_names(self) -> list:
+        return sorted(self.fields)
+
+    def field_len(self, name: str) -> int:
+        return self.fields[name][1]
+
+    def count_fields(self) -> int:
+        return len(self.fields)
+
+    # -- reads --------------------------------------------------------------
+    def read_window(self, name: str, lo: int, hi: int,
+                    tile: int = 0) -> tuple:
+        """Return ``(lo, data)`` for ``[lo, hi)``, served via tiles.
+
+        ``tile`` <= 0 picks a default chunk; a positive ``tile`` forces the
+        chunk size. The returned array is dense over ``[lo, hi)``.
+        """
+        if name not in self.fields:
+            raise KeyError(f"no field {name!r}")
+        parts, total = self.fields[name]
+        lo = max(0, int(lo))
+        hi = min(total, int(hi))
+        if hi <= lo:
+            return lo, np.empty(0, dtype=np.float64)
+        tsize = int(tile) if tile > 0 else _default_tile(total, 8)
+        from ..crdl.cgns import materialize_lazy_window
+        width = hi - lo
+        out = np.full(width, np.nan)
+        for start in range(lo, hi, tsize):
+            end = min(hi, start + tsize)
+            hit = self.cache.get((name, start, end))
+            if hit is None:
+                hit = materialize_lazy_window(self.path, parts, total,
+                                              start, end)
+                self.cache.put((name, start, end), hit)
+            out[start - lo:end - lo] = hit
+        return lo, out
+
+    def iter_tiles(self, name: str, tile: int = 0):
+        """Yield ``(start, arr)`` tiles covering the whole field."""
+        if name not in self.fields:
+            raise KeyError(f"no field {name!r}")
+        parts, total = self.fields[name]
+        tsize = int(tile) if tile > 0 else _default_tile(total, 8)
+        from ..crdl.cgns import materialize_lazy_window
+        for start in range(0, total, tsize):
+            end = min(total, start + tsize)
+            hit = self.cache.get((name, start, end))
+            if hit is None:
+                hit = materialize_lazy_window(self.path, parts, total,
+                                              start, end)
+                self.cache.put((name, start, end), hit)
+            yield start, hit
+
+    def evict_all(self) -> None:
+        self.cache.clear()
+
+
+def _default_tile(total: int, chunks: int = 8) -> int:
+    """Sensible tile size: total//chunks rounded up, at least 1."""
+    return max(1, (total + chunks - 1) // max(1, chunks))
+
+
+def open_stream_cgns(path: str, budget_bytes: int = 32 * 1024 * 1024,
+                     workers: int = 0) -> tuple:
+    """R31: open a CGNS in streaming (memory-bounded) mode.
+
+    Reads geometry eagerly but leaves every FlowSolution as a field
+    descriptor (``field_lazy`` from :func:`fv.crdl.cgns.read_cgns`), then
+    returns ``(StreamCgnsHandle, mesh)``. The handle serves windowed / tile
+    reads through a bounded LRU (``budget_bytes`` ceiling); ``mesh`` keeps
+    the geometry/BC for rendering. Total field arrays are **not**
+    allocated, so CGNS beyond physical memory can be handled tile by tile.
+    """
+    from ..crdl.cgns import read_cgns
+    mesh = read_cgns(path, workers=workers, use_threads=True,
+                     lazy_fields=True)
+    if mesh is None:
+        raise ValueError(f"not a readable CGNS-HDF5 file: {path}")
+    lazy = mesh.get("field_lazy") or {}
+    fields = {}
+    for name, parts in lazy.items():
+        # total = length of the winning-side merged array, derived from
+        # the field's node/cell side (NOT max(off+size): sparse fields are
+        # length-padded to the whole domain, e.g. a cell field missing from
+        # one zone still spans n_cells with NaN padding).
+        kind = (mesh.get("fields") or {}).get(name, (None, "node"))[1]
+        if kind == "cell":
+            total = int(mesh.get("n_cells", 0))
+        else:
+            total = int(mesh.get("n_vertices", 0))
+        fields[name] = (list(parts), total)
+    handle = StreamCgnsHandle(path, fields, CachedWindows(budget_bytes))
+    return handle, mesh
+
