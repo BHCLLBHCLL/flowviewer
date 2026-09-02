@@ -1319,6 +1319,39 @@ VTK≥9.4.2 / headless QVTK）已文档化降级；二进制 FBX 为唯一验证
 
 ### 9.10 R30 对标收官轮：达成可实现范围内 100%（2026-09-01 固化）
 
+### 8.25 第二十八轮执行记录：R31-S1/S2 大文件流式加载（2026-09-01 落地）
+
+按 §9.11 推进，聚焦 S1 分块读取 + S2 内存预算（S3 的 GUI 开关记为
+小后续项，详见下）。
+
+**S1 分块读取原语**（`fv/crdl/cgns.py`）
+- `materialize_lazy_window(path, parts, total, lo, hi)`：仅物化 `[lo,hi)`
+  子窗口，**不分配全长占位数组**（区别于 R28 的 `materialize_lazy_field`
+  ——后者仍 `np.full(total)`，是 beyond-memory 的瓶颈）。
+- `iter_field_tiles(path, parts, total, tile, lo, hi)`：无重叠瓦片
+  （lo, arr）迭代，逐瓦片重开句柄、峰值内存有界；瓦片并集精确铺满
+  请求区间（含 NaN 间隙/区带填充）。
+
+**S2 模型层流式引擎**（`fv/model/dataset.py`）
+- `CachedWindows`：字节预算 LRU（键=(field,start,end)，值=dense 1-D），
+  超预算逐最久淘汰——内存上界钩子。
+- `StreamCgnsHandle`：字段描述符表（name → (parts, total)，零 payload），
+  `read_window` / `iter_tiles` 经预算缓存服务；绝不默认分配整场。
+- `open_stream_cgns(path, budget_bytes, workers)`：几何 eager + 字段全
+  懒 → 返回 (StreamCgnsHandle, mesh)。**total 按字段 node/cell 侧取
+  n_vertices/n_cells**（修复：稀疏字段如某区带缺 "C" 仍须全长 NaN 填充，
+  不能用 max(off+size)，否则与 eager 错位——`test_window_matches_eager_full`
+  捕获并修正）。
+
+**S3 状态**：流式数据路径 + headless 入口已交付（`open_stream_cgns`
+可直接消费）；「流式(省内存)」GUI 开关涉及加载路径 UI 接线，记为小
+后续项（stream 句柄类型 ≠ FieldFile，需独立到控件路径）。
+
+**S4 测试**（`tests/test_r31_stream.py` 6 项全过）：窗口物化不分配全长 /
+瓦片并集重装 eager 全等（含稀疏区带 NaN 填充）/ 瓦片==整窗 / 预算有界
+LRU / open_stream_cgns 零 payload。回归：R28 lazy、R26 并行、cgns、
+adf、R27/R29 相机测试全绿。**非流式默认路径逐字节不变。**
+
 ### 9.11 R31 基线外纵深·第一轮：大文件流式加载（2026-09-01 定稿方向）
 
 对标收官（§8.24）后路线图转入**超越 scPOST** 的基线外纵深。三个候选

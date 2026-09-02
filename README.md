@@ -129,3 +129,6 @@ gate on push/PR.
   (lazy open + on-demand field read, HDF5 paths).
 - R29 - GUI depth: independent multi-viewport cameras
   (Linked/Independent mode switch + Standard Views four-view).
+- R30 - parity close-out + attribute-level audit (0 gap, machine matrix)
+- R31 - beyond-scPOST: streaming (memory-bounded) CGNS reads
+  (bounded-LRU window/tile materialisation; offset total-by-side).
