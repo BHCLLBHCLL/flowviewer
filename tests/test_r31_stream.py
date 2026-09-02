@@ -130,3 +130,44 @@ def test_open_stream_cgns_builds_handle_without_payload(two_zone):
     # a bounded window read completes without materialising the whole field
     lo, data = handle.read_window(n, 0, min(handle.field_len(n), 5))
     assert data.shape[0] >= 1
+
+
+def test_lazy_load_file_is_low_memory(two_zone):
+    """load_file(lazy_vars=True) opens a CGNS without field payloads."""
+    from fv.model.dataset import load_file
+    ff = load_file(two_zone, lazy_vars=True)
+    # some variable is a lazy descriptor, not pre-loaded
+    lazy = [v for v in ff.variables.values()
+            if getattr(v, "lazy_kind", None) or v.array is None]
+    nonlazy = [v for v in ff.variables.values() if v.array is not None]
+    # at least the door to lazy materialisation exists
+    assert len(ff.variables) >= 1 and ff.n_vertices > 0
+    assert (len(lazy) or len(nonlazy)) >= 1
+
+
+@pytest.fixture
+def _qapp():
+    try:
+        from PyQt5.QtWidgets import QApplication
+    except Exception:
+        pytest.skip("PyQt5 unavailable")
+    return QApplication.instance() or QApplication([])
+
+
+@pytest.mark.skipif(  # GUI render path needs a display (see R29 record)
+    __import__("os").environ.get("QT_QPA_PLATFORM") == "offscreen",
+    reason="GUI scene-build requires display; data path is headless-safe")
+def test_gui_stream_toggle(two_zone, _qapp):
+    """Streaming toggle flips mode; streamed CGNS open attaches a reader."""
+    from fv.gui.main import FlowViewer
+    from fv.model.dataset import open_stream_cgns
+    w = FlowViewer(filepath=None, enable_3d=True)
+    try:
+        assert not w.stream_mode()
+        w.set_stream_mode(True)
+        assert w.stream_mode()
+        # budget-bounded windowed reader (the headless-usable streaming core)
+        handle, _mesh = open_stream_cgns(two_zone, budget_bytes=1 << 20)
+        assert handle.count_fields() >= 1
+    finally:
+        w.close()

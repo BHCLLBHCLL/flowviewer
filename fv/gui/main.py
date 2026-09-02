@@ -178,6 +178,9 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         from ..render.scene import Scene
         self.scene = Scene(enable_3d=enable_3d)
         self._viewport_layout = "single"    # R27: single / 2x2
+        self._stream_mode = False            # R31: low-memory CGNS open
+        self._stream_handle = None          # R31: bounded windowed reader
+        self._stream_budget_mb = 64         # R31: streaming budget (MiB)
         self._extra_renderers = []          # R27: extra 2x2 viewport renderers
         self._camera_mode = "linked"        # R29: linked / independent
         self._apply_style()
@@ -373,6 +376,10 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         add(m, "Export glTF…", self.on_export_gltf)
         add(m, "Export Animation Frames…", self.on_export_animation_frames)
         add(m, "Export Animation Video…", self.on_export_animation_video)
+        self._act_stream = QAction(
+            "Streaming (low-memory) CGNS", self, checkable=True)
+        self._act_stream.toggled.connect(self.set_stream_mode)
+        m.addAction(self._act_stream)
         m.addSeparator()
         add(m, "Exit", self.close)
 
@@ -650,7 +657,8 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.status.showMessage(f"Loading {Path(filepath).name} …")
         self.message_win.log(f"Loading {filepath} …")
         try:
-            ff = load_file(filepath)
+            ff = load_file(filepath, lazy_vars=self._stream_mode)
+            self._attach_stream_handle(ff, filepath)
         except Exception as exc:  # noqa: BLE001
             self._on_load_failed(str(exc), filepath=filepath)
             return
@@ -682,7 +690,8 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             if holder and holder[0] in self._load_workers:
                 self._load_workers.remove(holder[0])
 
-        worker = launch_load(filepath, on_finished=_done, on_failed=_failed)
+        worker = launch_load(filepath, lazy_vars=self._stream_mode,
+                              on_finished=_done, on_failed=_failed)
         holder.append(worker)
         self._load_workers.append(worker)
 
@@ -1165,6 +1174,42 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
                         float(v[:, 2].min()), float(v[:, 0].max()),
                         float(v[:, 1].max()), float(v[:, 2].max()))
         return (0.0, 0.0, 0.0, 1.0, 1.0, 1.0)
+
+    def set_stream_mode(self, enabled: bool) -> None:
+        """Toggle the R31 low-memory (streaming) CGNS open mode."""
+        self._stream_mode = bool(enabled)
+        label = "on" if self._stream_mode else "off"
+        self.message_win.log(f"Streaming (low-memory) CGNS open: {label}")
+
+    def stream_mode(self) -> bool:
+        return self._stream_mode
+
+    def _attach_stream_handle(self, ff, filepath: str) -> None:
+        """When streaming a CGNS, mint an R31 windowed reader (bounded LRU).
+
+        The interactive FieldFile view keeps working (R28 lazy open); the
+        handle additionally gives windowed/tile reads so downstream
+        consumers (batch / automation) can stay within a memory budget.
+        Attaching is best-effort and never changes the visible dataset.
+        """
+        self._stream_handle = None
+        if not self._stream_mode:
+            return
+        ext = Path(filepath).suffix.lower().lstrip(".")
+        if ext != "cgns":
+            return
+        try:
+            from ..model.dataset import open_stream_cgns
+            handle, _mesh = open_stream_cgns(
+                str(filepath), budget_bytes=int(self._stream_budget_mb)
+                * 1024 * 1024)
+            self._stream_handle = handle
+            self.message_win.log(
+                f"Streaming: windowed reader open, "
+                f"budget={self._stream_budget_mb} MB "
+                f"({handle.count_fields()} fields)")
+        except Exception as exc:  # pragma: no cover - best-effort
+            self.message_win.log(f"Streaming open skipped: {exc}", "WARN")
 
     def on_compare_view(self) -> None:
         """View → Compare: side-by-side snapshot of the two last datasets."""

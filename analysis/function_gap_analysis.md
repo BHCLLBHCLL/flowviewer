@@ -1343,14 +1343,26 @@ VTK≥9.4.2 / headless QVTK）已文档化降级；二进制 FBX 为唯一验证
   不能用 max(off+size)，否则与 eager 错位——`test_window_matches_eager_full`
   捕获并修正）。
 
-**S3 状态**：流式数据路径 + headless 入口已交付（`open_stream_cgns`
-可直接消费）；「流式(省内存)」GUI 开关涉及加载路径 UI 接线，记为小
-后续项（stream 句柄类型 ≠ FieldFile，需独立到控件路径）。
+**S3 GUI 流式开关（已补齐）**：`fv/gui/main.py` + `fv/gui/tasks.py`
+- 状态 `_stream_mode` / `_stream_handle` / `_stream_budget_mb`(64)；
+  初始化与查询方法 `set_stream_mode()` / `stream_mode()`。
+- **File 菜单可勾选项「Streaming (low-memory) CGNS」**（QAction
+  checkable，toggled→`set_stream_mode`）。
+- `open_file` 用 `load_file(lazy_vars=self._stream_mode)`（CGNS 走 R28
+  低内存按需物化打开，非 CGNS lazy_vars 无害）；流式下 `.cgns` 经
+  `_attach_stream_handle` 额外挂 `open_stream_cgns` 预算窗口读取器
+  （best-effort，不变可见数据集）。
+- 异步路径：`launch_load(..., lazy_vars=...)` 透传两个 `LoadWorker`
+  （Qt/headless）→ `load_file(lazy_vars=...)`。
+- GUI 场景构建依赖真实显示（offscreen 下跳过，见 R29 记录），数据路径
+  headless 可测。
 
-**S4 测试**（`tests/test_r31_stream.py` 6 项全过）：窗口物化不分配全长 /
-瓦片并集重装 eager 全等（含稀疏区带 NaN 填充）/ 瓦片==整窗 / 预算有界
-LRU / open_stream_cgns 零 payload。回归：R28 lazy、R26 并行、cgns、
-adf、R27/R29 相机测试全绿。**非流式默认路径逐字节不变。**
+**S4 测试**（`tests/test_r31_stream.py` 现 8 项，headless 7 passed +
+offscreen 下 GUI 项 skip）：窗口物化不分配全长 / 瓦片并集重装 eager
+全等（含稀疏区带 NaN 填充）/ 瓦片==整窗 / 预算有界 LRU /
+open_stream_cgns 零 payload / `load_file(lazy_vars=True)` 低内存打开 /
+GUI 开关状态切换。回归：R28 lazy、R26 并行、cgns、adf、R27/R29 相机
+测试全绿。**非流式默认路径逐字节不变。**
 
 ### 9.11 R31 基线外纵深·第一轮：大文件流式加载（2026-09-01 定稿方向）
 

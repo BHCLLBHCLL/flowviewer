@@ -31,10 +31,11 @@ if _HAS_QT:
         """Runs 'fv.model.dataset.load_file' on a pool thread."""
 
         def __init__(self, filepath: str, *, threads: int = 1,
-                     parent=None):
+                     lazy_vars: bool = False, parent=None):
             super().__init__()
             self._filepath = filepath
             self._threads = threads
+            self._lazy_vars = lazy_vars
             self.signals = _LoadSignals()
 
         @property
@@ -45,7 +46,7 @@ if _HAS_QT:
             """Parse the file (pool thread) and emit the result."""
             try:
                 from ..model.dataset import load_file
-                ff = load_file(self._filepath)
+                ff = load_file(self._filepath, lazy_vars=self._lazy_vars)
                 self.signals.finished.emit(ff)
             except Exception as exc:  # noqa: BLE001
                 self.signals.failed.emit(str(exc))
@@ -56,9 +57,10 @@ else:
         """Synchronous stand-in: exposes the progress/finished protocol."""
 
         def __init__(self, filepath: str, *, threads: int = 1,
-                     parent=None):
+                     lazy_vars: bool = False, parent=None):
             self._filepath = filepath
             self._threads = threads
+            self._lazy_vars = lazy_vars
             self.progress = None
             self.finished = None
             self.failed = None
@@ -76,6 +78,7 @@ else:
 
 
 def launch_load(filepath: str, *, threads: int = 1,
+                lazy_vars: bool = False,
                 on_finished=None, on_failed=None):
     """Parse *filepath* off the GUI thread (P0.6).
 
@@ -83,7 +86,8 @@ def launch_load(filepath: str, *, threads: int = 1,
     'on_finished(ff)' / 'on_failed(msg)' run queued on the main thread.
     Without Qt the load runs synchronously and callbacks fire inline.
     """
-    worker = LoadWorker(filepath, threads=threads)
+    worker = LoadWorker(filepath, threads=threads,
+                          lazy_vars=lazy_vars)
     if not _HAS_QT:
         # Headless: parse synchronously and fire callbacks inline.
         try:

@@ -131,4 +131,5 @@ gate on push/PR.
   (Linked/Independent mode switch + Standard Views four-view).
 - R30 - parity close-out + attribute-level audit (0 gap, machine matrix)
 - R31 - beyond-scPOST: streaming (memory-bounded) CGNS reads
+  (GUI Streaming toggle + budget-bounded windowed reader.)
   (bounded-LRU window/tile materialisation; offset total-by-side).
