@@ -136,3 +136,6 @@ gate on push/PR.
 - R32 - beyond-scPOST: web presentation + collaboration automation
   (headless HTTP streaming data service + self-contained HTML report +
   AutomationSession + serve HTTP-RPC, zero new deps).
+- R33 - beyond-scPOST: batch export/render pipeline (bounded memory)
+  (BatchJob/BatchExporter over streaming datasets: JSON sample / full-field
+  raw float64 tile-stream export + manifest + CLI & GUI "Export Batch…").

@@ -376,6 +376,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         add(m, "Export glTF…", self.on_export_gltf)
         add(m, "Export Animation Frames…", self.on_export_animation_frames)
         add(m, "Export Animation Video…", self.on_export_animation_video)
+        add(m, "Export Batch…", self.on_batch_export)
         self._act_stream = QAction(
             "Streaming (low-memory) CGNS", self, checkable=True)
         self._act_stream.toggled.connect(self.set_stream_mode)
@@ -948,6 +949,34 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         else:
             self.message_win.log("Video export failed (ffmpeg missing?)",
                                  "ERROR")
+
+    def on_batch_export(self) -> None:
+        """File > Export Batch\u2026: run an R33 batch job (streaming, bounded)."""
+        from PyQt5.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open Batch Job", "", "Batch job JSON (*.json)")
+        if not path:
+            return
+        try:
+            from ..batch import BatchJob, run_batch
+            job = BatchJob.from_path(path)
+        except Exception as exc:  # noqa: BLE001
+            self.message_win.log(f"Batch job invalid: {exc}", "ERROR")
+            return
+
+        def _progress(done, total):
+            self.status.showMessage(
+                f"Batch {done}/{total}: {path}", 2000)
+
+        try:
+            manifest = run_batch(job, on_progress=_progress)
+        except Exception as exc:  # noqa: BLE001
+            self.message_win.log(f"Batch failed: {exc}", "ERROR")
+            return
+        n = len(manifest.get("results", []))
+        self.message_win.log(
+            f"Batch export done: {n} dataset(s) \u2192 {job.out_dir}")
+        self.status.showMessage(f"Batch exported {n} dataset(s)", 5000)
 
     def on_export_png(self) -> None:
         """File → Export PNG…: render the current scene to an image file."""

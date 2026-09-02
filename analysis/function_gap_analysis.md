@@ -1489,6 +1489,88 @@ HTTP 数据服务 + **自包含可分享 HTML 报告** + 一套**统一的无头
 **门禁**：ruff 0、mypy 0、测试 449 passed（441 存量 + 8 新增）、bench 各相位
 OK——GATE PASS；工作树干净。
 
+### 9.13 R33 基线外纵深·第三轮：批渲染/导出管线（定长内存）（2026-09-03 定稿方向）
+
+流式（R31）+ Web/协作（R32）落地后，本轮闭环剩余记账：**多数据集批渲染 /
+导出在流式下以定长内存跑通**（R31-S3 明示的后续项）。交付一个无头、零新
+依赖的批导出管线，逐数据集开流式句柄（同一内存预算，至多一个数据集驻留），
+按需抽取字段（JSON 样例 / raw float64 全字段流式写盘）并可选逐数据集粗场景
+快照，同时产出 manifest。peak RSS 由「单数据集驻留 + 预算 LRU + 逐瓦片
+顺序写」共同上界。进度回调供 GUI / CLI 共用；headless 可验收。
+
+**S0 前置**：核对 R31 `open_stream_cgns`/`iter_tiles`、R32 `AutomationSession`
+（open/query/render）作为批的各数据集迭代复用面。
+
+**S1 批量任务模型与引擎**（`fv/batch.py`）
+- `BatchJob`（dataclass）: `inputs`（路径列表或单字符串归一化）/ `out_dir` /
+  `stream_budget_mb`(64) / `extract`（字段名列表，空 = 全部）/ `fmt`(`json`|`bin`) /
+  `window_len`(1024，json 样例上限) / `render`(bool)；`from_dict`/`to_dict`/
+  `from_path`。
+- `BatchExporter.run(on_progress)`：持**单个** `AutomationSession`，逐 input
+  `sess.open(...)` 重开（前一数据集合状态释放 → 聚合内存有界）；每个字段：
+  - `fmt=json` → `read_window(0, min(total, window_len))` 写 `{stem}__{name}.json`
+    {total,n,values}（有界样例视图）；
+  - `fmt=bin` → `iter_tiles` **逐瓦片顺序**写 raw float64 到 `{stem}__{name}.bin`
+    （全字段、内存有界，n=total）；
+  - `render=True` → `sess.render(png)`（headless → False，记入 manifest，诚实
+    降级）。
+  - 写 `manifest.json`（job + 每 input 的 writes / n_fields / render_ok）。
+- `run_batch(job, on_progress)` / `write_job_file` / `main()` CLI
+  （`python -m fv.batch job.json`）。
+
+**S2 GUI/CLI 接线（best-effort）**：File 菜单加「Batch Export…」动作 → 选 job
+JSON → `run_batch`（render=False 时无场景构建，headless 安全）；进度写
+message_win。CLI 为第一公民，GUI 仅薄封装。
+
+**S3 测试与门禁**（`tests/test_r33_batch.py`）
+- 双 CGNS 输入：json 样例 == `handle.read_window[0:window_len]`；bin 全字段
+  文件字节数 == total*8 且回读 == 全窗口；manifest 结构 / results 数与 inputs
+  一致 / job 往返 `write_job_file`→`from_path` 相等；progress 末次 == (n,n)；
+  低预算下结果仍正确（顺序驻留不动摇）；CLI `main([job])` 产 manifest 返回 0；
+  GUI 动作存在性（offscreen 下 guard）。
+- 回归：R32 web、R31 stream、R28/R29/R26、cgns/adf 全绿；非流式默认路径
+  逐字节不变。
+
+**验收标准**：多 CGNS 在单预算下批抽字段且结果 == 流式 eager；bin 全字段
+导出的字节数与值逐元素等价且内存有界；manifest 完整；进度回调正确；
+`check.py` 四阶段全绿为出口。
+
+### 8.27 第三十轮执行记录：R33-S1/S2/S3 批渲染/导出管线（定长内存）（2026-09-03 落地）
+
+按 §9.13 闭环「批量/视频导出在流式下以定长内存跑通」记账。
+
+**S1 批量任务与引擎**（`fv/batch.py`）
+- `BatchJob`（dataclass）：`inputs`/`out_dir`/`stream_budget_mb`/`extract`/
+  `render`/`fmt`(`json`|`bin`)/`window_len`; `to_dict`/`from_dict`/`from_path`
+  /`write_job_file`。
+- `BatchExporter.run(on_progress)`：持**单个** `AutomationSession` 逐 input
+  `sess.open` 重开（单数据集驻留 → 聚合内存有界）；字段按 `fmt` 出：
+  - `json` → `read_window(0, min(total, window_len))` 写 `{stem}__{name}.json`
+    {total,n,values}（有界样例）；
+  - `bin` → `iter_tiles` **逐瓦片顺序**写 raw float64 `{stem}__{name}.bin`
+    （全字段、内存 ~ 瓦片级，n=total）；
+  - `render=True` → `sess.render(png)`（headless → False 记入 manifest）。
+  - 写 `manifest.json`（job + results）。
+- `run_batch` / `main()` CLI（`python -m fv.batch job.json`）。
+
+**S2 GUI/CLI 接线**：File 菜单加「Export Batch…」动作 → `on_batch_export()`
+选 job JSON → `run_batch`（render=False 无场景构建，headless 安全）；进度写
+status/message_win。CLI 为第一公民，GUI 薄封装。（工具注：本项目 Edit/Write
+间歇失效，菜单动作句柄曾丢失——改用脚本补回并以 **AST 校验**确认 `on_batch_
+export` 确为 `FlowViewer` 方法，而非仅类体内嵌套。）
+
+**S3 测试**（`tests/test_r33_batch.py` 现 7 项全过，headless 安全）
+- json 样例 == `read_window[0:min(total,window_len)]`；bin 全字段文件字节数
+  == total*8 且回读 == 全窗口逐元素；manifest job==`to_dict`、results 数 ==
+  inputs、progress 末次 == (n,n)；低预算（1MB）下 bin 仍逐元素正确（顺序驻
+  留/驱逐不摇）；job 写读往返相等；CLI `main([job])` 产 manifest 返回 0；
+  GUI 动作存在性（offscreen guard）。
+- 回归：R32 web、R31 stream、R28/R29/R26、cgns/adf 全绿；**非流式默认路径
+  逐字节不变**。
+
+**门禁**：ruff 0、mypy 0、测试 457 passed（R33 新增 7）、bench 各
+相位 OK——GATE PASS；工作树干净。
+
 
 
 **前提（§8.21 权威基线）**：覆盖 ~100%、端到端深度 ~98%；剩余差距
