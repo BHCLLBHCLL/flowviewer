@@ -1391,6 +1391,104 @@ CGNS」这一真实 CFD 场景痛点，独立可验收，且为后续 Web/协作
 **验收标准**：大于内存预算的 CGNS 可开、可查、可切帧且峰值 RSS 有界；
 流式与 eager 结果逐变量全等；文档计 R32 起可再承接 Web / 协作纵深。
 
+### 9.12 R32 基线外纵深·第二轮：Web 呈现 + 协作自动化（2026-09-02 定稿方向）
+
+承接「流式 / Web / 协作」路线图中流式（R31 已落地）之后的 **Web 呈现 +
+协作自动化** 两块：以 R31 流式原语为骨干，交付一个**无头、零新依赖**的
+HTTP 数据服务 + **自包含可分享 HTML 报告** + 一套**统一的无头协作自动化
+面**。全部路径 headless 可验收；非流式默认路径零回归。
+
+**S0 前置**：核对 `open_stream_cgns` / `StreamCgnsHandle.read_window`
+（线程安全：窗口读每次重开 h5 句柄）/ `snapshot_png` / `fv/api.py` facade，
+确认可无头拼装服务端核心。
+
+**S1 HTTP 数据服务**（`fv/web/server.py` + `fv/web/__init__.py`）
+- `WebViewerServer` = stdlib `ThreadingHTTPServer` + `WebHandler`
+  （零第三方依赖，仅 json / urllib.parse / struct）。
+- 端点：
+  - `GET /api/info` → `{version, budget_bytes, caps}`；
+  - `POST /api/open` body `{path, budget_mb}` → `open_stream_cgns(budget)`，
+    返回 `{ok, n_vertices, n_cells, fields:[{name, n}]}`（零 payload）；
+  - `GET /api/fields/{name}?lo=&hi=&fmt=` → `read_window` 窗口读；`fmt=json`
+    给 JSON 数组，默认给 `application/octet-stream` raw float64 + `X-Total`
+    头——前端/脚本分块拉取，峰值有界；
+  - `GET /api/render?w=&h=` → 粗几何代理 + `snapshot_png` 出 PNG；无显示
+    时返回 503 + JSON 错误（诚实降级，续 R30 外部项闭环精神）。
+- 会话：单 `StreamCgnsHandle` 只读共享，多客户端并发安全。
+
+**S2 自包含 HTML 报告**（`fv/web/report.py`）
+- `render_report(handle, out_path, embed_window=512, live=False)`：烘焙单文件
+  交互 HTML —— canvas 线框 + 字段 `<select>` + 区间浏览 `<range>` 滑杆 + 样例
+  窗口表；嵌入字段 min/max/n 元数据（经 `iter_tiles` 有界扫描）与一个演示
+  窗口样本；`live=True` 时表改走 `/api/fields` fetch。无依赖、可离线分享、
+  headless 可校验。
+
+**S3 协作自动化面**（`fv/automation.py`）
+- `AutomationSession`：上下文管理器，`open(path, stream=True, budget_mb=64)`
+  / `fields()` / `query(name, lo, hi)` / `render(png, w, h)` /
+  `export_report(html)` / `serve(port=0)`；render 复用 `fv/api.py` + 惰性
+  FieldFile（几何粗代理），query 走流式句柄。
+- `serve` → 后台线程挂 `WebViewerServer`，供同机脚本/进程经 HTTP RPC 协作。
+
+**S4 测试与门禁**（`tests/test_r32_web.py`）
+- 临时目录/临时端口：`/api/info`、`/api/open`、`/api/fields` 窗口字节 ==
+  `handle.read_window` 逐元素、`/api/render` headless 下 503（有显示则 PNG）、
+  HTML 报告烘焙且嵌入数值与句柄一致、AutomationSession open→query→render
+  →serve 全链。
+- 回归：R31 stream、R26 parallel、cgns/adf、R28 lazy 全绿；非流式默认路径
+  逐字节不变。
+
+**验收标准**：CGNS 可经 HTTP 窗口化取数且结果 == 流式 eager；能烘焙可分享
+自包含 HTML 报告；AutomationSession 无头 open→query→render→serve 全通；
+`check.py` 四阶段全绿为出口。
+
+### 8.26 第二十九轮执行记录：R32-S1/S2/S3/S4 Web 呈现 + 协作自动化（2026-09-02 落地）
+
+按 §9.12 推进，以 R31 流式为骨干交付无头、零新依赖的 Web 呈现 + 协作自动
+化全套。
+
+**S1 HTTP 数据服务**（`fv/web/__init__.py` + `fv/web/server.py`）
+- `_Session`（只读流式会话，持单个 `StreamCgnsHandle`，多客户端并发安全）+
+  `WebHandler`（`make_handler` 闭包注会话；注意类体作用域遮蔽——须用局部
+  别名 `sess = session` 才能给 `session = sess`）。
+- `WebViewerServer`（`ThreadingHTTPServer`，`daemon_threads`）：
+  - `GET /api/info` → 版本/预算/能力；
+  - `POST /api/open`（JSON 或表单 body）→ `open_stream_cgns(budget)` 零
+    payload，返回 `{ok, n_vertices, n_cells, fields:[{name, n}]}`；
+  - `GET /api/fields/{name}?lo=&hi=&fmt=` → `read_window`；`fmt=json` 给
+    JSON 数组，默认给 raw float64 octet-stream + `X-Total`/`X-Lo` 头；
+  - `GET /api/render` → `api.open_file`（惰性）+ `render_png`；无显示时
+    返回 503 + `{ok:false,error}`（诚实降级，续 R30 外部项闭环）。
+- `serve_session(handle, ...)` → (server, thread) 或独立 server。
+
+**S2 自包含 HTML 报告**（`fv/web/report.py`）
+- `_field_stats` 经 `iter_tiles` 有界扫描 min/max + 烘焙样例窗口（不整场
+  分配）；`_mesh_box` 从 mesh.vertices 求 bbox（可缺省）。
+- `render_report(handle, out, embed_window=512, live=False, mesh=None)`：单
+  文件无依赖 HTML——canvas 线框 + 字段 `<select>` + `<range>` 区间浏览滑杆 +
+  样例表；内嵌 JSON 元数据经 `const M = ...` 注入（CSS/JS 花括号零冲突）。
+
+**S3 协作自动化面**（`fv/automation.py`）
+- `AutomationSession`（ctx manager）：`open(stream, budget_mb)` 同时持
+  `StreamCgnsHandle`（query）与惰性 `FieldFile`（render/report）；`fields` /
+  `query(name, lo, hi)`（= `read_window` 契约）/ `render(png)`（headless →
+  False）/ `export_report(html)` / `serve(port)`（后台线程 HTTP RPC）。
+
+**S4 测试**（`tests/test_r32_web.py` 现 8 项全过，headless 安全）
+- `/api/info`、`/api/fields` raw 字节 == `read_window` 逐元素、`fmt=json`、
+  `POST /api/open` 字段清单 == 直接句柄、`/api/render` offscreen 下 503（有
+  显示则 PNG 魔数校验）、HTML 烘焙 JSON 回读端到端校验（样例 == 句柄窗口、
+  min≤max、n_vertices 一致）、AutomationSession open→query→render→report
+  →serve 全链。
+- 回归：R31 stream、R28 lazy、R29 camera、R26 parallel、cgns/adf 全绿；
+  **非流式默认路径逐字节不变**。
+- 修复：`make_handler` 类体作用域遮蔽 NameError；`automation` 相对导入深度
+  （`..model`→`.model`）；报告样例断言改为 JSON 回读数值比对（避免文本格式
+  脆弱）。
+
+**门禁**：ruff 0、mypy 0、测试 449 passed（441 存量 + 8 新增）、bench 各相位
+OK——GATE PASS；工作树干净。
+
 
 
 **前提（§8.21 权威基线）**：覆盖 ~100%、端到端深度 ~98%；剩余差距

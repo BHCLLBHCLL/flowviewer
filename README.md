@@ -133,3 +133,6 @@ gate on push/PR.
 - R31 - beyond-scPOST: streaming (memory-bounded) CGNS reads
   (GUI Streaming toggle + budget-bounded windowed reader.)
   (bounded-LRU window/tile materialisation; offset total-by-side).
+- R32 - beyond-scPOST: web presentation + collaboration automation
+  (headless HTTP streaming data service + self-contained HTML report +
+  AutomationSession + serve HTTP-RPC, zero new deps).
