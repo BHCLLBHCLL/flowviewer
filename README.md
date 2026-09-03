@@ -181,3 +181,9 @@ gate on push/PR.
   coherence → shared-oscillation peak frequency; relate_probes reads R38 trace
   JSON; per-pair JSON + summary.json + CLI, pure NumPy, headless, no CGNS/vtk
   deps).
+- R43 - beyond-scPOST: monitoring-point time-frequency spectrogram
+  (sliding-window rfft spectrogram → S matrix + per-window peak_freq showing how
+  the dominant frequency evolves across a transient/mode-swap run; freq_evolution
+  collapses to fastest/slowest/range/drift; spectrogram_from_trace reads R38
+  trace JSON and infers dt from the cycle axis; per-probe JSON + summary.json +
+  CLI, pure NumPy, headless, no CGNS/vtk deps).

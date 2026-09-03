@@ -2058,4 +2058,43 @@ trace 工件读两条探针序列，CLI 按探针对写 JSON 包。
   **79** 项通过；ruff 0（fv/ tests/ 全绿）。
 - 修：ruff 6 处（import 排序/EOL 等）autofix；`np.concat` 兼容分支简化为 `np.concatenate`。
 
+### 9.23 R43 基线外纵深·第十三轮：监测点时频谱图（spectrogram）（2026-09-04 定稿）
+
+R41 给*整段*功率谱；R43 把时间维加回来：滑动窗 FFT 生成 spectrogram，可读主导频率**如何随时间
+演化**——瞬态起动、突然换模态、或非定常算例上的缓慢漂移。除 2-D 图外，`freq_evolution` 把每个窗
+坍缩成该窗主导频率，直接暴露演化趋势，便于 headless 核对 / CSV、x-y 绘图。纯 NumPy
+（滑动窗 `rfft`，无 librosa/scipy），headless、无 CGNS/vtk 依赖。
+
+**S1 `fv/spectro.py`**
+- `spectrogram(x, nperseg, dt, overlap)`：50% 重叠滑动窗、逐窗去均值 + `rfft`、`|F|²/nperseg`
+  周期图 → `{n, dt, nperseg, nw, freq[], time[](各窗中点), S[][], peak_freq[](各窗主导频率),
+  mean_peak_freq}`；跨窗口 NaN 用线性插值填补；<2 有限点/过短 → 全 NA。
+- `freq_evolution(ss)`：主导频率走步摘要 `{fastest, slowest, range, start_freq, end_freq,
+  drift}`。
+- `spectrogram_from_trace(artifact, probe)`：`dt` 缺省取 cycle 轴 `mean_dt`（复用 R41）。
+- `write_spectrogram`（每探针 json 含 S + evolution + `summary.json`）/ CLI `main`
+  （`fv.spectro <trace>.json --probe N --nperseg`）。
+
+**S2 测试**（`tests/test_r43_spectro.py`，9 项，纯 NumPy）
+- 常数频率各窗 peak≈f；频率阶跃前低后高、drift>0；中段 NaN 填补不破坏主频；过短空；
+  `freq_evolution` drift；`spectrogram_from_trace` 推断 dt + 空 probes；`write_spectrogram`
+  json + evolution + summary + 怪名过滤。
+
+**门禁预期**：ruff 0、spectro 不在 mypy 白名单、测试 +9、回归 R35–R42 全绿、bench OR——GATE PASS。
+
+### 8.37 第四十轮执行记录：R43-S1/S2 监测点时频谱图（spectrogram）（2026-09-04 落地）
+
+**S1 实现**（`fv/spectro.py`）
+- `spectrogram`：`_fill_finite` 线性插值填补 NaN；`range(0, n-nperseg+1, step)` 滑动窗；
+  `peak[w]=freqs[pos[argmax(P[pos])]]` 取非零主频。
+- `freq_evolution`：fastest/slowest/range + start/end/drift（drift=end-start）。
+- CLI `fv.spectro <trace>.json`：按 `--probe` 过滤或全量，写 `<field>__probe{i}_spectro.json`
+  （含 S 矩阵与 evolution）+ `summary.json`。
+
+**S2 测试**（`tests/test_r43_spectro.py`，9 项全过）
+- 纯 NumPy（无 CGNS/vtk）；连同 R35(12)/R36(9)/R37(11)/R38(9)/R39(9)/R40(7)/R41(11)/R42(11)
+  回归共 **88** 项通过；ruff 0（fv/ tests/ 全绿）。
+- 修：频率阶跃测试误用 5Hz@dt=0.1 —— 恰为 Nyquist，`sin(2π·5·0.1·n)=sin(πn)=0` 整段归零、
+  spectrogram 在主频误判，改 4Hz 后稳定；`spectro.py` 4 处 ruff autofix。
+
 
