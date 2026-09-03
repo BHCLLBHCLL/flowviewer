@@ -1675,4 +1675,77 @@ window_len/budget_mb）+ `encode_video`（ffmpeg 拼接 PNG，缺 ffmpeg 诚实�
 **验收标准**：S0 清单全勾；二进制 FBX 真导出且 round-trip 可读；四类
 外部项均有降级路径测试；§8.24 复评给出最终对标结论。
 
+### 9.15 R35 基线外纵深·第五轮：对象关键帧时间线引擎（Timeline→逐关键帧渲染）（2026-09-03 定稿）
+
+R34 让「时间序列数据集」可逐 cycle 批渲染；此前相机 keyframes（猫儿罗斯 spline，
+R3.3）、平面 automove、粒子多帧都已可推帧。但对象级的**通用关键帧时间线**
+（对任意对象属性 position/visibility/opacity/标量做关键帧插值）与「按时间线批量
+渲染」仍无独立、可复用、headless 可测的抽象——自动化层动画只覆盖平面/粒子/相机的
+特例。R35 把关键帧推进抽象成可复用引擎并接到一条逐关键帧渲染管线上。
+
+**S1 通用关键帧时间线引擎**（`fv/timeline.py`，纯计算，headless 可测）
+- `KeyframeTrack`：单个对象单属性的关键帧集 `{t: value}`，`interp` ∈
+  `hold`/`linear`/`spline`；`spline` 对 3 向量与标量在 ≥3 关键帧时用分量级
+  猫儿罗斯（经过每个关键帧）；`loop` 折叠求值时间。
+- `Timeline`：有序 track 集；`add_track`/`duration`/`keys(t)`
+  （按 `(id(obj), prop)` 去重）/`apply(t)`（setattr + actor 反射
+  visibility/opacity）；`normalize_time` 统一 loop/clamp。
+- 纯函数：`evaluate`/`_interp_*`/`_cr`/`_cr_vec3`——无需 GL 即可精确求值。
+
+**S2 `Scene` 接线**（`fv/render/scene.py`）
+- `Scene.set_timeline(tl)` + `self._timeline`；`Scene.animate(t)` 在既有平面
+  automove / 粒子帧之外，**先**执行 timeline `apply`——与字段文件无关，纯对象
+  关键帧动画在 headless（无数据集）下也能推进。存量路径零改动（timeline 为空时
+  零开销）。
+
+**S3 逐关键帧渲染管线**（`fv/timeline.py` `render_timeline`）
+- `render_timeline(tl, renderer, n_frames, out_dir, base, loop)`：逐帧解
+  `t = normalize(u*duration)` → `apply` → `snapshot_png`（写 `base_%04d.png`，
+  headless/无渲染器为 False）+ 每帧 JSON（frame/t/duration/n_tracks/values/
+  png）+ `manifest.json`。是 `camera.capture_camera_sequence`（相机关键帧）与
+  `session.record_sequence`（时间序列数据集）的对象关键帧兄弟；`encode_video`
+  可复用拼接（缺 ffmpeg 诚实降级）。
+
+**S4 测试**（`tests/test_r35_timeline.py`，12 项，纯计算无 h5py/CGNS 依赖）
+- normalize_time loop/clamp；track duration/count；hold 边界（含 loop 折叠到首
+  关键帧说明）；linear 标量/vec3 成员级；spline vec3 经每个关键帧；
+  Timeline.duration/keys 去重；apply 写属性；apply 反射 actor visibility/opacity
+  （真 vtkActor）；Scene.animate 在无字段文件时驱动 timeline；render_timeline
+  manifest/逐帧 JSON/png 计数；首尾帧值跨度（loop=False 达末关键帧）。
+- 回归：test_r29_camera（6/6）、R35 自身全绿；cut 系测试受 vtk≥9.4.2 已知崩溃
+  影响，由 CI（py3.9/3.11 + vtk==9.3.1）覆盖。
+
+**门禁预期**：ruff 0、mypy 0（timeline 不在 mypy 白名单，仍符合 E/F/W/I/B）、
+测试 +12、bench 相位 OR——GATE PASS。
+
+### 8.29 第三十二轮执行记录：R35-S1/S2/S3 对象关键帧时间线引擎（2026-09-03 落地）
+
+按 §9.15 把对象级关键帧推进抽象为可复用引擎，并接到逐关键帧渲染管线上。
+
+**S1 引擎**（新增 `fv/timeline.py`）
+- `KeyframeTrack`/`Timeline`/`render_timeline`；插值 hold/linear/spline（ve3 与
+  标量成分级猫儿罗斯，经关键帧）；`normalize_time` 统一 loop/clamp；`keys` 按
+  `(id(obj), prop)` 去重；`apply` setattr + actor 反射 visibility/opacity。
+- 修复：`_interp_spline` 对 vec3 调用改为分量传参（原把 3 个 p 当单 list 传入
+  `_cr_vec3`）。
+
+**S2 Scene 接线**（`fv/render/scene.py`）
+- 新增 `set_timeline`/`self._timeline`；`animate` 顶部先 `timeline.apply(t)`——
+  独立于字段文件，headless 无数据集也能推进纯对象关键帧；存量平面/粒子路径不变。
+
+**S3 渲染管线**（`fv/timeline.render_timeline`）
+- 逐帧 PNG（headless 为 False）+ JSON + manifest；loop 参数控制全局时间折叠，
+  各 track 自持 loop。
+
+**S4 测试**（`tests/test_r35_timeline.py`，12 项全过）
+- 见 §9.15 S4；含真 vtkActor 反射、Scene 无字段文件推进、manifest/逐帧 JSON/
+  首尾值跨度。回归 test_r29_camera 6/6。
+- 工具注：本机无 vtk==9.3.1 轮子（py3.14 仅 9.6+ 可用），test_scene_snapshot 的
+  平面切割在 vtk=9.7.0 触发已知 0xC0000005（VTK≥9.4.2 凸点集 vtkCutter 崩溃），
+  属环境问题、非 R35 引入（test_r29_camera 单独通过）；CI 用 py3.9/3.11 +
+  vtk==9.3.1 规避。R35 测试本身不触 vtkCutter，本地可全绿。
+
+**门禁**：ruff 0（fv/ tests/ 全绿）、R35 12/12、test_r29_camera 6/6——GATE PASS
+（完整 464+12 套件与 bench 由 CI py3.9/3.11 + vtk9.3.1 把关）。
+
 

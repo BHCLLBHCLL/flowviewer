@@ -51,6 +51,7 @@ class Scene:
         self._name_actor = None                  # object-name billboard (C3)
         self._light_obj = None                   # global LightObject (P0.3)
         self._plane_cut_cache: dict = {}         # (id(ff), id(obj)) → grid (P2-3)
+        self._timeline = None                    # R35 object-keyframe Timeline
         if self.enable_3d:
             self.renderer = vtk.vtkRenderer()
             # Light scPOST Draw Window (near-white)
@@ -86,6 +87,7 @@ class Scene:
         self._colorbar_obj = None
         self._light_obj = None
         self._plane_cut_cache = {}
+        self._timeline = None
 
     def renderers(self):
         """Yield the primary renderer then every extra viewport renderer."""
@@ -430,6 +432,15 @@ class Scene:
                         except Exception:
                             pass
 
+    def set_timeline(self, timeline) -> None:
+        """Attach an optional R35 object-keyframe :class:`fv.timeline.Timeline`.
+
+        Once attached, :meth:`animate` applies the timeline's keyframe tracks
+        to their target objects each time it is advanced, in addition to the
+        built-in plane automove / particle-frame stepping.
+        """
+        self._timeline = timeline
+
     def animate(self, t: float, *, fps: int = 0) -> None:
         """Advance automove-enabled Planes and particle frames to ``t``.
 
@@ -439,8 +450,12 @@ class Scene:
         plane's ``point``/``normal`` is updated and its cut-plane actors are
         rebuilt in place. Particle objects advance to the corresponding
         time frame of the multi-frame particle sections (P0.5), looping
-        over however many frames the file carries.
+        over however many frames the file carries.  An attached R35 Timeline
+        is applied first — it is independent of any field file, so
+        object-keyframe-only animation works headlessly too.
         """
+        if self._timeline is not None:
+            self._timeline.apply(t)
         if not _HAS_VTK or self._field_file is None:
             return
         if self._main is None:

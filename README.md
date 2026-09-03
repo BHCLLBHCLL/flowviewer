@@ -142,3 +142,7 @@ gate on push/PR.
 - R34 - beyond-scPOST: session recording / sequence render pipeline
   (SessionTimeline over a CGNS cycle sequence + SessionRecorder → per-cycle
   PNG/JSON + manifest; record_sequence + encode_video + GUI "Record Sequence…").
+- R35 - beyond-scPOST: generic object-keyframe Timeline engine + per-keyframe
+  render pipeline (KeyframeTrack/Timeline with hold/linear/Catmull-Rom spline
+  over arbitrary object properties; Scene.set_timeline drives them in animate;
+  render_timeline → per-frame PNG/JSON + manifest, headless-safe).
