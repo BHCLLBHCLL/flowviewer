@@ -235,3 +235,11 @@ gate on push/PR.
   excluded; modes carry per-probe complex participation; write_dmd emits dmd
   JSON + modes CSV + summary.json; CLI fv.dmd, pure NumPy, headless, no CGNS/vtk
   deps).
+- R51 - beyond-scPOST: structural / modal analysis HTML report (one dependency-free
+  page tying R47–R50 together: build_structure_report digests an R38 trace
+  artifact into the correlation matrix + coherent groups (R47), POD energy
+  spectrum (R48) and DMD modes table (R50); render_html emits a self-contained
+  HTML document with an inline red→white→blue correlation heat-map, coherent
+  groups, strongest pairs, POD energy bars and a DMD modes table; write_structure_report
+  writes <field>_struct.html + summary.json; CLI fv.structreport, pure NumPy,
+  headless, no CGNS/vtk deps).

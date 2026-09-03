@@ -2364,4 +2364,44 @@ R48/R49 给的是**静态** POD 图景；DMD 是其**动态**伴侣：对监测�
 - 修：`_art` 夹具忽略入参 t（恒 400 cycle）致退化用例不成立 → 手动 3-cycle 工件；参与度测试初
   版误断平直探针 ~0（bug 源即 delay-0 取错行）。
 
+### 9.31 R51 基线外纵深·第二十一轮：结构/模态分析 HTML 报告（2026-09-04 定稿）
+
+R46 把**频谱侧**（R41–R45）装进一份自包含 HTML；R47–R50 已经把**结构侧**（相关矩阵、POD、
+DMD）算出来了，但只落到 JSON/CSV。R51 是结构侧的收官可视化：把三类模态分析结果整合进**一个
+免依赖、可浏览的页面**（纯 Python 内嵌 CSS，无绘图库），消费同一份 R38 trace 工件。
+
+**S1 `fv/structreport.py`**
+- `build_structure_report(artifact, *, corr_threshold, top, pod_modes, dmd_r, embed_d)`：
+  一次编排 R47 `probe_corr_summary` + R48 `pod_decompose` + R50 `dmd_decompose`，整合成
+  `{field, n_probes, n_cycles, corr{matrix/threshold/coherent_groups/top_pairs},
+  pod{n_modes/energy_shares/cum_energy}, dmd{modes/dominant/r}}`。
+- `render_html(report)`：自包含 HTML——摘要表 + 内联**相关热图**（`_rho_color` 红→白→蓝编码
+  rho∈[-1,1]，NaN 白底）+ 相干组列表 + 最强对表 + **POD 能量条**（横向条形）+ **DMD 模态表**
+  （i/freq/growth/amplitude/share）；无探针降级为 "No probes"。
+- `write_structure_report(artifact, out_dir, *, corr_threshold, pod_modes, dmd_r, embed_d)`：
+  写 `<field>_struct.html` + `summary.json`（怪名过滤）；CLI `fv.structreport <trace>.json
+  --out --corr-threshold --pod-modes --dmd-r --embed-d`。
+
+**S2 测试**（`tests/test_r51_structreport.py`，8 项，纯 NumPy）
+- 4 探针（1Hz 主导对 + 1 平直 + 1 个 3Hz）→ 整合块齐全：corr 4×4、`rho(0,1)>0.8`、相干组含
+  {0,1}、POD top-1 份额 >0.5、DMD dominant≈1Hz、模态数=r；HTML 含 6 个 section + heat 表格 +
+  bar 条；无探针降级；字段名转义 `<script>`；write 产物 html/summary + 怪名过滤；阈值传递
+  （0.1 组 ≥ 0.99 组）；CLI 往返 + 缺 probes 报错返 2。
+
+**门禁预期**：ruff 0、测试 +8、回归 R35–R50 全绿——GATE PASS。
+
+### 8.45 第四十八轮执行记录：R51-S1/S2 结构/模态分析 HTML 报告（2026-09-04 落地）
+
+**S1 实现**（`fv/structreport.py`）
+- 首版把 CLI 的 `--corr-threshold/--pod-modes/--dmd-r/--embed-d` 解析了却未透传 →
+  `write_structure_report` 增加同名 kwargs 并转发给 `build_structure_report`，CLI 参数生效。
+- `_rho_color` 把 rho∈[-1,1] 映射为红（负）→白（零）→蓝（正），NaN 白底；热图 `title` 内嵌
+  精确 rho 值便于悬浮查看。
+
+**S2 测试**（`tests/test_r51_structreport.py`，8 项全过）
+- 纯 NumPy + 复用 R47/R48/R50；连同 R35(12)/R36(9)/R37(11)/R38(9)/R39(9)/R40(7)/R41(11)/
+  R42(11)/R43(9)/R44(9)/R45(6)/R46(7)/R47(9)/R48(8)/R49(8)/R50(9) 回归共 **152** 项通过；
+  ruff 0（fv/ tests/ 全绿，含 1 处文末换行 autofix）。
+
+
 
