@@ -2167,4 +2167,42 @@ spectrum（R41）/ spectrogram 演化（R43）/ modes（R44）/ 湍流强度，�
 - 修：`analyze_probe` 初稿误读 `spectro['evolution']`（spectrogram 结果并不含该键），改
   `freq_evolution(spectro)` 计算 drift/fastest/slowest；清未用 `List`/赘余 `trend` 块。
 
+### 9.26 R46 基线外纵深·第十六轮：监测分析 HTML 报告（2026-09-04 定稿）
+
+R45 把谱族收成 CSV/JSON bundle；R46 把它渲染成**浏览器可直接翻页的独立 HTML 报告**（仿 R36
+field 报告模式）：跨探针汇总表 + 每探针卡片（主导频率/nyquist/drift/n_peaks/top1_share/ti_pct）
++ 内联功率谱条状预览。纯 Python（内嵌 CSS + flex 条柱，无外部绘图库），headless 可测，任意浏览器
+打开即读。
+
+**S1 `fv/monreport.py`**
+- `build_report(artifact)`：消化 R38 trace 工件 → `{field, n_probes, cards[]}`，每卡片含标量 +
+  `psd_bars`（`_psd_bars`：`f>0` 取、sqrt 压缩、降采样至 ≤ 32 根 `[0,1]` 条）。
+- `render_html(report)`：自包含 `<!doctype html>`，内嵌 CSS；汇总表 + 逐卡片 + `class=spectro`
+  条柱；字段名/查询经 `html.escape` 消毒。
+- `write_monitor_report(artifact, out)`：写 `<field>_monitor.html` + `summary.json`。
+- CLI `fv.monreport <trace>.json --out`（仅接受含 cycles+probes 的 trace 工件，非 trace 报错）。
+
+**S2 测试**（`tests/test_r46_monreport.py`，7 项，纯 NumPy + R45/R41）
+- `build_report` 卡片带 `psd_bars`（0≤v≤1、≤32）；`render_html` 含汇总表/Per probe/Probe 0/1/
+  spectro；无探针 → "No probes"；字段名 `<script>` 被转义不落地；`write_monitor_report` html +
+  summary + 怪名过滤；`_psd_bars` 降采样/退化空。
+
+**门禁预期**：ruff 0、monreport 不在 mypy 白名单、测试 +7、回归 R35–R45 全绿、bench OR——GATE PASS。
+
+### 8.40 第四十三轮执行记录：R46-S1/S2 监测分析 HTML 报告（2026-09-04 落地）
+
+**S1 实现**（`fv/monreport.py`）
+- `build_report`：复用 `analyze_monitor`（R45 bundle 拿标量）+ 逐探针 `analyze_series`（R41 拿
+  完整 freq/psd 做条柱）。
+- `_psd_bars`：`f>0` 过滤、`(v/pmax)**0.5` 压缩、`len>32` 时按步长下采样。
+- `render_html`：单字符串 `_DOC_TEMPLATE` 替换；`_f` 紧凑数字格式、`_esc` 转义。
+- 初次 main 支持"bundle JSON"分支经评审无 trace cycles 无意义，删除 `_from_bundle_best_effort`
+  只留 trace 分支；`write_monitor_report` 去掉未用 `source_name` 参数。
+
+**S2 测试**（`tests/test_r46_monreport.py`，7 项全过）
+- 纯 NumPy + 复用既有模块；连同 R35(12)/R36(9)/R37(11)/R38(9)/R39(9)/R40(7)/R41(11)/
+  R42(11)/R43(9)/R44(9)/R45(6) 回归共 **110** 项通过；ruff 0（fv/ tests/ 全绿，6 处 autofix）。
+- 修：`build_report` 初稿赘余 `hasattr(analyze_series,"__call__")` guard 清理；测试首行无关
+  `from fv.modes import ...` 删除。
+
 

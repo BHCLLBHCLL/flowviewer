@@ -200,3 +200,9 @@ gate on push/PR.
   to every probe; write_monitor emits a compact per-probe CSV table + bundle
   JSON + summary.json; CLI fv.monitor, pure NumPy reusing the tested spectral
   family, headless, no CGNS/vtk deps).
+- R46 - beyond-scPOST: render the monitoring analysis as a self-contained HTML
+  report (build_report digests a trace artifact; render_html emits a
+  dependency-free page with a cross-probe summary table, per-probe cards and
+  inline sqrt-compressed power-spectrum bars; write_monitor_report writes
+  <field>_monitor.html + summary.json; CLI fv.monreport, styled-html + inline
+  bars only, no plotting lib, headless-testable).
