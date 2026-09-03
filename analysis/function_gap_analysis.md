@@ -1942,4 +1942,41 @@ L2）与跨 cycle 汇总。这是「基准 vs 扰动算例」的经典核对，h
 - 假 `FakeHandle`（`iter_tiles` + `read_window` 代言 `StreamCgnsHandle`），headless 无
   vtk/CGNS；连同 R35(12)/R36(9)/R37(11)/R38(9) 回归共 **50** 项通过；ruff 0（fv/ tests/ 全绿）。
 
+### 9.20 R40 基线外纵深·第十轮：监测点级跨序列对比（baseline vs perturb @ points）（2026-09-04 定稿）
+
+R38 在固定监测点上追踪*单个*序列；R39 在整域*字段*层面对比*两条*序列。R40 合并两条轴：
+**两条序列（baseline vs perturb）在同一批监测点上逐 cycle 对比**，per field / per cycle，保留
+R38 的有界逐瓦片读取模型。监测点一次绑定到网格节点（取 A 首 cycle 网格；典型 baseline/perturb
+同网格同节点序），A/B 逐 cycle 只读命中节点行，按共同 cycle 交集对齐逐探针历史 → `a`、`b`、
+逐 cycle `diff` 与时间滚动度量（mean/max 绝对差、max 相对差）。复用 R38 `resolve_probe_nodes` /
+`field_probe_values`，核心 headless、有界内存、无 CGNS/vtk 依赖。
+
+**S1 `fv/pointcmp.py`**
+- `trace_report(tl, nodes, fields)`：用**外部绑定**的 `nodes`（保证 A/B 读到**同一节点下标**）
+  走一步时间线收集逐探针序列 → R38 式 `{field:{cycles, probes:[{query,node,xyz,values}]}}`。
+- `point_compare(rep_a, rep_b)`：按共同 cycle 交集对齐 A/B 逐探针序列；只算有限 A∩B 配对，
+  缺 cycle 保持 NaN 但不入 diff/度量 → `{fields:{name:{cycles, probes:[{query,node,xyz,a,b,
+  diff, metrics:{n,mean_abs,max_abs,max_rel}}]}}}`。
+- `write_point_compare`（每字段 `<field>.json` + `summary.json`）/ `point_compare_runs` / CLI
+  `main`（`seq_a` `seq_b` + `--probe`/`--probes-file`）。
+
+**S2 测试**（`tests/test_r40_pointcmp.py`，7 项，headless 无 vtk/CGNS）
+- `trace_report` 预绑定节点取序列；`point_compare` 常数偏移度量、NaN cycle 跳过、共同 cycle
+  交集对齐、多字段独立；`write_point_compare` `<field>.json` + `summary.json` + 怪名过滤。
+
+**门禁预期**：ruff 0、pointcmp 不在 mypy 白名单、测试 +7、回归 R35–R39 全绿、bench OR——GATE PASS。
+
+### 8.34 第三十七轮执行记录：R40-S1/S2 监测点级跨序列对比（2026-09-04 落地）
+
+**S1 实现**（`fv/pointcmp.py`）
+- `trace_report`：节点先在外层用 `resolve_probe_nodes` 绑定一次，A/B 复用同一列表 → 物理点
+  在两条序列读到同一节点下标（同网格前提）；循环用 R38 `field_probe_values` 只读命中行。
+- `point_compare`：`{c:i}` 双索引表做共同 cycle 交集对齐；`_diff_series` 有限 A∩B 累计 → 度量。
+- CLI `fv.pointcmp <seq_a> <seq_b> --probe x,y,z …`（`--probes-file` 支持 `#` 注释）。
+
+**S2 测试**（`tests/test_r40_pointcmp.py`，7 项全过）
+- 假 `FakeHandle`（`iter_tiles`）代言 `StreamCgnsHandle`，headless 无 vtk/CGNS；连同
+  R35(12)/R36(9)/R37(11)/R38(9)/R39(9) 回归共 **57** 项通过；ruff 0（fv/ tests/ 全绿）。
+- 修：测试用 `NODES[:1]`（node 1）配长度 1 数组越界 → 统一用显式 `N0`（node 0）并校准断言值。
+
 

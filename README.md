@@ -164,3 +164,8 @@ gate on push/PR.
   iter_tiles/read_window for RMSE/MAE/max/relative-L2; compare_sequences walks
   two timelines in lockstep → per-cycle field metrics + rolling summary, then
   per-field JSON + summary.json + CLI, bounded memory, no CGNS/vtk deps).
+- R40 - beyond-scPOST: monitoring-point sequence-vs-sequence comparison
+  (trace_report reuses R38's pre-bound nodes so A/B read the same node indices;
+  point_compare aligns two sequences' probe histories on common cycles → per
+  probe: a/b/diff series + mean/max abs, max relative; per-field JSON +
+  summary.json + CLI, bounded memory, no CGNS/vtk deps).
