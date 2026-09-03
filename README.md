@@ -213,3 +213,10 @@ gate on push/PR.
   threshold so probes that co-oscillate group together; write_probecorr emits
   matrix JSON + clusters JSON + pairs CSV + summary.json; CLI fv.probecorr,
   pure NumPy reading R38 trace artifacts, headless, no CGNS/vtk deps).
+- R48 - beyond-scPOST: POD (Proper Orthogonal Decomposition) of monitoring-point
+  data (snapshot_matrix builds the centered (n_probes, n_cycles) matrix with
+  NaN imputation; pod_decompose factors it with the SVD → spatial modes
+  (probe weightings) + time coefficients, ranked by fluctuation energy with
+  effective-rank trimming; pod_summary adds the leading mode's dominant
+  frequency via R41; write_pod emits pod JSON + modes CSV + summary.json;
+  CLI fv.pod, pure NumPy, headless, no CGNS/vtk deps).

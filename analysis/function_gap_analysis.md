@@ -2245,4 +2245,43 @@ R42 关联**一对**监测点；R47 推广到**全部探针同时**——探针�
   测试的 0&1 对实际 ρ≈0.9998（0.5·sin(a+0.1) 只把相位移 ~0.02 rad），改独立大相位差夹具
   （ρ≈cos0.5≈0.88）验证 0.999 严格档只保留 |ρ|≈1 的 {0,2}。
 
+### 9.28 R48 基线外纵深·第十八轮：监测点 POD（本征正交分解）（2026-09-04 定稿）
+
+R47 相关矩阵关联探针集；R48 再进一步**分解**时空监测数据：把 `(n_probes, n_cycles)` snapshot
+矩阵居中后用 SVD 分解，得到按脉动能量排序的空间模态（探针权重）及每模态时间系数——经典"哪些空间
+结构主导非定常"分析（如主导卡门涡街模态 vs 低能平均流修正）。消费 R38 trace 工件
+（`history_matrix` R47），纯 NumPy（`np.linalg.svd`）、headless、无 CGNS/vtk 依赖。
+
+**S1 `fv/pod.py`**
+- `snapshot_matrix(artifact, center)`：转置 `history_matrix` → (n_probes, n_cycles)；逐行 NaN 用
+  该行有限均值填补（全 NaN 探针 → 零行，不贡献能量）；`center` 逐行去均值抓脉动。
+- `pod_decompose(artifact, n_modes, center)`：`X=U S Vt`；`modes`=U 列（探针权重）、
+  `coeffs[i]=σᵢ·Vᵢ`（时间系数）、`energy=σᵢ²`、`energy_shares`、`cum_energy`；按能量有效秩
+  （`σ²>σ²max·1e-12`）裁掉零能尾模态；`n_modes` 上限截断。
+- `pod_summary`：POD + 首模态时间系数主导频率（复用 R41 `analyze_series`）。
+- `write_pod`：`<field>_pod.json` + `<field>_modes.csv`（mode,probe,weight）+ `summary.json`；
+  CLI `fv.pod <trace>.json --modes N --no-center`。
+
+**S2 测试**（`tests/test_r48_pod.py`，8 项，纯 NumPy）
+- snapshot 矩阵 (2,400) 且居中（常数行 → ~0）；rank-1 反相同组数据 → n_modes=1、share=1、
+  同相探针同权/反相反号、norm=1；双结构（幅 2 f=1 vs 幅 1 f=3）→ share>0.7/<0.3、首模态权集中
+  {0,1}；首模态频率≈1（approx）；平直探针去均值后不贡献；`--modes` 上限 + 空 probes 退化；
+  write 产物 json/csv/summary + 怪名过滤。
+
+**门禁预期**：ruff 0、pod 不在 mypy 白名单、测试 +8、回归 R35–R47 全绿、bench OR——GATE PASS。
+
+### 8.42 第四十五轮执行记录：R48-S1/S2 监测点 POD（2026-09-04 落地）
+
+**S1 实现**（`fv/pod.py`）
+- `pod_decompose`：`np.linalg.svd(full_matrices=False)` → U (n_probes,k)、S、Vt (k,n_cycles)；
+  `modes`=U 列、`coeffs`=S·Vt 行；能量 `s2=S*S`、`tol=s2.max()*1e-12` 裁有效秩。
+- `pod_summary`：`len(coeffs[0])≥4` 才跑 R41 谱，取 `dominant_freq`。
+- 补：`field` 键入 summary 供 write 使用（初稿缺，main 里手动补）。
+
+**S2 测试**（`tests/test_r48_pod.py`，8 项全过）
+- 纯 NumPy + 复用 R47/R41；连同 R35(12)/R36(9)/R37(11)/R38(9)/R39(9)/R40(7)/R41(11)/
+  R42(11)/R43(9)/R44(9)/R45(6)/R46(7)/R47(9) 回归共 **127** 项通过；ruff 0（fv/ tests/ 全绿）。
+- 修：`n_modes` 初稿返回全部奇异值（rank 缺陷数据含零能尾模态）→ 加有效秩裁减；首模态频率
+  `0.9999999999999991` vs `1.0` 用 approx 容差。
+
 
