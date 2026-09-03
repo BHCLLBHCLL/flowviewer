@@ -187,3 +187,10 @@ gate on push/PR.
   collapses to fastest/slowest/range/drift; spectrogram_from_trace reads R38
   trace JSON and infers dt from the cycle axis; per-probe JSON + summary.json +
   CLI, pure NumPy, headless, no CGNS/vtk deps).
+- R44 - beyond-scPOST: spectral mode detection + energy decomposition
+  (spectral_peaks lists a probe's significant oscillation modes as local maxima
+  above a prominence floor — fundamental + harmonics / vortex-shedding order;
+  energy_shares gives each mode's share of the DC-excluded fluctuation energy
+  and the top-k cumulative share; turbulent_intensity offers std/mean;
+  modes_from_spectrum consumes an R41 analyze_series dict; per-field JSON +
+  summary.json + CLI, pure NumPy, headless, no CGNS/vtk deps).

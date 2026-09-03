@@ -2097,4 +2097,40 @@ R41 给*整段*功率谱；R43 把时间维加回来：滑动窗 FFT 生成 spec
 - 修：频率阶跃测试误用 5Hz@dt=0.1 —— 恰为 Nyquist，`sin(2π·5·0.1·n)=sin(πn)=0` 整段归零、
   spectrogram 在主频误判，改 4Hz 后稳定；`spectro.py` 4 处 ruff autofix。
 
+### 9.24 R44 基线外纵深·第十四轮：频谱模态识别 + 能量占比（2026-09-04 定稿）
+
+R41/R43 只报*主导*频率。R44 自动枚举一个探针的**全部显著振荡模态**：对功率谱 `(freq, psd)` 检出
+高于相对显著性下限的局部极大值（列出基频 + 谐波 / 涡脱频率 + 谐波阶次及各自能量），并把每个被接受
+模态能量的占总脉动能量份额、top-k 累计份额算出来（可表述“前三阶模态载约 80% 脉动能量”）。另给
+`turbulent_intensity`（原始时序 `std/mean` 波动强度）。纯 NumPy、headless、无 CGNS/vtk 依赖。
+
+**S1 `fv/modes.py`**
+- `spectral_peaks(freq, psd, prominence_frac=0.05)`：取 `f>0` 的局部极大且 `≥ prominence_frac *
+  psd_max`，按能量降序 → `[{freq, psd}, …]`；退化/零能 → `[]`；长度失配 raise。
+- `energy_shares(freq, psd, …)`：总=sum(psd@f>0)，每峰 `share=psd/total`，top-k 累计 →
+  `{total, n_peaks, peaks[], top_k[]}`。
+- `turbulent_intensity(values)`：`std(ddof=1)/|mean|*100`（%），<2 有限点 → NaN。
+- `modes_from_spectrum(res)`：消费 R41 `analyze_series`（freq/psd 列表）→ organized + dominant。
+- `write_modes`（`<field>_modes.json` + `summary.json`）/ CLI `main`（`fv.modes <freq+psd>.json`）。
+
+**S2 测试**（`tests/test_r44_modes.py`，9 项，纯 NumPy + R41）
+- 基频+一阶谐波信号（幅 2:1 → 能量 4:1）：`spectral_peaks` 检出并排序、prominence 过滤、
+  退化空；`energy_shares` 0.8/0.2、top-k≈1；`turbulent_intensity` 正弦 std=A/√2、退化 NaN；
+  `modes_from_spectrum`；`write_modes` json + summary + 怪名过滤。
+
+**门禁预期**：ruff 0、modes 不在 mypy 白名单、测试 +9、回归 R35–R43 全绿、bench OR——GATE PASS。
+
+### 8.38 第四十一轮执行记录：R44-S1/S2 频谱模态识别 + 能量占比（2026-09-04 落地）
+
+**S1 实现**（`fv/modes.py`）
+- `spectral_peaks`：排除 DC 后对 `pos` 各 bin 判局部极大（`p[i]≥p[i±1]`）且 `≥ thr`，按 psd 降序。
+- `energy_shares`：`share=psd/total`；`top_k` 累计；`total=0` 时 share=NaN。
+- CLI `fv.modes <spectrum>.json --prominence`，写 `<field>_modes.json`（含 organized+dominant）+
+  `summary.json`（total/n_peaks/dominant/top_k[-1]）。
+
+**S2 测试**（`tests/test_r44_modes.py`，9 项全过）
+- 纯 NumPy + 复用 R41 `analyze_series`；连同 R35(12)/R36(9)/R37(11)/R38(9)/R39(9)/R40(7)/
+  R41(11)/R42(11)/R43(9) 回归共 **97** 项通过；ruff 0（fv/ tests/ 全绿）。
+- 修：夹具 `_harmonic_spectrum` 多余 `fs`/`_,` 解包 F841 清理。
+
 
