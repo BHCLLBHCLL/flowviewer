@@ -206,3 +206,10 @@ gate on push/PR.
   inline sqrt-compressed power-spectrum bars; write_monitor_report writes
   <field>_monitor.html + summary.json; CLI fv.monreport, styled-html + inline
   bars only, no plotting lib, headless-testable).
+- R47 - beyond-scPOST: cross-probe correlation matrix + probe clustering
+  (history_matrix builds the cycles×probes matrix; pairwise_correlation gives a
+  NaN-safe Pearson matrix with per-pair gap handling; top_pairs lists the
+  strongest links; cluster_probes does single-linkage clustering on |rho|≥
+  threshold so probes that co-oscillate group together; write_probecorr emits
+  matrix JSON + clusters JSON + pairs CSV + summary.json; CLI fv.probecorr,
+  pure NumPy reading R38 trace artifacts, headless, no CGNS/vtk deps).

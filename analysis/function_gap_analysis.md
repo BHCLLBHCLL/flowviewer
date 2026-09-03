@@ -2205,4 +2205,44 @@ field 报告模式）：跨探针汇总表 + 每探针卡片（主导频率/nyqu
 - 修：`build_report` 初稿赘余 `hasattr(analyze_series,"__call__")` guard 清理；测试首行无关
   `from fv.modes import ...` 删除。
 
+### 9.27 R47 基线外纵深·第十七轮：跨探针相关矩阵 + 探针聚类（coherent structure）（2026-09-04 定稿）
+
+R42 关联**一对**监测点；R47 推广到**全部探针同时**——探针集相关矩阵，回答"哪些监测点一起振荡"。
+两层：`pairwise_correlation`（NaN 安全的逐对 Pearson，每对只用自己的共同有限样本做 gap 处理）得到
+完整 `n_probes×n_probes` 矩阵；`cluster_probes`（对 `|rho|≥threshold` 做 single-linkage 合并）把
+共振荡探针聚成组，`top_pairs` 列最强连接。输入即 R38 trace 工件（`{name, cycles, probes[]}`）——
+纯 NumPy、headless、无 CGNS/vtk 依赖。
+
+**S1 `fv/probecorr.py`**
+- `history_matrix(artifact)`：(n_cycles, n_probes) 矩阵，NaN 补齐（探针样本数不同仍按 cycle 对齐）。
+- `pairwise_correlation(M)`：逐对共同有限样本去均值 Pearson；<2 共同样本 → NaN；对角 1。
+- `top_pairs(corr, k=5)`：按 `|rho|` 降序最强 k 个不同对。
+- `cluster_probes(corr, threshold=0.8)`：`|rho|≥threshold` 的 single-linkage 并查集聚类，按大小降序
+  （含 size-1，调用方可滤出"coherent groups"）。
+- `probe_corr_summary`：矩阵（NaN→None）+ top_pairs + clusters + coherent_groups。
+- `write_probecorr`：`<field>_probecorr.json` + `<field>_clusters.json` + `<field>_pairs.csv` +
+  `summary.json`；CLI `fv.probecorr <trace>.json --threshold --top`。
+
+**S2 测试**（`tests/test_r47_probecorr.py`，9 项，纯 NumPy）
+- 同相 ρ>0.99、反相 ρ<-0.99、平直≈0；NaN gap 对仍足够样本 → 有效；2 样本 → ±1、1 样本 → NaN；
+  top_pairs 最强在前；single-linkage 下同相+反相并成 {0,1,2}、平直单独；threshold 0.999 只链
+  {0,2}（|ρ|≈1）、0.5 全链；summary+写盘产物（NaN→None 可 JSON 化）+ 怪名过滤。
+
+**门禁预期**：ruff 0、probecorr 不在 mypy 白名单、测试 +9、回归 R35–R46 全绿、bench OR——GATE PASS。
+
+### 8.41 第四十四轮执行记录：R47-S1/S2 跨探针相关矩阵 + 探针聚类（2026-09-04 落地）
+
+**S1 实现**（`fv/probecorr.py`）
+- `history_matrix`：`M[t,j]=float(v)`，非法值 → NaN；探针按最长的补 NaN。
+- `pairwise_correlation`：双循环上三角、`m.sum()<2 → NaN`、`den>0 else 0.0`。
+- `cluster_probes`：路径压缩并查集，`|corr|≥threshold` 合并；`groups.setdefault(find(i)).append`。
+- JSON 序列化：矩阵 NaN 转 None（严格 JSON 合法）。
+
+**S2 测试**（`tests/test_r47_probecorr.py`，9 项全过）
+- 纯 NumPy + 复用 R38 工件格式；连同 R35(12)/R36(9)/R37(11)/R38(9)/R39(9)/R40(7)/R41(11)/
+  R42(11)/R43(9)/R44(9)/R45(6)/R46(7) 回归共 **119** 项通过；ruff 0（fv/ tests/ 全绿）。
+- 修：单链聚类对 `|ρ|` 链接，反相探针（ρ≈-1）**也**并组——首版测试误判"反相不链接"；threshold
+  测试的 0&1 对实际 ρ≈0.9998（0.5·sin(a+0.1) 只把相位移 ~0.02 rad），改独立大相位差夹具
+  （ρ≈cos0.5≈0.88）验证 0.999 严格档只保留 |ρ|≈1 的 {0,2}。
+
 
