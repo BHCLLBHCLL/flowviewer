@@ -154,3 +154,8 @@ gate on push/PR.
   (get_probe_grid caches build_ugrid once per dataset with a bounded LRU,
   shared by Point/Information/pick probes; probe_polydata does pure-NumPy
   nearest local value extraction from any rendered polydata, no vtkCutter).
+- R38 - beyond-scPOST: monitoring-point field-value time traces (probe history)
+  (resolve_probe_nodes maps points to nearest nodes once, then time_trace walks
+  a session sequence and, per cycle and per field, keeps only the chosen node
+  rows via bounded iter_tiles → per-field/probe series JSON + manifest + CLI,
+  headless-safe and no CGNS/vtk dependencies).

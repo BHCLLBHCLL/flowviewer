@@ -1867,4 +1867,41 @@ GATE PASS。
 - 环境：本机仅 vtk 9.7（py3.14），R37 不触 vtkCutter 故本地可验；完整 suite/bench 由 CI
   py3.9/3.11 + vtk==9.3.1 把关。
 
+### 9.18 R38 基线外纵深·第八轮：场值-时间采样轨迹（监测点历程）（2026-09-04 定稿）
+
+R36 时序报告把**每个字段**散步长窗统计；R37 数据光标在**单个数据集、单点**取值。R38 补齐中间
+的经典工作流：**固定监测点沿 CGNS 时间序列读取场值，产出逐探针的场值-时间轨迹**（监测点历程）。
+沿用 R31 窗口化句柄（逐瓦片消费、只保留命中节点行）→ 峰值内存独立于字段全长；点→节点绑定复用
+R37 纯 NumPy `nearest_point`（无 VTK / 无 `vtkCutter`），全局 headless 可验。
+
+**S1 `fv/trace.py`**
+- `resolve_probe_nodes(mesh, points)`：监测点→最近网格节点（`node` / `xyz`；空/退化网格返回
+  `node=-1` 而非失败，轨迹读作 NaN）。
+- `field_probe_values(handle, name, node)`：经 `iter_tiles` 有界读取单节点场值；缺字段/越界 → NaN。
+- `time_trace(timeline, probes, fields)`：首 cycle 绑定探针→节点后跨 cycle 复用；逐 cycle 逐字段
+  取节点行 → `{fields:{name:{cycles, probes:[{query,node,xyz,values}]}}}`。
+- `write_traces` / `run_traces` / CLI `main`（`--probe x,y,z` 可重复 / `--probes-file`）。
+
+**S2 测试**（`tests/test_r38_trace.py`，9 项，headless 无 vtk/CGNS）
+- `resolve_probe_nodes` 最近点 + 空网格；`field_probe_values` 读值、缺字段/越界 NaN；`time_trace`
+  逐 cycle 序列、绑定一次、缺字段 NaN；`write_traces` 写 `<field>.json` + `manifest.json`、怪名过滤。
+
+**门禁预期**：ruff 0、trace 不在 mypy 白名单、测试 +9、回归 R35/36/37 全绿、bench OR——GATE PASS。
+
+### 8.32 第三十五轮执行记录：R38-S1/S2 监测点场值-时间轨迹（2026-09-04 落地）
+
+**S1 实现**（`fv/trace.py`）
+- `resolve_probe_nodes`：空网格先判 `ndim!=2 or size==0` → 全部 `node=-1`（避开 `nearest_point`
+  对 `(0,)` 的广播崩溃）；否则复用 `probe.nearest_point`。
+- `field_probe_values`：`iter_tiles` 逐瓦片定位命中窗口取 `a[node-start]`；节点值为向量行时取首
+  分量（真实流式句柄对任意字段都产出 1D 窗口，向量的首分量即其标量投影）。
+- `time_trace`：首 cycle 绑定、跨 cycle 复用；每 cycle 打开/消费/释放 → 峰值内存 ~ 一预算瓦片。
+- CLI：`--probe x,y,z` 可重复 + `--probes-file`（跳过 `#` 注释）；无监测点 → 报错退出码 2。
+
+**S2 测试**（`tests/test_r38_trace.py`，9 项全过）
+- 假 `FakeHandle`（1D 节点场 + `iter_tiles` 忠实镜像 `StreamCgnsHandle`）与假 mesh 代言流式栈，
+  headless 无 vtk/CGNS；连同 R35(12)/R36(9)/R37(11) 回归共 41 项通过；ruff 0（fv/ tests/ 全绿）。
+- 修：测试期发现超大向量字段真实句柄恒为 1D 窗口，故 `V` 改为标量节点场并移除“向量首分量”
+  赘述；B904 补 `raise … from None`。
+
 
