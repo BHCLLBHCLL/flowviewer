@@ -1904,4 +1904,42 @@ R37 纯 NumPy `nearest_point`（无 VTK / 无 `vtkCutter`），全局 headless �
 - 修：测试期发现超大向量字段真实句柄恒为 1D 窗口，故 `V` 改为标量节点场并移除“向量首分量”
   赘述；B904 补 `raise … from None`。
 
+### 9.19 R39 基线外纵深·第九轮：跨序列时序对比（baseline vs scenario）（2026-09-04 定稿）
+
+R36 会报*单个*序列逐字段、R38 追踪*单个*序列的监测点历程；R39 补上**对比轴**：两条 CGNS
+时间序列在共同 cycle 上逐场对比，产出每字段每 cycle 的有界差异度量（RMSE/MAE/最大绝对差/相对
+L2）与跨 cycle 汇总。这是「基准 vs 扰动算例」的经典核对，headless 跑在流式数据上。`compare`
+模块已有单数据集 abs/signed/relative + IDW 映射——此处加的是**时间维**。
+
+**S1 `fv/seqcmp.py`**
+- `field_tile_difference(ha, hb, field)`：有界逐瓦片差异度量。`ha.iter_tiles` 与
+  `hb.read_window` 按绝对索引对齐（两侧瓦片尺寸可不同）；只统计有限 A∩B 配对；
+  返回 `{n, rmse, mae, max, lrel}`（无重叠/缺字段 → 全 NaN）。峰值内存 ~ 每侧一预算瓦片。
+- `compare_sequences(tl_a, tl_b, fields, on_progress)`：`zip` 同步走两步时间线，首 cycle 决定
+  字段集（或按 `fields` 过滤），逐 cycle 逐字段落 `per_cycle`，跨 cycle 滚汇总
+  `{mean_rmse, mean_mae, max_max, mean_lrel, max_lrel, n_cycles}`；缺字段 cycle 记 NaN 跳过。
+- `write_compare_files`（每字段 `<field>.json` + `summary.json`）/ `compare_runs` / CLI `main`
+  （`seq_a` `seq_b` 双参）。
+
+**S2 测试**（`tests/test_r39_seqcmp.py`，9 项，headless 无 vtk/CGNS）
+- `field_tile_difference` 完全一致=0、常数偏移=精确值、NaN 跳过 + 相对 L2、缺字段全 NaN；
+  `compare_sequences` 逐 cycle + 汇总、字段子集 + 缺字段 cycle、空输入；`write_compare_files`
+  `<field>.json` + `summary.json`、怪名过滤。
+
+**门禁预期**：ruff 0、seqcmp 不在 mypy 白名单、测试 +9、回归 R35–R38 全绿、bench OR——GATE PASS。
+
+### 8.33 第三十六轮执行记录：R39-S1/S2 跨序列时序对比（2026-09-04 落地）
+
+**S1 实现**（`fv/seqcmp.py`）
+- `field_tile_difference`：按绝对索引对齐两侧窗口（`hb.read_window`），有限 A∩B 计数；
+  相对 L2 用 `d/(|b|+1e-30)`。空/缺字段 → `_empty_diff()` 全 NaN。
+- `compare_sequences`：`zip` 同步；字段集延迟到首 cycle 判定（修：`fields` 显式传入时
+  `per_field` 未初始化 → 改 `if not per_field` 惰性初始化）。
+- CLI `fv.seqcmp <seq_a> <seq_b> --fields … --budget-mb`；每 cycle 打开/消费/释放 → 峰值内存
+  ~ 一预算瓦片。
+
+**S2 测试**（`tests/test_r39_seqcmp.py`，9 项全过）
+- 假 `FakeHandle`（`iter_tiles` + `read_window` 代言 `StreamCgnsHandle`），headless 无
+  vtk/CGNS；连同 R35(12)/R36(9)/R37(11)/R38(9) 回归共 **50** 项通过；ruff 0（fv/ tests/ 全绿）。
+
 

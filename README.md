@@ -159,3 +159,8 @@ gate on push/PR.
   a session sequence and, per cycle and per field, keeps only the chosen node
   rows via bounded iter_tiles → per-field/probe series JSON + manifest + CLI,
   headless-safe and no CGNS/vtk dependencies).
+- R39 - beyond-scPOST: cycle-by-cycle sequence comparison (baseline vs scenario)
+  (field_tile_difference diffs two streaming handles tile-by-tile via
+  iter_tiles/read_window for RMSE/MAE/max/relative-L2; compare_sequences walks
+  two timelines in lockstep → per-cycle field metrics + rolling summary, then
+  per-field JSON + summary.json + CLI, bounded memory, no CGNS/vtk deps).
