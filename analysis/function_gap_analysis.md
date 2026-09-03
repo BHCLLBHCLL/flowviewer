@@ -2284,4 +2284,42 @@ R47 相关矩阵关联探针集；R48 再进一步**分解**时空监测数据�
 - 修：`n_modes` 初稿返回全部奇异值（rank 缺陷数据含零能尾模态）→ 加有效秩裁减；首模态频率
   `0.9999999999999991` vs `1.0` 用 approx 容差。
 
+### 9.29 R49 基线外纵深·第十九轮：POD 低秩重构 + 探针滤波（2026-09-04 定稿）
+
+R48 把监测数据**分解**成空间模态；R49 用这些模态回答"top-k 抓住多少脉动"并**去噪**探针历史：
+只保留前导模态重构出的相干（周期）部分、丢弃不相干尾——经典低秩/POD 滤波视角。纯 NumPy、
+headless、无 CGNS/vtk 依赖；复用 R48（`pod_decompose`/`snapshot_matrix`），消费 R38 trace 工件。
+
+**S1 `fv/podfilter.py`**
+- `pod_reconstruct(artifact, k)`：`X_k=Σᵢ<k modeᵢ⊗coeffᵢ`（模态外积其时间系数）；返回
+  `{k, captured_var, per_probe_rmse[], total_rmse, reconstructed}`（RMSE 对居中原始矩阵、数据单位；
+  `k=None` 全模态 ≈ 精确重构；退化空数据 → 空）。
+- `modes_to_energy(pod, target=0.95)`：达到 target 累计能量的最少模态数，`{"k","captured"}`，
+  达不到 → `k=None`。
+- `filter_probe(artifact, probe, k)`：单探针低秩去噪序列（加回探针均值恢复数据单位；越界 → `[]`）。
+- `write_recon(artifact, k, out, field)`：`<field>_recon.json` + `<field>_rmse.csv`
+  （probe,rmse,captured_var）+ `summary.json`；CLI `fv.podfilter <trace>.json --k N`。
+
+**S2 测试**（`tests/test_r49_podfilter.py`，8 项，纯 NumPy）
+- rank-1 数据 k=1 → captured=1、total_rmse<1e-9；双结构 k=1 ~0.8、k=2 =1 全探针 rmse≈0；
+  `modes_to_energy` 0.5→1、0.99→2、>1→None、=1→2；正弦+噪声 k=1 滤波后离干净正弦 RMSE 更小且
+  均值≈0；带 DC=10 的探针均值保持≈10；越界探针 → `[]`；write 产物 json/csv/summary + 怪名过滤。
+
+**门禁预期**：ruff 0、podfilter 不在 mypy 白名单、测试 +8、回归 R35–R48 全绿、bench OR——GATE PASS。
+
+### 8.43 第四十六轮执行记录：R49-S1/S2 POD 低秩重构 + 探针滤波（2026-09-04 落地）
+
+**S1 实现**（`fv/podfilter.py`）
+- `pod_reconstruct`：`np.outer(mode, coeff)` 累加；`diff=X-recon` 逐探针 `sqrt(mean(diff²,axis=1))`；
+  `captured_var=pod["cum_energy"][k-1]`。
+- `filter_probe`：`pod_reconstruct` 行 + `values` 有限均值（`_finite` 防御非法值）。
+- `write_recon`：`field` 缺省回退 artifact name / "field"。
+
+**S2 测试**（`tests/test_r49_podfilter.py`，8 项全过）
+- 纯 NumPy + 复用 R47/R48/R41；连同 R35(12)/R36(9)/R37(11)/R38(9)/R39(9)/R40(7)/R41(11)/
+  R42(11)/R43(9)/R44(9)/R45(6)/R46(7)/R47(9)/R48(8) 回归共 **135** 项通过；ruff 0（fv/ tests/
+  全绿，3 处 autofix）。
+- 修：测试 `__import__("fv.pod")` 赘余改顶部 `from fv.pod import pod_decompose`；`per_probe_rmse`
+  精确等于 `[0.0]*4` 改为 `all(v<1e-9)` 容差断言。
+
 

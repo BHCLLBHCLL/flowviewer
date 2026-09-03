@@ -220,3 +220,10 @@ gate on push/PR.
   effective-rank trimming; pod_summary adds the leading mode's dominant
   frequency via R41; write_pod emits pod JSON + modes CSV + summary.json;
   CLI fv.pod, pure NumPy, headless, no CGNS/vtk deps).
+- R49 - beyond-scPOST: POD low-rank reconstruction + probe filtering
+  (pod_reconstruct rebuilds the data from the top-k modes as Σ mode⊗coeff and
+  reports captured variance + per-probe/total RMSE; modes_to_energy tells how
+  many modes reach a target energy share; filter_probe returns a denoised
+  single-probe history with its mean restored; write_recon emits recon JSON +
+  rmse CSV + summary.json; CLI fv.podfilter, pure NumPy reusing R48, headless,
+  no CGNS/vtk deps).
