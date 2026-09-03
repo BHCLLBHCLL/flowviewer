@@ -146,3 +146,7 @@ gate on push/PR.
   render pipeline (KeyframeTrack/Timeline with hold/linear/Catmull-Rom spline
   over arbitrary object properties; Scene.set_timeline drives them in animate;
   render_timeline → per-frame PNG/JSON + manifest, headless-safe).
+- R36 - beyond-scPOST: multi-cycle temporal report (Sequence → offline report
+  bundle): walk a session sequence with streaming handles, scan every field in
+  bounded tiles, and emit report.html + data.csv + manifest.json (+ optional
+  base64 PNG thumbnails) via a pure headless-testable assembly.

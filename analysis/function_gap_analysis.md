@@ -1748,4 +1748,65 @@ R3.3）、平面 automove、粒子多帧都已可推帧。但对象级的**通�
 **门禁**：ruff 0（fv/ tests/ 全绿）、R35 12/12、test_r29_camera 6/6——GATE PASS
 （完整 464+12 套件与 bench 由 CI py3.9/3.11 + vtk9.3.1 把关）。
 
+### 9.16 R36 基线外纵深·第六轮：序列时域报告（Sequence→离线报告包）（2026-09-03 定稿）
+
+R31（流式）→R32（Web 报告）→R33（批导出）→R34（会话序列）→R35（关键帧时间线）
+逐层推进到「自动化诚实的可交付」。R36 是这条自动化栈的**封顶**：把 R31-R35 的
+编排能力收束成**一键产出「多循环时域报告包」**——跨 cycle 的字段统计对比表 + 自包含
+离线 HTML（base64 缩略图 + 逐变量 min/max/Δ-from-base）+ 机器可读 CSV + manifest +
+可选视频衔接。与 R32 单数据集交互式 Web 报告互补：R36 是**时域（跨 cycle）静态报告**，
+headless 可确定性验收。
+
+**S1 有界字段统计**（`fv/present.py`）
+- `field_stats(handle, name, embed_window)`：按 R31 流式句柄 `iter_tiles` 分瓦片扫
+  描 → `{n,min,max,sample}`，忽略非有限值，内存有界。
+- `cycle_report(handle, name, embed_window)`：逐字段打包单 cycle 统计。
+
+**S2 纯组装**（`report_from_cycles`，无 VTK/h5py/GUI，headless 确定性可测）
+- `report.html`：依赖无关，逐 cycle 变量表（n/min/max/Δ 相对首 cycle），有 `png`
+  时 base64 内嵌缩略图；标题/内容经 HTML 转义占位符注入。
+- `data.csv`：每 (cycle, variable) 一行：n/min/max/sample_head。
+- `manifest.json`：运行配方 + 逐 cycle 变量清单/png。
+
+**S3 序列走查**（`sequence_report`，薄接线复用 R34/R31）
+- `SessionTimeline`（单首文件 `from_sequence` 或显式 list）逐 cycle `open_stream_cgns`
+  独立开句柄、用后释放 → 峰值内存 ~ 单数据集驻留；`snapshot(cycle)` 可选回 PNG 缩略
+  图（None 跳过，杜绝 headless 假成功）。
+- CLI `python -m fv.present <首文件|list> --out --window --budget-mb --no-html
+  --no-csv --title`。
+
+**S4 测试**（`tests/test_r36_present.py`，9 项，无 CGNS/GL）
+- field_stats min/max/n/sample 窗口封顶、忽略非有限；cycle_report 逐字段打包；
+  report_from_cycles 产 manifest/CSV 行/HTML 含 delta 列；HTML base64 内嵌 PNG；
+  HTML 变量名转义；sequence_report 以 stub SessionTimeline 走查 2 cycle + CSV min
+  序列断言。
+
+**门禁预期**：ruff 0、present 不在 mypy 白名单（本地 mypy 2.3.1 解析 numpy 3.12
+stub 报错为工具链问题，CI py3.9/3.11 不触发）、测试 +9、bench OR——GATE PASS。
+
+### 8.30 第三十三轮执行记录：R36-S1/S2/S3 序列时域报告（2026-09-03 落地）
+
+按 §9.16 把 R31-R35 编排能力收束为「多循环时域报告包」。
+
+**S1 有界字段统计**（`fv/present.py`）
+- `field_stats`/`cycle_report`：`iter_tiles` 分瓦片扫描 → n/min/max/sample，忽略
+  非有限，内存有界（单瓦片驻留）。
+
+**S2 纯组装**（`report_from_cycles`）
+- `report.html`（Δ-from-base 列、base64 PNG 缩略图、变量名 HTML 转义）+ `data.csv`
+  （逐 cycle×variable）+ `manifest.json`。纯函数、无 VTK/h5py。
+
+**S3 序列走查**（`sequence_report`）
+- `SessionTimeline`（单文件 from_sequence / list）逐 cycle `open_stream_cgns`；
+  `snapshot(cycle)` 可选回 PNG；CLI `python -m fv.present ...`。
+- 改：`SessionTimeline` 改为模块级导入便于 stub 走查测试（原局部导入导致 monkeypatch
+  期不可派、test 失败，已修）。
+
+**S4 测试**（`tests/test_r36_present.py`，9 项全过）
+- 见 §9.16 S4；含 stub SessionTimeline 走查 2 cycle、CSV min 序列断言、base64 内嵌、
+  HTML 转义。
+- 门禁：ruff 0（fv/ tests/ 全绿）、R36 9/9；完整 suite + bench 由 CI 把关。
+- 注：README 尾差旧文「FBX 外部」与「Compare/探针缺 GUI」在本系列轮次中已分别落地
+  （ASCII FBX、CompareDialog、probe_at）；R36 不重复规划。
+
 
