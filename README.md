@@ -227,3 +227,11 @@ gate on push/PR.
   single-probe history with its mean restored; write_recon emits recon JSON +
   rmse CSV + summary.json; CLI fv.podfilter, pure NumPy reusing R48, headless,
   no CGNS/vtk deps).
+- R50 - beyond-scPOST: DMD (Dynamic Mode Decomposition) of monitoring-point
+  data (time-delay/Hankel embedding lifts each probe series into delayed copies
+  so pure tones expose rank-2; exact projected DMD on the embedded matrix then
+  gives each mode a frequency and growth/damping rate via ω=ln(λ)/dt, ranked by
+  reconstructed energy, with the dominant oscillating mode reported and DC
+  excluded; modes carry per-probe complex participation; write_dmd emits dmd
+  JSON + modes CSV + summary.json; CLI fv.dmd, pure NumPy, headless, no CGNS/vtk
+  deps).

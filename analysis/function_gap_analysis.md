@@ -2322,4 +2322,46 @@ headless、无 CGNS/vtk 依赖；复用 R48（`pod_decompose`/`snapshot_matrix`�
 - 修：测试 `__import__("fv.pod")` 赘余改顶部 `from fv.pod import pod_decompose`；`per_probe_rmse`
   精确等于 `[0.0]*4` 改为 `all(v<1e-9)` 容差断言。
 
+### 9.30 R50 基线外纵深·第二十轮：监测点 DMD（动态模态分解）（2026-09-04 定稿）
+
+R48/R49 给的是**静态** POD 图景；DMD 是其**动态**伴侣：对监测快照拟合 `x_{k+1}=A x_k` 并取 `A`
+的特征模态——每个模态带**频率**和**增长/衰减率**，回答"哪种振荡动力学主导、在增长还是衰减"。
+纯音在实快照矩阵里是 rank-1，exact DMD 会把共轭对塌成实特征值、丢频率 → 用**时间延迟（Hankel）
+嵌入**把每条探针序列提升成 `d` 个延迟副本（状态 `[s_k, s_{k+1}, …]`），振荡暴露为 rank-2 才可恢复
+频率。纯 NumPy、headless、无 CGNS/vtk 依赖，消费 R38 trace 工件。
+
+**S1 `fv/dmd.py`**
+- `_embedded_snapshot_matrix(artifact, d)`：`(n_probes·d, L)` Hankel 嵌入矩阵。
+- `dmd_decompose(artifact, r, dt, embed_d)`：SVD `X1=UΣV*` 有效秩截断（`σ>σmax·1e-12`）；
+  `Ã=UᵣᵀX2VᵣΣᵣ⁻¹`；`Φ=X2VᵣΣᵣ⁻¹W`；幅值 `α` 对全序列指数基 `Φᵢαᵢλᵢᵏ` 最小二乘；
+  `ω=ln(λ)/dt` → `freq=|Imω|/2π`、`growth=Reω`；模态按重构能量降序，`dominant` 取最高能量的
+  **振荡**模态（`freq>1e-9`，DC 不赢）；`mode` 为各探针 delay-0 块复数参与度 `[re,im]` 对。
+- `write_dmd`：`<field>_dmd.json` + `<field>_modes.csv`（i,freq,growth,amplitude,share）+
+  `summary.json`；CLI `fv.dmd <trace>.json --r --embed-d`。
+
+**S2 测试**（`tests/test_r50_dmd.py`，9 项，纯 NumPy）
+- 单频 4 同相探针（嵌入 rank-2 → 共轭对）→ dominant≈1、|growth|<1e-3；双频 → 唯一频率
+  {1,3}（各共轭对）、dominant≈1（幅 2 赢）、能量降序；与 R41 `dominant_freq` 交叉一致；
+  DC 模态存在但 dominant 排除、dominant≈1；`--r` 截断共轭对 → 1 模态；空 probes / 3 cycle 退化；
+  主导模态参与度只在正弦探针上、平直探针 ~0；write 产物 json/csv/summary + 怪名过滤。
+
+**门禁预期**：ruff 0、dmd 不在 mypy 白名单、测试 +9、回归 R35–R49 全绿、bench OR——GATE PASS。
+
+### 8.44 第四十七轮执行记录：R50-S1/S2 监测点 DMD（2026-09-04 落地）
+
+**S1 实现**（`fv/dmd.py`）
+- 首版 exact DMD **无嵌入**：纯音快照 rank-1 → 单实特征值 λ≈cos(ωdt)≈0.9515，频率全丢
+  （调试确认 `ln(ev)=[-0.0497+0j]`）——DMD 低秩传感器数据的已知坍缩。改 **Hankel 嵌入**
+  （`embed_d=min(20,max(2,n//5))`），单频升成 rank-2 → 共轭对、freq 恢复 ≈1。
+- `mode` 取各探针 delay-0 块（行 `p*embed_d`）：首版 `Phi[:n_probes]` 错取探针 0 前 4 个延迟 →
+  平直探针假参与（mag 全 0.1581）；修 `[Phi[p*embed_d, i]`。
+- 模态复数 → JSON `[re,im]` 对无损序列化（消除 ComplexWarning 的强制取实）。
+
+**S2 测试**（`tests/test_r50_dmd.py`，9 项全过）
+- 纯 NumPy + 复用 R47/R48/R41；连同 R35(12)/R36(9)/R37(11)/R38(9)/R39(9)/R40(7)/R41(11)/
+  R42(11)/R43(9)/R44(9)/R45(6)/R46(7)/R47(9)/R48(8)/R49(8) 回归共 **144** 项通过；ruff 0
+  （fv/ tests/ 全绿）。
+- 修：`_art` 夹具忽略入参 t（恒 400 cycle）致退化用例不成立 → 手动 3-cycle 工件；参与度测试初
+  版误断平直探针 ~0（bug 源即 delay-0 取错行）。
+
 
