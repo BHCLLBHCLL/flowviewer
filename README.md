@@ -194,3 +194,9 @@ gate on push/PR.
   and the top-k cumulative share; turbulent_intensity offers std/mean;
   modes_from_spectrum consumes an R41 analyze_series dict; per-field JSON +
   summary.json + CLI, pure NumPy, headless, no CGNS/vtk deps).
+- R45 - beyond-scPOST: one-command per-probe monitoring analysis bundle
+  (analyze_probe fuses spectrum R41 + spectrogram trend R43 + mode decomposition
+  R44 + turbulent intensity into one "monitoring card"; analyze_monitor extends
+  to every probe; write_monitor emits a compact per-probe CSV table + bundle
+  JSON + summary.json; CLI fv.monitor, pure NumPy reusing the tested spectral
+  family, headless, no CGNS/vtk deps).

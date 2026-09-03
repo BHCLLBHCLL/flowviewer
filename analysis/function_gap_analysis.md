@@ -2133,4 +2133,38 @@ R41/R43 只报*主导*频率。R44 自动枚举一个探针的**全部显著振�
   R41(11)/R42(11)/R43(9) 回归共 **97** 项通过；ruff 0（fv/ tests/ 全绿）。
 - 修：夹具 `_harmonic_spectrum` 多余 `fs`/`_,` 解包 F841 清理。
 
+### 9.25 R45 基线外纵深·第十五轮：统一监测点分析包（monitor bundle）（2026-09-04 定稿）
+
+R41–R44 谱族各给一块；R45 把它们合成单个 `fv.monitor` 命令：对 R38 trace 工件的每个探针并行跑
+spectrum（R41）/ spectrogram 演化（R43）/ modes（R44）/ 湍流强度，汇成一张"监测卡片"，并输出
+一键可读的压缩 CSV 表 + bundle JSON + summary。纯复用既有纯 NumPy 模块，headless、无 CGNS/vtk。
+
+**S1 `fv/monitor.py`**
+- `analyze_probe(artifact, probe)`：融合 `analyze_series`（谱）+ `spectrogram_from_trace` +
+  `freq_evolution`（drift/fastest/slowest）+ `modes_from_spectrum`（n_peaks/dominant/top1_share）
+  + `turbulent_intensity`（ti_pct）→ 单探针卡片。
+- `analyze_monitor(artifact)`：全部探针 → `{field, probes[], n_probes}`。
+- `write_monitor(bundle, out)`：`<field>_monitor.csv`（probe,node,query,dominant_freq,nyquist,
+  drift,n_peaks,top1_share,ti_pct）+ `<field>_monitor.json` + `summary.json`。
+- CLI `fv.monitor <trace>.json --out`。
+
+**S2 测试**（`tests/test_r45_monitor.py`，6 项，纯 NumPy + R41/R43/R44）
+- 正弦探针卡片各键正确（dominant≈1、nyquist>0、nw>0、n_peaks≥1、ti>0）；常数探针 ti=0；
+  空 probes；`analyze_monitor` 全探针；CSV 3 行（表头 + 2 探针）+ bundle + summary；怪名过滤。
+
+**门禁预期**：ruff 0、monitor 不在 mypy 白名单、测试 +6、回归 R35–R44 全绿、bench OR——GATE PASS。
+
+### 8.39 第四十二轮执行记录：R45-S1/S2 统一监测点分析包（2026-09-04 落地）
+
+**S1 实现**（`fv/monitor.py`）
+- `analyze_probe`：一次调用编排 R41/R43/R44/R37 式强度，输出结构化卡片；空 probes 返回空卡片。
+- `write_monitor`：CSV 用 `csv.writer`（query 座标拼成 "x,y,z" 字符串），bundle JSON 完整 dump。
+- CLI `fv.monitor <trace>.json --out`：`name` 缺省取 trace 文件名 stem 后写三种产物。
+
+**S2 测试**（`tests/test_r45_monitor.py`，6 项全过）
+- 纯 NumPy + 复用既有模块；连同 R35(12)/R36(9)/R37(11)/R38(9)/R39(9)/R40(7)/R41(11)/
+  R42(11)/R43(9)/R44(9) 回归共 **103** 项通过；ruff 0（fv/ tests/ 全绿，3 处 autofix）。
+- 修：`analyze_probe` 初稿误读 `spectro['evolution']`（spectrogram 结果并不含该键），改
+  `freq_evolution(spectro)` 计算 drift/fastest/slowest；清未用 `List`/赘余 `trend` 块。
+
 
