@@ -139,3 +139,6 @@ gate on push/PR.
 - R33 - beyond-scPOST: batch export/render pipeline (bounded memory)
   (BatchJob/BatchExporter over streaming datasets: JSON sample / full-field
   raw float64 tile-stream export + manifest + CLI & GUI "Export Batch…").
+- R34 - beyond-scPOST: session recording / sequence render pipeline
+  (SessionTimeline over a CGNS cycle sequence + SessionRecorder → per-cycle
+  PNG/JSON + manifest; record_sequence + encode_video + GUI "Record Sequence…").

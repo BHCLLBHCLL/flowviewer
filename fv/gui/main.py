@@ -377,6 +377,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         add(m, "Export Animation Frames…", self.on_export_animation_frames)
         add(m, "Export Animation Video…", self.on_export_animation_video)
         add(m, "Export Batch…", self.on_batch_export)
+        add(m, "Record Sequence…", self.on_record_sequence)
         self._act_stream = QAction(
             "Streaming (low-memory) CGNS", self, checkable=True)
         self._act_stream.toggled.connect(self.set_stream_mode)
@@ -975,8 +976,33 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             return
         n = len(manifest.get("results", []))
         self.message_win.log(
-            f"Batch export done: {n} dataset(s) \u2192 {job.out_dir}")
+            f"Batch export done: {n} dataset(s) → {job.out_dir}")
         self.status.showMessage(f"Batch exported {n} dataset(s)", 5000)
+
+    def on_record_sequence(self) -> None:
+        """File > Record Sequence…: render a CGNS sequence to frames."""
+        from PyQt5.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Sequence first file", "", "CGNS files (*.cgns);;All (*.*)")
+        if not path:
+            return
+        from ..session import record_sequence
+        out_dir = str(Path(path).with_name("session_out"))
+
+        def _progress(done, total):
+            self.status.showMessage(
+                f"Record {done}/{total}: {Path(path).name}", 2000)
+
+        try:
+            manifest = record_sequence(
+                path, out_dir=out_dir, render=False, on_progress=_progress)
+        except Exception as exc:  # noqa: BLE001
+            self.message_win.log(f"Record failed: {exc}", "ERROR")
+            return
+        n = len(manifest.get("frames", []))
+        self.message_win.log(
+            f"Recorded {n} frame(s) → {out_dir}")
+        self.status.showMessage(f"Recorded {n} frame(s)", 5000)
 
     def on_export_png(self) -> None:
         """File → Export PNG…: render the current scene to an image file."""

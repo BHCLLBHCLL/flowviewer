@@ -1571,6 +1571,79 @@ export` 确为 `FlowViewer` 方法，而非仅类体内嵌套。）
 **门禁**：ruff 0、mypy 0、测试 457 passed（R33 新增 7）、bench 各
 相位 OK——GATE PASS；工作树干净。
 
+### 9.14 R34 基线外纵深·第四轮：会话记录/批渲染管线（Timeline→帧序列/视频）（2026-09-03 定稿方向）
+
+批渲染（R33）落地后，闭环「时间序列数据集」的自动化呈现：**把 Timeline 的
+逐 cycle 推进接到一条可复现、可分享、headless 可验收的批渲染管线上**——
+以流式数据集代替单 ff 场景（R31-S3 记账「视频导出在流式下跑通」），复用
+R32 服务端窗口读 + R33 批引擎进度/manifest 约定，零新依赖。产出：逐 cycle
+PNG 帧序列 + manifest +（可选）ffmpeg 编码视频 + 自包含 HTML 浏览页。
+
+**S0 前置**：核对 `scan_sequence`/`FileSet.members`/`min_cycle`/`max_cycle`、
+`AutomationSession.open/query/render`、`api.render_png`。
+
+**S1 会话/时间轴抽象**（`fv/session.py`）
+- `SessionTimeline`：从 **CGNS 序列**（`scan_sequence` 或显式 list，按文件名
+  cycle 排序）或**单文件 + `time_axis`**（内部按 R31 `open_stream_cgns` 的
+  cycle 轴切帧）构造；`cycles` / `count` / `__iter__` 逐 cycle 产出
+  `(cycle, handle, mesh)`（每 cycle 独立开流式句柄、用后释放 → 内存有界）。
+- `SessionRecorder`：给定 `timeline` + 渲染/抽取设置，逐 cycle 输出
+  `frame_{cycle}.png`（粗场景快照）与 `frame_{cycle}.json`（字段样例窗口），
+  写 `manifest.json`（每帧 path/n_fields/ok）。
+
+**S2 视频封装（复用 R33 批引擎约定）**：`record_sequence`（PIPELINE = 逐帧
+PNG + JSON + manifest）与可选 `encode_video`（ffmpeg 拼接 PNG 帧；ffmpeg
+缺失时诚实返回 0，回退 .ogv 由 GUI 既有路径承接）。CLI 入口
+`python -m fv.session <dir|list> --out ...`。
+
+**S3 GUI 薄接线**：File 菜单「Record Sequence…」→ 选序列目录/首文件 →
+`record_sequence`（headless 安全，render 为可选粗快照）。
+
+**S4 测试与门禁**（`tests/test_r34_session.py`）
+- 合成 3-cycle CGNS 序列：timeline.cycles 排序；逐帧 PNG 存在（offscreen 下
+  render 为 False 则断言 JSON 仍产出 + manifest 完整）；JSON 样例 == 该 cycle
+  handle.read_window；manifest 结构/数量正确；`SessionRecorder` 单/序列皆可；
+  CLI 产出 manifest 返回 0；GUI 动作存在（offscreen guard）。回归：R33 batch、
+  R32 web、R31 stream、R28/R29/R26、cgns/adf 全绿；非流式默认路径逐字节不变。
+
+**验收标准**：CGNS 序列逐 cycle 帧 + JSON + manifest 全产出且数值与流式 eager
+一致；视频封装可用则编码、缺 ffmpeg 诚实降级；`check.py` 四阶段全绿为出口。
+
+### 8.28 第三十一轮执行记录：R34-S1/S2/S3 会话记录/批渲染管线（2026-09-03 落地）
+
+按 §9.14 闭环「时间序列数据集的自动化呈现」：把 Timeline 的逐 cycle 推进接到
+流式批渲染管线上（R31-S3 记账「视频导出在流式下跑通」）。
+
+**S1 会话/时间轴抽象**（`fv/session.py`）
+- `SessionTimeline`：`from_sequence`（`scan_sequence` 取同 stem 后缀 cycle 的
+  CGNS 序列，按文件名 cycle 排序）或显式 list；`count`/`cycles`/`__iter__`
+  逐 cycle `open_stream_cgns` 独立开流式句柄、用后释放 → 内存有界（单数据集
+  驻留）。
+- `SessionRecorder`：逐 cycle 写 `frame_{cycle}.png`（粗场景快照，headless →
+  False）与 `frame_{cycle}.json`（字段样例窗口）+ `manifest.json`（frames /
+  cycle / files / ok）；进度回调复用 R33 约定。
+
+**S2 视频封装与 CLI**：`record_sequence`（list 或首文件，render/extract/
+window_len/budget_mb）+ `encode_video`（ffmpeg 拼接 PNG，缺 ffmpeg 诚实返回
+0）+ `main()` CLI（`python -m fv.session <首文件|list> --out --no-render`）。
+
+**S3 GUI 薄接线**：File 菜单加「Record Sequence…」→ `on_record_sequence()`
+选首文件 → `record_sequence(render=False)`（无场景构建，headless 安全）；进度
+写 status/message_win。（工具注：Edit 工具再次失效——菜单项/句柄曾丢失且残留
+`\u2192`/`ARR` 占位符；改用脚本补回、以 **AST 校验**确认方法、替换为真实 →。）
+
+**S4 测试**（`tests/test_r34_session.py` 现 7 项全过，headless 安全）
+- timeline 3-cycle 排序且可迭代；逐帧 JSON 样例 == 该 cycle `read_window`
+  窗口；manifest job==timeline / frames 数 == count；render=False 无 PNG、
+  render=True headless 下 ok=False（有显示则 PNG）；`record_sequence` list 直
+  用；`encode_video` 缺 ffmpeg 返回 0（诚实降级）；CLI 产 manifest 返回 0；
+  GUI 动作存在（offscreen guard）。
+- 回归：R33 batch、R32 web、R31 stream、R28/R29/R26、cgns/adf 全绿；**非流式
+  默认路径逐字节不变**。
+
+**门禁**：ruff 0、mypy 0、测试 464 passed（457 存量 + 7 新增）、bench 各
+相位 OK——GATE PASS；工作树干净。
+
 
 
 **前提（§8.21 权威基线）**：覆盖 ~100%、端到端深度 ~98%；剩余差距
