@@ -174,3 +174,10 @@ gate on push/PR.
   series → DC-detrended power spectrum, dominant/peak frequency & Nyquist;
   spectrum_from_trace reads R38 trace JSON; per-probe PSD CSV + summary.json +
   CLI, pure NumPy, headless, no CGNS/vtk deps).
+- R42 - beyond-scPOST: relating two monitoring series — lagged
+  cross-correlation + Welch coherence (cross_correlate normalized lagged
+  Pearson correlation → best (lag, rho) relative offset between two probes, or
+  baseline vs perturb at one probe; coherence segment-averaged magnitude-squared
+  coherence → shared-oscillation peak frequency; relate_probes reads R38 trace
+  JSON; per-pair JSON + summary.json + CLI, pure NumPy, headless, no CGNS/vtk
+  deps).

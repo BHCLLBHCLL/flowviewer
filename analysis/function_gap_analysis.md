@@ -2017,4 +2017,45 @@ headless、无 CGNS/vtk 依赖；非均匀 / 有 NaN 间隙的快照用有限点
   通过；ruff 0（fv/ tests/ 全绿）。
 - 修：ruff 2 处 F841（`cycles`/`rng` 未用）删除。
 
+### 9.22 R42 基线外纵深·第十二轮：双序列关系——互相关 + 相干性（2026-09-04 定稿）
+
+R41 给出*单个*监测点的 FFT 谱。R42 补经典非定常/实验常问的**双序列关系**：两个传感器如何
+在时域与频域关联？两个纯 NumPy 原语：
+- `cross_correlate(x, y, max_lag)`——归一化（Pearson）滞后互相关，返回最优（lag, rho），即
+  两条探针历史（两个测点压力，或同一测点 baseline vs perturb）之间的最优相对时间偏移
+  （采样为单位；`x` 领先 `y` 为正）。
+- `coherence(x, y, nperseg, dt)`——Welch 幅值平方相干（分段平均交叉/自周期图），返回共同
+  振荡频带峰值，即两探针一起振荡的主导频率。
+两者均纯 NumPy（`np.correlate`/`rfft`），headless、无 CGNS/vtk 依赖。`relate_probes` 从 R38
+trace 工件读两条探针序列，CLI 按探针对写 JSON 包。
+
+**S1 `fv/relate.py`**
+- `cross_correlate`：有限 A∩B 对齐、去均值、`np.correlate(mode='full')/正交化，`max_lag` 截窗；
+  常数/退化 → NaN。
+- `coherence`：分段 50% 重叠、逐段去均值 + rfft、平均 `|Pxy|²/(Pxx·Pyy)`、取 `freqs>0` 峰值；
+  `nperseg` 缺省 `DEFAULT_NPSEG` 并钳到输入长；过短 → NaN。
+- `relate_probes(artifact, px, py)`：`dt` 缺省取 cycle 轴 `mean_dt`（复用 R41）。
+- `write_relate`（每探针对 JSON + `summary.json`）/ CLI `main`（`--px/--py/--all`）。
+
+**S2 测试**（`tests/test_r42_relate.py`，11 项，纯 NumPy）
+- `cross_correlate` 恢复采样滞后、零滞后全同、`max_lag` 截窗、长度失配 raise + 常数 NaN；
+  `coherence` 同频峰值高、异频低、过短 NaN；`relate_probes` 双探针 + 越界 error；
+  `write_relate` 对 JSON + summary + 怪名过滤。
+
+**门禁预期**：ruff 0、relate 不在 mypy 白名单、测试 +11、回归 R35–R41 全绿、bench OR——GATE PASS。
+
+### 8.36 第三十九轮执行记录：R42-S1/S2 双序列关系（互相关 + 相干）（2026-09-04 落地）
+
+**S1 实现**（`fv/relate.py`）
+- `cross_correlate`：`dx @ dy` 计算范数分母；`rho=corr/denom`；`max_lag` 用 `|lags|<=max_lag`
+  掩窗。`coherence`：`_segments` 生成器 50% 重叠分窗，`rfft` 平均功率，`where=denom>0` 防除零。
+- `relate_probes`：`dt=0.0` 缺省 → 从 cycle 轴 `mean_dt` 推断（修：缺省 1.0 恒真值会跳过推断）。
+- CLI `fv.relate <trace>.json --px --py --all`，写 `<field>__probe{px}_vs_{py}.json` +
+  `summary.json`。
+
+**S2 测试**（`tests/test_r42_relate.py`，11 项全过）
+- 纯 NumPy（无 CGNS/vtk）；连同 R35(12)/R36(9)/R37(11)/R38(9)/R39(9)/R40(7)/R41(11) 回归共
+  **79** 项通过；ruff 0（fv/ tests/ 全绿）。
+- 修：ruff 6 处（import 排序/EOL 等）autofix；`np.concat` 兼容分支简化为 `np.concatenate`。
+
 
