@@ -111,7 +111,13 @@ def _probe_vtk(ff: FieldFile, pos, scalar_var: str, vector_var: str,
     out: dict = {}
     from .plane import build_ugrid
     if ugrid is None or cell_centered is None:
-        ugrid, cell_centered = build_ugrid(ff)
+        if ugrid is None and cell_centered is None:
+            # R37: reuse the bounded, memoized probe grid (one build per dataset)
+            # instead of rebuilding on every pick / Point-object render.
+            from .probe import get_probe_grid
+            ugrid, cell_centered = get_probe_grid(ff)
+        else:
+            ugrid, cell_centered = build_ugrid(ff)
     if ugrid is None:
         return out
 

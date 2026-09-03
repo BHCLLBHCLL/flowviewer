@@ -150,3 +150,7 @@ gate on push/PR.
   bundle): walk a session sequence with streaming handles, scan every field in
   bounded tiles, and emit report.html + data.csv + manifest.json (+ optional
   base64 PNG thumbnails) via a pure headless-testable assembly.
+- R37 - beyond-scPOST: probe-grid memoization + generic local data cursor
+  (get_probe_grid caches build_ugrid once per dataset with a bounded LRU,
+  shared by Point/Information/pick probes; probe_polydata does pure-NumPy
+  nearest local value extraction from any rendered polydata, no vtkCutter).

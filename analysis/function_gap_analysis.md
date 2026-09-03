@@ -1809,4 +1809,62 @@ stub 报错为工具链问题，CI py3.9/3.11 不触发）、测试 +9、bench O
 - 注：README 尾差旧文「FBX 外部」与「Compare/探针缺 GUI」在本系列轮次中已分别落地
   （ASCII FBX、CompareDialog、probe_at）；R36 不重复规划。
 
+### 9.17 R37 基线外纵深·第七轮：探针网格记忆化 + 通用本地取值（数据光标）（2026-09-03 定稿）
+
+R36 封顶自动化呈现栈后，R37 回到**取值/交互性能**纵深：既有的数据探针（Point 对象、
+Information、左键 pick）各自在 `_probe_vtk` 内**每次调用都重建** `build_ugrid`——在百万
+单元级网格上是首帧/反复交互的实测成本（§8.x 性能尾差），且对已渲染 polydata（切割面、
+等值面、粒子点云、流线）没有通用的本地取值入口。R37 用两层补齐：
+
+**S1 探针网格记忆化**（`fv/render/probe.py`）
+- `get_probe_grid(ff)`：按 `id(ff)` 有界 LRU 记忆化 `build_ugrid`（一次构建多次复用；
+  新 `FieldFile` 对象 = 新 id = 重载边界即重构建；`reset_probe_grid` 供测试/卸载）。
+  与 R26 平面切割缓存同一模式，将「每次 pick 重建网格」降为「每数据集一次」。
+
+**S2 通用本地取值**（`probe_polydata` / `nearest_point` / `probe_summary`）
+- `probe_polydata(pd, query)`：从**任意 polydata**（vtkPolyData 或
+  `(pts, {name:(ndarray,kind)}, cell_arrays)` 无 VTK 形式）取最近点 + 最近点标量/向量
+  值 → `{query, point:(idx, xyz), nearest:{name:(kind, value)}}`。最近点用纯 NumPy
+  `einsum`，不触 `vtkCutter`。
+- `probe_summary`：紧凑 `"xyz=… | P=val | V=(x,y,z)"` 数据光标状态行。
+- `from_polydata`：`vtk_to_numpy` 抽取点/点数据数组，标量/向量按 ndim 归类。
+- `attach_probe_arrays`：复用 `plane.attach_scalar/attach_vector` 的接线便利。
+
+**S3 接线**（`fv/render/point.py`）
+- `_probe_vtk`：当 ugrid/cell_centered 均未提供时改用 `get_probe_grid(ff)`（每数据集
+  一次构建），是 Point 渲染 / Information / pick 的共享冷路径。
+
+**S4 测试**（`tests/test_r37_probe.py`，11 项，无 `vtkCutter`）
+- `nearest_point` 最近点 + 空安全；`from_polydata` 提取点/数组/kind；`probe_polydata`
+  最近点 + 标量/向量值、空 polydata 安全、无 VTK tuple 形式；`probe_summary` 格式；
+  `get_probe_grid` 同数据集仅一次构建、新数据集重构建、LRU 上限驱逐。
+
+**门禁预期**：ruff 0、probe 不在 mypy 白名单、测试 +11、回归 R35/R36 全绿、bench OR——
+GATE PASS。
+
+### 8.31 第三十四轮执行记录：R37-S1/S2/S3 探针网格记忆化 + 通用本地取值（2026-09-03 落地）
+
+按 §9.17 补取值/交互性能的第三层：网格一次构建 + 任意 polydata 数据光标。
+
+**S1 记忆化**（`fv/render/probe.py`）
+- `get_probe_grid`：`id(ff)` 键 + `OrderedDict` LRU（`_PROBE_GRID_MAX=4`）；空/新数据集
+  安全；`reset_probe_grid` 清空。测试以 `monkeypatch` 桩 `build_ugrid` 断言“同 ff 一次
+  构建、两次命中”，LRU 上限驱逐旧条目后重构建。
+
+**S2 通用取值**
+- `probe_polydata`/`nearest_point`（`einsum`）/`probe_summary`/`from_polydata`
+  （vtk + 
+  tuple 两种源）；全局不触 `vtkCutter` → 本机 vtk 9.7 平面切割崩溃环境亦全绿。
+- 修：array 项顺序统一为 `(ndarray, kind)`（tuple 形式初值误用 `(kind, array)`，与
+  `probe_polydata` 解包不一致导致取值缺失；已统一并同步 docstring）。
+
+**S3 接线**（`fv/render/point.py`）
+- `_probe_vtk` 在 ugrid/cell_centered 均缺省时改走 `get_probe_grid(ff)`，Point/
+  Information/pick 共享一次每数据集网格构建。
+
+**S4 测试**（`tests/test_r37_probe.py`，11 项全过）
+- 见 §9.17 S4；连同 R35(12)/R36(9) 回归共 32 项通过；ruff 0（fv/ tests/ 全绿）。
+- 环境：本机仅 vtk 9.7（py3.14），R37 不触 vtkCutter 故本地可验；完整 suite/bench 由 CI
+  py3.9/3.11 + vtk==9.3.1 把关。
+
 
