@@ -1979,4 +1979,42 @@ R38 的有界逐瓦片读取模型。监测点一次绑定到网格节点（取 
   R35(12)/R36(9)/R37(11)/R38(9)/R39(9) 回归共 **57** 项通过；ruff 0（fv/ tests/ 全绿）。
 - 修：测试用 `NODES[:1]`（node 1）配长度 1 数组越界 → 统一用显式 `N0`（node 0）并校准断言值。
 
+### 9.21 R41 基线外纵深·第十一轮：监测点时序频谱分析（FFT periodogram）（2026-09-04 定稿）
+
+R38 记录了监测点上的场值-时间历史（R40 更进一步在两条序列上对比）；R41 在其之上补经典**非定常
+后处理**：对一个监测点序列 `(cycle, value)` 去均（DC）、FFT 成功率谱、报告**主导（峰值）频率**
+——即「监测点涡脱频率」类估计，用于验证非定常 CFD 解。纯 NumPy（`np.fft.rfft`/`rfftfreq`），
+headless、无 CGNS/vtk 依赖；非均匀 / 有 NaN 间隙的快照用有限点的中位采样间隔、忽略 NaN 处理。
+
+**S1 `fv/spectrum.py`**
+- `mean_dt(cycles)`：排序后中位采样间隔（对间隙稳健；<2 个时间 → 0）。
+- `analyze_series(cycles, values)`：去 DC + rfft → `{n, dt, ymin, ymax, mean, std,
+  nyquist, dominant_freq, dominant_psd, dc_energy, freq[], psd[]}`（单边谱至 Nyquist、
+  `|F|²/n` 周期图；常数序列 → dominant_freq 0；<2 有限点 → 全 NaN）。
+- `spectrum_from_trace(artifact, probe)`：读 R38 `<field>.json` 的一个探针 → 分析 + 附 probe/
+  query/node。
+- `write_spectrum(field, results, out)`（每探针 PSD CSV + `summary.json`）/ CLI `main`
+  （`fv.spectrum <trace>.json --probe N`）。
+
+**S2 测试**（`tests/test_r41_spectrum.py`，11 项，纯 NumPy）
+- `mean_dt` 均匀/含间隙/单点；`analyze_series` 复现正弦主导频率、DC 去除、常数→0、短序列→NaN、
+  NaN 跳过、长度失配 raise；`spectrum_from_trace` 探针读取 + 空 probes；`write_spectrum`
+  PSD CSV + summary + 怪名过滤。
+
+**门禁预期**：ruff 0、spectrum 不在 mypy 白名单、测试 +11、回归 R35–R40 全绿、bench OR——GATE PASS。
+
+### 8.35 第三十八轮执行记录：R41-S1/S2 监测点时序频谱分析（2026-09-04 落地）
+
+**S1 实现**（`fv/spectrum.py`）
+- `analyze_series`：有限 mask 后 `mean_dt`；常数序列短路返回 `dominant_freq=0`（避免 rfft 除零
+  抖动）；否则 `rfft(det)`, 取 `freqs>0` 峰值为主频。`write_spectrum` 的 CSV 带 `#` 注释头
+  （n/dt/nyquist/主频）。
+- CLI `fv.spectrum <trace>.json`：按 `--probe` 过滤或全量分析每个探针，写 `<field>__probe{i}.csv`
+  + `summary.json`。
+
+**S2 测试**（`tests/test_r41_spectrum.py`，11 项全过）
+- 纯 NumPy（无 CGNS/vtk）；连同 R35(12)/R36(9)/R37(11)/R38(9)/R39(9)/R40(7) 回归共 **68** 项
+  通过；ruff 0（fv/ tests/ 全绿）。
+- 修：ruff 2 处 F841（`cycles`/`rng` 未用）删除。
+
 

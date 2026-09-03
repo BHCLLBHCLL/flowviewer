@@ -169,3 +169,8 @@ gate on push/PR.
   point_compare aligns two sequences' probe histories on common cycles → per
   probe: a/b/diff series + mean/max abs, max relative; per-field JSON +
   summary.json + CLI, bounded memory, no CGNS/vtk deps).
+- R41 - beyond-scPOST: monitoring-point frequency/power-spectrum analysis
+  (mean_dt robust sampling interval + analyze_series FFT periodogram on a probe
+  series → DC-detrended power spectrum, dominant/peak frequency & Nyquist;
+  spectrum_from_trace reads R38 trace JSON; per-probe PSD CSV + summary.json +
+  CLI, pure NumPy, headless, no CGNS/vtk deps).
