@@ -2827,4 +2827,56 @@ R42 `coherence`/`DEFAULT_NPSEG`。**范围/诚实降级**：相量为 Welch 段�
   缺 probes/坏 verts/越界 `--cycles` → exit 2。
 
 
+### 9.41 R61 基线外纵深·第三十一轮：频域场统一控制台（Spectral Field Console）（2026-09-05 定稿）
+
+**动机**：R58（单点谱场）、R59（相干场）、R60（谱演化场）各自输出一张自包含 HTML 场报告，语义上同为
+"全网格单场→四张热力图"，但彼此孤立，单变量跨面板对比要先开三份文件。R61 做**集成收官轮**：把三份场报告折进
+**一个单页标签式控制台**——顶部 Summary 表 + Tab 栏（Spectral / Coherence / Evolution），每个面板展示其四张
+`<canvas>` 热力图 + 每图 min/max/mean/finite 统计行，全部由同一份内联 JS 逐面板绘制与切换。与 R54（POD 空间报告）
+/R51（探针族报告）的"单页整合"精神一致，把三份新场维度并排呈现便于对照。
+
+**方案**（`fv/fieldconsole.py`）
+1. `build_console(verts, artifact, *, panels=("spectral","coherence","spectevol"), ref_probe=0,
+   cycles=None, step=1, frames=None, k=None, p=2.0, neighbors=4, source="pod", preview=24,
+   nperseg=None, dt=None) -> dict`：依次调 R58/R59/R60 的 `build_*_report`（参数统一转发，`ref_probe` 与
+   `nperseg` 仅相干/演化面板用），收集 `panels[name] = {meta(n_frames/n_vertices/dt/nyquist/stats), stats,
+   previews}`；顶层 meta：field/source/panels/k/p/neighbors/preview/n_probes/n_cycles/n_vertices。空/无
+   probes/短工件 → 子报告已优雅降级，控制台如实呈现空面板。
+2. `render_html(console) -> str`：Summary 表 + tabs 按钮；每个选中面板一个 `<section>`（只显第一个），内含
+   标题、该面板 4 张 `<canvas id="cv_{panel}_{map}">` + 每图统计行；**一份**内联 JS：`PANELS` 逐面板逐图用
+   `[0,1]→RGB` 色带 load 时绘制全部 canvas；tabs JS 切换显隐。字段名转义；无数据 → "No data."。
+3. `write_console(...) -> dict`：`<safe>_fieldconsole.html` + `<safe>_fieldconsole.json`（slim：stats/meta +
+   `_preview_lists` 转 JSON 安全 `[[float-or-None]]`，无 (N,) 节点数组）+ `summary.json`；CLI
+   `fv.fieldconsole <trace> <verts> --panels --ref --source pod|dmd --cycles A:B --dt --frames --k --p
+   --neighbors --preview --out`。
+
+**复用**：R58/R59/R60 三份 `build_*_report`（保留其内部 map/stats/previews/meta 与 draw-JS 语义）、R57
+`binned_preview`/`_safe`/`_f`、R58 `_esc`/`_grid_range`。**范围/诚实降级**：预览仍为粗粒度分箱（默认 24×24），
+需 VTK 的精细渲染不在 headless 范围；面板少则 canvas 数相应减少；无 data → "No data."。
+
+### 8.55 第五十八轮执行记录：R61-S1/S2 频域场统一控制台（2026-09-05 落地）
+
+**S1 实现**（`fv/fieldconsole.py`）
+- `build_console`：`PANEL_SPEC` 定义面板→地图标题映射；选中面板按序调各自 `build_*_report`（`panels` 过滤合法名），
+  只保留 meta/stats/previews（不含 (N,) 节点数组），`n_vertices` 从 verts 推断；空 / 无 probes 优雅降级。
+- `render_html`：Summary 表 + tabs 按钮 + 分节 `<section data-pan>`；`pan_js` 预计算每图 `maps_js`（NaN→None）
+  与 `vm_js`（`_grid_range`），`_CONSOLE_JS` 一份 JS 用 `JSON.replace` 注入 `PANELS`/`GRID`/`TABS`，load 时绘全部
+  canvas、tabs 点击切换显隐。
+- `write_console`/`_preview_lists`/CLI：slim json 走 `_preview_lists` 转 `[[float-or-None]]` 防
+  `TypeError: Object of type ndarray is not JSON serializable`；`_read_verts` 延迟复用 R53 reconfield；
+  CLI 校验 `--panels`/`--cycles`/`--ref` 越界与缺 probes → exit 2。
+- **修正**：`render_html` 第 138–140 行曾在 f-string 表达式内写 `' style=\"display:block\"'`（含反斜杠转义），
+  Python ≤3.11 报语法错误 → 改为外层变量 `style = "" if i == 0 else ' style="display:block"'` 再拼接。
+
+**S2 测试**（`tests/test_r61_fieldconsole.py`，9 项全过）
+- 纯 NumPy；本机 R35–R61 全量回归（含 R61 新增）全绿，ruff 0，无警告。为控制工具超时，测试用 120 帧子窗口
+  （6 s）加速构建。
+- 覆盖：默认三面板整合（kind/field/n_probes/panel_order/各面板 n_frames>2 与 stats+previews、coherence
+  n_vertices==9）；子集与顺序（`(spectral,)`/`(spectevol,coherence)`/含 `bogus` 过滤）；`ref_probe=99` → OOR
+  ValueError；空工件 n_probes==0、dt 推断==0.05；HTML 三 Tab 标题/12 canvas/`cv_{panel}_{map}` id、脚本转义
+  `&lt;script&gt;`、Summary；子集 4 canvas；空 "No data."；写文件 `pres sure → pres_sure_fieldconsole.*` + slim
+  json 无节点数组 + summary panels；CLI 坏 trace/坏 verts/越界 `--cycles`/未知 `--panels`/`--ref 99` → exit 2，
+  正常路径产出 `CLI_fieldconsole.html`。
+
+
 

@@ -321,3 +321,14 @@ gate on push/PR.
   summary.json; CLI fv.spectevol <trace> <verts> --source pod|dmd --cycles A:B
   --nperseg --dt --frames --k --p --neighbors --preview --out, pure NumPy,
   headless, no CGNS/vtk deps).
+- R61 - beyond-scPOST: unified spectral-field console (Field Console), folding the
+  three R58/R59/R60 field reports into one single-page dependency-free HTML page:
+  summary header + tab bar (Spectral / Coherence / Evolution) switching which panel
+  of four HTML <canvas> heatmaps + per-map stats is shown, all painted by one shared
+  stdin-free inline JS; build_console re-runs build_spectral_report /
+  build_coherence_report / build_spectevol_report (panels selectable, ref_probe and
+  nperseg forwarded only where relevant) and keeps meta/stats/previews per panel
+  (no (N,) node arrays); write_console emits <field>_fieldconsole.html +
+  <field>_fieldconsole.json (JSON-safe previews) + summary.json; CLI fv.fieldconsole
+  <trace> <verts> --panels --ref --source pod|dmd --cycles A:B --dt --frames --k
+  --p --neighbors --preview --out, pure NumPy, headless, no CGNS/vtk deps).
