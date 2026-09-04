@@ -243,3 +243,11 @@ gate on push/PR.
   groups, strongest pairs, POD energy bars and a DMD modes table; write_structure_report
   writes <field>_struct.html + summary.json; CLI fv.structreport, pure NumPy,
   headless, no CGNS/vtk deps).
+- R52 - beyond-scPOST: modal spatial map (inverse-distance-weighted IDW spread of a
+  chosen probe-level mode onto the full mesh: idw_field pins exact weights at the
+  probe nodes and blends nearest neighbour weights onto every other vertex with
+  bounded-memory chunked distances; mode_weights sources a POD mode or the DMD
+  dominant mode's per-probe participation; build_mode_field returns the node field
+  + coverage stats; write_mode_field emits <field>_mode<k>.json +
+  <field>_mode<k>_nodes.csv (node,x,y,z,weight) + summary.json; CLI fv.modalfield,
+  pure NumPy, headless, no CGNS/vtk deps).

@@ -2403,5 +2403,51 @@ DMD）算出来了，但只落到 JSON/CSV。R51 是结构侧的收官可视化�
   R42(11)/R43(9)/R44(9)/R45(6)/R46(7)/R47(9)/R48(8)/R49(8)/R50(9) 回归共 **152** 项通过；
   ruff 0（fv/ tests/ 全绿，含 1 处文末换行 autofix）。
 
+### 9.32 R52 基线外纵深·第二十二轮：模态空间图（Modal Spatial Map）（2026-09-04 定稿）
+
+R47–R51 把**探针级**的模态分析做全了（相关矩阵、POD、DMD、HTML 报告），但所有结果都停在
+稀疏监测点上，从不落到**全网格的空间场**。R52 是收官：给定网格顶点 + 单字段 R38 trace 工件
+（探针已绑定全局节点），用**反距离加权（IDW）**把选定模态的逐探针权重铺满整个网格，导出为
+渲染器/场加载器可消费的逐节点场——即模态在流域上的"空间形态/相干结构"。纯 NumPy、headless
+（核心不打开 CGNS、不依赖 VTK），权重取自 R48 POD 模态或 R50 DMD 主导模态。
+
+**S1 `fv/modalfield.py`**
+- `idw_field(verts, probes, weights, *, p=2.0, neighbors=4)`：探针节点精确赋权（同节点多探针取
+  平均）；其余顶点取最近 `k` 个探针做 IDW（`neighbors=0`→全部；`k=clamp`）；距离**分块**向量化
+  （CH=1<<20，控制峰值内存），`d<eps` 置 `eps` 使重合顶点被该探针主导；无可达参考为 NaN。
+- `mode_weights(artifact, *, source="pod", k=0, weight="signed")`：`pod_decompose.modes[k]`
+  （signed）或 DMD 主导模态参与度（`signed`=delay-0 实部、`mag`=`mode_mag`）；越界/无主导模态/
+  非法 source → ValueError。
+- `build_mode_field`：`{weights, node_field, meta}`，meta 含覆盖统计（finite_count/finite_fraction、
+  min/max/mean_abs、dominant_probe_index、p/neighbors）；空探针/空 cycles 优雅空结果。
+- `write_mode_field`：写 `<safe>_mode{k}.json` + `<safe>_mode{k}_nodes.csv`（表头
+  node,x,y,z,weight；`node`=输入 verts 行号；NaN 写空格）+ `summary.json`；CLI
+  `fv.modalfield <trace>.json <verts.npy|json> --source pod|dmd --k --p --neighbors --weight --out`。
+
+**S2 测试**（`tests/test_r52_modalfield.py`，9 项，纯 NumPy）
+- 3×3 平面网格 + 4 角探针工件：IDW 探针节点精确赋权；p=1 等距中点=0.5、`neighbors=1` 取最近
+  探针权重；POD source 探针节点场值与 `pod_decompose.modes[0]` 一致（top-1 份额>0.5）；DMD
+  `weight="mag"` == 主导模态 `mode_mag`、`freq>0`；参考点全 Null/无探针 → 全 NaN、覆盖 0；write
+  产物 json/csv/summary + 怪名过滤；空工件优雅空结果；CLI 往返 + 缺 probes / `--k` 越界返 2；
+  `_read_verts` 处理 .json/.npy 与坏形状。
+
+**门禁预期**：ruff 0、测试 +9、回归 R35–R51 全绿——GATE PASS。
+
+### 8.46 第四十九轮执行记录：R52-S1/S2 模态空间图（2026-09-04 落地）
+
+**S1 实现**（`fv/modalfield.py`）
+- 首版邻居选择用 `np.take_along_axis(D2, idx, axis=0)`：`D2` 为 `(J,块)`、`idx` 为 `(k,块)`，
+  非轴维度 `(块,)` 与 `(k,块)` 无法广播 → IndexError。改**直接高级索引** `D2[idx, cols]` +
+  `w[idx]`（`cols=arange(块)` 广播列下标）。
+- `np.divide(..., where=den!=0)` 未给 `out` → NumPy 警告未初始化内存；补 `out=full(num,nan)`
+  消除警告并保证确定性。
+- `mode_weights` 未用 `probes` 局部变量 → ruff F841，删除。
+
+**S2 测试**（`tests/test_r52_modalfield.py`，9 项全过）
+- 纯 NumPy + 复用 R48/R50；连同 R35(12)/R36(9)/R37(11)/R38(9)/R39(9)/R40(7)/R41(11)/R42(11)/
+  R43(9)/R44(9)/R45(6)/R46(7)/R47(9)/R48(8)/R49(8)/R50(9)/R51(8) 回归共 **161** 项通过；ruff 0
+  （fv/ tests/ 全绿）。IDW 测试中点顶点取 x=1.0 与端点(0,2)等距保证唯一；`neighbors=1` 用
+  x=0.25/x=1.5 消除平局。
+
 
 
