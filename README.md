@@ -259,3 +259,12 @@ gate on push/PR.
   ties are exact (≈0 RMSE with all modes); write_reconfield emits <field>_recon_cycle<N>.json
   + <field>_recon_nodes.csv (node,x,y,z,recon) + <field>_recon_quality.json + summary.json;
   CLI fv.reconfield, pure NumPy, headless, no CGNS/vtk deps).
+- R54 - beyond-scPOST: spatial analysis HTML report (R51's structural report in the
+  spatial domain: digests the temporal-mean field, the top POD mode shape fields and the
+  full-field reconstruction at a cycle into one dependency-free page — summary, mean-field
+  stats, per-mode energy bars + shape range, reconstruction snapshot + captured energy and
+  probe-node reconstruction quality; build_spatial_report fuses R53 mean_field/
+  reconstruct_field/recon_quality with R52 build_mode_field; render_html emits the
+  self-contained page; write_spatial_report writes <field>_spatial.html +
+  <field>_spatial.json + summary.json; CLI fv.spatialreport, pure NumPy, headless,
+  no CGNS/vtk deps).

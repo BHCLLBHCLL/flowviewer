@@ -33,7 +33,7 @@ def test_pod_reconstruct_exact_for_rank1():
     art = _art([np.sin(a), np.sin(a), -np.sin(a), -np.sin(a)])
     recon = pod_reconstruct(art, k=1)
     assert recon["k"] == 1
-    assert recon["captured_var"] == 1.0
+    assert abs(recon["captured_var"] - 1.0) < 1e-9
     assert recon["total_rmse"] < 1e-9
 
 
@@ -46,7 +46,7 @@ def test_pod_reconstruct_truncated_captures_part():
     r2 = pod_reconstruct(art, k=2)
     assert r1["captured_var"] == r1["captured_var"]  # finite
     assert 0.7 < r1["captured_var"] < 0.9            # ~0.8
-    assert r2["captured_var"] == 1.0
+    assert abs(r2["captured_var"] - 1.0) < 1e-9
     assert r2["total_rmse"] < 1e-9
     assert all(v < 1e-9 for v in r2["per_probe_rmse"])
 
@@ -66,15 +66,18 @@ def test_modes_to_energy():
 def test_filter_probe_denoises_sine_plus_noise():
     t = np.arange(0.0, 20.0, 0.05)
     a = 2 * np.pi * 1.0 * t
-    rng = np.random.default_rng(0)
     clean = np.sin(a)
-    noisy = clean + 0.5 * rng.standard_normal(t.size)
-    art = _art([noisy, noisy, noisy, noisy])
+    # independent noise per probe: the coherent (shared) mode is the clean sine,
+    # the noise is incoherent across probes so it lands in the higher modes and
+    # is dropped by the top-1 reconstruction.
+    rng = np.random.default_rng(0)
+    meas = [clean + 0.5 * rng.standard_normal(t.size) for _ in range(4)]
+    art = _art(meas)
     filtered = filter_probe(art, 0, k=1)
     f = np.array(filtered)
     # filtered is much closer to the clean sine than the noisy input
     assert np.sqrt(np.mean((f - clean) ** 2)) < np.sqrt(
-        np.mean((noisy - clean) ** 2))
+        np.mean((meas[0] - clean) ** 2))
     assert abs(np.mean(f)) < 0.05         # noise mostly removed
 
 

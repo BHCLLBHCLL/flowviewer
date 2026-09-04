@@ -73,10 +73,14 @@ def modes_to_energy(pod: dict, target: float = DEFAULT_ENERGY_TARGET) -> dict:
     """Fewest modes reaching ``target`` cumulative energy.
 
     Returns ``{"k", "captured"}`` — ``k=None`` when the target is never reached.
+    The cumulative shares can sum to ``1-ε`` (not exactly ``1.0``) under float,
+    so a tiny relative tolerance treats a target within ``1e-9`` of a cumulative
+    value as reached (e.g. ``target=1.0`` with the full mode set).
     """
     cum = pod.get("cum_energy", [])
+    eps = 1e-9 * max(1.0, float(abs(target)))
     for i, v in enumerate(cum):
-        if v >= target:
+        if v + eps >= target:
             return {"k": int(i + 1), "captured": float(v)}
     return {"k": None, "captured": float(cum[-1]) if cum else 0.0}
 

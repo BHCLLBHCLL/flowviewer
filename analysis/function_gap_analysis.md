@@ -2494,5 +2494,47 @@ R49 在**探针点**上低秩重构了监测历史；R52 把单个模态的空�
 - 修：怪名 CSV 命名实测为 `<safe>_recon_nodes.csv`（无 cycle 后缀），测试断言同步；`write_reconfield`
   返回 `summary` 未用 → ruff F841 删除赋值。
 
+### 9.34 R54 基线外纵深·第二十四轮：空间分析 HTML 报告（Spatial Analysis HTML Report）（2026-09-04 定稿）
+
+**动机**：R51 把探针级结构/模态分析收成一份自包含 HTML；R52 把单模态形状铺到全场、R53 在任意
+cycle 重构整个网格节点场——但两块**空间产物**只落到 CSV/JSON，无可浏览呈现。R54 是 R51 在
+**空域**的对偶：把时均场、POD 模态形状场、重构场与质量数据整合成一份免依赖的自包含 HTML。
+
+**函数契约**（`fv/spatialreport.py`）
+- `build_spatial_report(verts, artifact, *, top=5, p=2.0, neighbors=4, cycle=0) -> dict`：
+  `mean_field`（R53）→ 时均场统计；前 `top` 个 POD 模态逐 `build_mode_field`（R52）→
+  `energy_share/finite_fraction/min/max`；`reconstruct_field`（R53）→ 所选 cycle 全场重构 +
+  `captured_var`；`recon_quality`（R53）→ 探针节点质量。空探针/空 cycles/0 顶点 → 优雅空结果。
+- `render_html(report) -> str`：复用 R51 的 `_DOC_TEMPLATE`/`_esc`/`_f` 与 `.bar`/`.fill` 能量条；
+  含 Summary / Mean field / Modes / Reconstruction / Probe quality 小节。
+- `write_spatial_report(...) -> dict`：写 `<field>_spatial.html` + `<field>_spatial.json` +
+  `summary.json`，命名规则复用 `_safe`。
+- `_read_verts` + `main`：CLI `fv.spatialreport <trace> <verts> --top --p --neighbors --cycle --out`，
+  缺 probes → return 2，坏 verts / 越界 cycle → return 2。
+
+**复用**：`fv/reconfield.py`（mean_field/reconstruct_field/recon_quality）、`fv/modalfield.py`
+（build_mode_field）、`fv/structreport.py`（HTML 模板与 I/O/CLI 模式）。
+
+**范围**：报告只呈现统计/表格/能量条粒度（与 R46/R51 一致），不内嵌非结构化网格位图渲染
+（需 VTK，超出 headless 纯 NumPy 范围）；DMD 全场重构（R53 明确延期的近似项）不纳入本轮。
+
+### 8.48 第五十一轮执行记录：R54-S1/S2 空间分析 HTML 报告（2026-09-04 落地）
+
+**S1 实现**（`fv/spatialreport.py`）
+- `build_spatial_report` 调一次 `pod_decompose` 仅用于确定模态总数，逐模态复用 `build_mode_field`
+  拿 `energy_share`/`finite_fraction`/`min_abs`/`max_abs`；`recon_field` 数组经 `_stats` 取
+  min/max/mean/finite_fraction/coverage。
+- `{field}_spatial.json` 只持久化统计块与 modes 元数据，不内嵌大型 `node_field` 数组，避免巨型文件。
+- HTML 元素/字段名一律 `_esc` 转义；无探针时 `render_html` 直接降级为 "No probes."。
+
+**S2 测试**（`tests/test_r54_spatialreport.py`，9 项全过）
+- 纯 NumPy + 复用 R48/R52/R53；R35–R54 编号回归本机 **179** 项全过，ruff 0（fv/ tests/ 全绿）。
+- R49 精度断言清理（同轮）：`captured_var == 1.0` 改容差 `abs(v-1)<1e-9`；`modes_to_energy`
+  增加 `1e-9` 相对容差使 `target=1.0` 可达（cum 浮点和 `1-ε`）；去噪测试原用 4 条**相同**带噪序列
+  （rank-1，噪声本被 mode-1 保留）→ 改为各探针独立噪声，使 mode-1 为相干正弦、噪声进入高阶模态被滤除。
+- 覆盖：整合块齐全、模态能量降序、HTML 小节 + `<script>` 转义、无探针降级、空工件优雅、写文件
+  怪名 `pres sure → pres_sure_spatial.html`、CLI 往返/缺 probes/坏 verts/越界 cycle、`top=1`
+  `recon.captured_var == quality.captured_var` 一致性。
+
 
 
