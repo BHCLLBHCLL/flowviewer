@@ -508,18 +508,25 @@ def read_cgns(path: str, workers: int = 0, use_threads: bool = False,
     if not _HAS_H5:
         return None
     with h5py.File(path, "r") as f:
-        # find the first CGNSBase_t group (top-level, excluding format)
-        bases = [k for k in f.keys() if isinstance(f[k], h5py.Group)
-                 and k.strip() not in ("format", "hdf5version")]
-        if not bases:
+        # find the first CGNSBase_t group (top-level) that actually holds
+        # zones.  A base is recognised by its zone-bearing subgroups rather
+        # than by name, so CGNS format markers (format / hdf5version) and the
+        # CGNSLibraryVersion metadata group — a group with no zones — are
+        # never mistaken for a base.
+        base_name = None
+        zone_names = []
+        for k in f.keys():
+            g = f[k]
+            if not isinstance(g, h5py.Group):
+                continue
+            zones = [z for z in g.keys()
+                     if isinstance(g[z], h5py.Group) and "ZoneType" in g[z]]
+            if zones:
+                base_name = k
+                zone_names = zones
+                break
+        if base_name is None:
             return None
-        base = f[bases[0]]
-        zone_names = [k for k in base.keys()
-                      if isinstance(base[k], h5py.Group)
-                      and "ZoneType" in base[k]]
-        if not zone_names:
-            return None
-    base_name = bases[0]
     if workers and workers > 1 and len(zone_names) > 1:
         jobs = [(path, base_name, z, lazy_fields) for z in zone_names]
         if use_threads:
