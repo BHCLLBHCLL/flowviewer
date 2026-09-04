@@ -2780,5 +2780,51 @@ R42 `coherence`/`DEFAULT_NPSEG`。**范围/诚实降级**：相量为 Welch 段�
   转义；写文件怪名 `pres sure → pres_sure_coherence.*` + slim json 无节点数组 + CSV 表头；CLI 往返/缺 probes/
   坏 verts/越界 `--cycles`/坏 `--ref` → exit 2。
 
+### 9.40 R60 基线外纵深·第三十轮：时空非平稳谱场（Spectral-evolution Field Map）（2026-09-05 定稿）
+
+**动机**：R58 逐顶点给出**时间平均**的单点谱（mean/rms/dominant freq），是"稳态"视角。R60 补上**非平稳**轴：
+把 R43 探针谱图（spectrogram）的**时频演化摘要**升维到全网格——对每顶点做滑动窗短时谱，提取四个可铺场的
+标量：**频谱质心（centroid，Hz）**、**频谱带宽（bandwidth，spread）**、**质心漂移（drift，质心随窗移动量，
+>0 即非平稳）**、**能量间歇性（intermittency，窗能量 std/mean）**。与 R57（时域非平稳统计）「频域 vs 时变」
+对偶：R57 看节点值随时间怎么抖，R60 看**频谱**随时间怎么漂移。
+
+**方案**（`fv/spectevol.py`）
+1. `spectral_evolution_field(frames, dt=None, *, nperseg=None, overlap=0.5, blocksize=4096)`：
+   帧矩阵 `(M,N)` 每顶点滑动窗（步长 `nperseg*(1-overlap)`）`rfft`，分块沿 N，窗内瞬态不留整谱图
+   （内存 O(blocksize×nperseg)）；`centroid=ΣfP/ΣP`、`bandwidth=√(Σf²P/ΣP−centroid²)`（窗均值）、
+   `drift=掩码 ddof0 std(各窗 centroid)`、`intermittency=std(E_w)/mean(E_w)`（近零能量 guard）。
+   恒值场（能量≈0）→ centroid/bandwidth=NaN、intermittency=0；退化（M<2/nperseg<2/N==0）→ 全 NaN。
+2. `build_spectevol_report(...)`：复用 R57 `reconstruct_sequence`（缺省全窗，`frames` 可选子采样）；`dt` 缺省
+   R41 `mean_dt`；四 map 各经 `binned_preview`/`_stats`；meta field/source/n_vertices/n_cycles/n_frames/
+   nperseg/nwin/k/p/neighbors/dt/nyquist/xy extent。空/short(<2 帧)/无 probes → 优雅降级。
+3. `render_html`：复用 R58 draw-JS，4 canvas 热力图（centroid/bandwidth/drift/intermittency），字段名转义。
+4. `write_spectevol_report`：`<safe>_spectevol.html` + json（slim，无节点数组）+ `_spectevol_nodes.csv`
+   （node,x,y,z,centroid,bandwidth,drift,intermittency）+ `summary.json`；CLI
+   `fv.spectevol <trace> <verts> --source pod|dmd --cycles A:B --step --frames --k --p --neighbors
+   --nperseg --dt --preview --out`。
+
+**复用**：R57 `reconstruct_sequence`/`binned_preview`/`_safe`/`_stats`、R58 `_DRAW_JS`/`_grid_range`、R41 `mean_dt`；
+滑动窗与 R43 语义对齐。**范围/诚实降级**：短时谱为矩形窗（无锥形窗平均），质心/带宽对窗敏感，仅供相对比较；
+预览为粗粒度（默认 24×24 分箱），需 VTK 的精细渲染不在 headless 范围；全常数或 <2 帧 → 如实 NaN/0。
+
+### 8.54 第五十七轮执行记录：R60-S1/S2 时空非平稳谱场（2026-09-05 落地）
+
+**S1 实现**（`fv/spectevol.py`）
+- `spectral_evolution_field`：滑动窗（step=1-overlap）`rfft` 暂态谱 → 窗内算 `ΣP/ΣfP/Σf²P` 即得质心/带宽与
+  能量，逐窗累计后 off-line 聚合；`intermittency=std(E)/mean(E)`；`drift` 用手写掩码 std（ddof=0）避开
+  `nanstd` 对全 NaN 切片的 "Degrees of freedom" 警告；近零能量顶点 centroid/bandwidth 置 NaN。
+- `build_spectevol_report`/`render_html`/`write_spectevol_report`/CLI：复用 R57/R58 骨架（缺省全窗、`frames`
+  子采样、`dt` 推断、slim json + CSV 四列、`_read_verts`）。
+- **修正**：死变量 `cent2_acc`/被覆写 `intens` 清除；未用 `fn` 删去；测试比较欠妥（tone 用 nperseg=256、
+  chirp 用 128 致带宽比较不公平）→ 改为同 nperseg 下比较 drift；`0/0` NaN 警告加 `errstate`。
+
+**S2 测试**（`tests/test_r60_spectevol.py`，9 项全过）
+- 纯 NumPy；R35–R60 编号回归本机 **230** 项全过，ruff 0（fv/ tests/ 全绿），无警告。
+- 覆盖：稳态正弦 → centroid≈1Hz、bandwidth∈(0,0.6)、drift≈0、intermittency≈0；恒定列 → centroid=NaN、
+  intermittency≈0；chirp（f .5→2Hz）→ drift 显著大于稳态 tone、nwin≥3；退化 M<2/nperseg<2 → 全 NaN；报告
+  map/stat/preview 齐全、probe0（1Hz）centroid≈1、dt 推断一致、空工件降级；HTML 含 4 canvas + 脚本转义、
+  空 "No data."；写文件怪名 `pres sure → pres_sure_spectevol.*` + slim json 无节点数组 + CSV 表头；CLI 往返/
+  缺 probes/坏 verts/越界 `--cycles` → exit 2。
+
 
 

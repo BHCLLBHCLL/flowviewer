@@ -311,3 +311,13 @@ gate on push/PR.
   <field>_coherence_nodes.csv + summary.json; CLI fv.coherencemap <trace> <verts>
   --ref <i> --source pod|dmd --cycles A:B --nperseg --dt --frames --k --p
   --neighbors --preview --out, pure NumPy, headless, no CGNS/vtk deps).
+- R60 - beyond-scPOST: spatio-temporal spectral-evolution (non-stationarity)
+  field map, the time-varying counterpart of R58's time-averaged single-point
+  spectra. Slides a short-time spectral window over every vertex's reconstructed
+  frame sequence and maps spectral centroid / bandwidth / centroid drift
+  (>0 = non-stationary) / energy intermittency as four HTML <canvas> heatmaps;
+  write_spectevol_report emits <field>_spectevol.html + <field>_spectevol.json
+  (stats + previews + meta, no (N,) node arrays) + <field>_spectevol_nodes.csv +
+  summary.json; CLI fv.spectevol <trace> <verts> --source pod|dmd --cycles A:B
+  --nperseg --dt --frames --k --p --neighbors --preview --out, pure NumPy,
+  headless, no CGNS/vtk deps).
