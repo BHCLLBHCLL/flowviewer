@@ -268,3 +268,36 @@ gate on push/PR.
   self-contained page; write_spatial_report writes <field>_spatial.html +
   <field>_spatial.json + summary.json; CLI fv.spatialreport, pure NumPy, headless,
   no CGNS/vtk deps).
+- R55 - beyond-scPOST: full-field DMD modal reconstruction (R50's dynamic counterpart
+  to R53's POD reconstruction): re-derives DMD's full complex pieces (λᵢ, αᵢ, per-probe
+  φᵢ) and rebuilds the whole node field at any cycle as recon = Re(Σ αᵢ·Qᵢ·λᵢ^cycle)
+  where Qᵢ is the complex IDW mode shape (Re/Im spread separately by R52 idw_field, so
+  probe nodes tie back exactly to the per-probe DMD value); the DC eigenmode carries the
+  mean, so no explicit mean re-add; captured_var/RMSE from the full snapshot matrix;
+  write_dmdrecon emits <field>_dmdrecon_cycle<N>.json + _nodes.csv + _quality.json +
+  summary.json; CLI fv.dmdrecon, pure NumPy, headless, no CGNS/vtk deps).
+- R56 - beyond-scPOST: spatial report gains the DMD POD/DMD pair (R54's deferred
+  "DMD into report": with --dmd the whole-mesh page now also digests the top DMD
+  mode-shape magnitude fields (R55 build_dmd_mode_field: freq/growth/amplitude/
+  energy_share + range), the DMD full-field reconstruction (R55) and DMD quality,
+  rendered as DMD modes / DMD reconstruction / DMD quality sections; DMD is opt-in
+  (default off keeps R54 output byte-identical); CLI fv.spatialreport --dmd
+  --dmd-top N, pure NumPy, headless, no CGNS/vtk deps).
+- R57 - beyond-scPOST: spatial reconstruction animation over a cycle window + a
+  temporal/unsteadiness report. Rebuilds the full node field frame-by-frame across
+  a cycle window (pod via R53 reconstruct_field, dmd via R55 reconstruct_field_dmd),
+  gives a coarse HTML <canvas> field-preheat browser (binned_preview, standard JS,
+  no vtk/image libs) and per-vertex mean/std/range/rms unsteadiness; write_anim_report
+  emits <field>_anim.html + <field>_anim.json (frame stats + cycle_idx + unsteadiness,
+  no full-node frames) + <field>_anim_nodes.csv + summary.json; CLI fv.spatialanim
+  <trace> <verts> --source pod|dmd --cycles A:B --frames --k --p --neighbors
+  --preview --out, pure NumPy, headless, no CGNS/vtk deps).
+- R58 - beyond-scPOST: spatio-temporal spectral maps lifting the probe-level
+  frequency family (R41/R44) onto the whole reconstructed field. FFTs the R57
+  frame sequence per vertex and maps time-mean / fluctuation RMS + intensity
+  (rms/|mean|) / dominant frequency as four HTML <canvas> heatmaps (binned
+  previews, standard JS, no vtk/image libs); write_spectral_report emits
+  <field>_spectral.html + <field>_spectral.json (stats + previews + dt/nyquist,
+  no (N,) node arrays) + <field>_spectral_nodes.csv + summary.json; CLI
+  fv.spectralmap <trace> <verts> --source pod|dmd --cycles A:B --dt --frames
+  --k --p --neighbors --preview --out, pure NumPy, headless, no CGNS/vtk deps).

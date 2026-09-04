@@ -24,6 +24,7 @@ from pathlib import Path
 
 import numpy as np
 
+from .dmdrecon import _dmd_pieces, build_dmd_mode_field, dmd_recon_quality, reconstruct_field_dmd
 from .modalfield import build_mode_field
 from .pod import pod_decompose
 from .reconfield import mean_field, recon_quality, reconstruct_field
@@ -66,13 +67,17 @@ def _stats(arr: np.ndarray) -> dict:
 
 def build_spatial_report(verts: np.ndarray, artifact: dict, *, top=5,
                          p: float = 2.0, neighbors: int = 4,
-                         cycle: int = 0) -> dict:
+                         cycle: int = 0, dmd: bool = False,
+                         dmd_top: int = 3) -> dict:
     """Digest vertices + an R38 trace artifact into a spatial report dict.
 
     Fuses the temporal-mean field (R53), the top ``top`` POD mode shape fields
     (R52), the full-field reconstruction at ``cycle`` (R53) and its probe-node
-    quality (R53). Empty artifact / empty vertices -> graceful empty result
-    (no exception). ``top=None`` keeps every POD mode.
+    quality (R53). When ``dmd`` is true it additionally digests the top
+    ``dmd_top`` DMD mode-shape fields (R55/R52), the DMD full-field
+    reconstruction and its quality — the POD/DMD spatial pair. Empty artifact /
+    empty vertices -> graceful empty result (no exception). ``top=None`` (and
+    ``dmd_top=None``) keeps every mode.
     """
     v = np.asarray(verts, dtype=np.float64)
     N = v.shape[0]
@@ -88,7 +93,12 @@ def build_spatial_report(verts: np.ndarray, artifact: dict, *, top=5,
             "recon": {"finite_fraction": 0.0, "captured_var": 0.0,
                       "min": None, "max": None, "coverage": 0},
             "quality": {"total_rmse": None, "captured_var": 0.0,
-                        "n_probes": 0, "n_cycles": 0, "k": 0}}
+                        "n_probes": 0, "n_cycles": 0, "k": 0},
+            "dmd": {"enabled": bool(dmd), "modes": [],
+                    "recon": {"finite_fraction": 0.0, "captured_var": 0.0,
+                              "min": None, "max": None, "coverage": 0},
+                    "quality": {"total_rmse": None, "captured_var": 0.0,
+                                "n_probes": 0, "n_cycles": 0, "k": 0, "r": 0}}}
     if not probes or not cycles or N == 0:
         return base
 
@@ -123,6 +133,36 @@ def build_spatial_report(verts: np.ndarray, artifact: dict, *, top=5,
                        "captured_var": qual["captured_var"],
                        "n_probes": qual["n_probes"],
                        "n_cycles": qual["n_cycles"], "k": qual["k"]}
+
+    if dmd:
+        dd = _dmd_pieces(artifact, r=None, dt=None, embed_d=None)
+        dmd_n = int(dd["r"]) if dd else 0
+        kk_d = dmd_n if dmd_top is None else min(int(dmd_top or 0), dmd_n)
+        for i in range(kk_d):
+            bf = build_dmd_mode_field(v, artifact, k=i, p=p,
+                                      neighbors=neighbors)
+            m = bf["meta"]
+            base["dmd"]["modes"].append({
+                "i": int(i), "freq": m.get("freq"),
+                "growth": m.get("growth"),
+                "amplitude": m.get("amplitude"),
+                "energy_share": float(m.get("energy_share") or 0.0),
+                "finite_fraction": float(m.get("finite_fraction") or 0.0),
+                "min": m.get("min_abs"), "max": m.get("max_abs"),
+            })
+        drec = reconstruct_field_dmd(v, artifact, cycle=cycle, k=None,
+                                     p=p, neighbors=neighbors)
+        ds = _stats(drec["recon_field"])
+        base["dmd"]["recon"] = {
+            "finite_fraction": drec["finite_fraction"],
+            "captured_var": drec["captured_var"],
+            "min": ds["min"], "max": ds["max"], "coverage": ds["coverage"]}
+        dq = dmd_recon_quality(artifact, k=None)
+        base["dmd"]["quality"] = {
+            "total_rmse": dq["total_rmse"],
+            "captured_var": dq["captured_var"],
+            "n_probes": dq["n_probes"], "n_cycles": dq["n_cycles"],
+            "k": dq["k"], "r": dq["r"]}
     return base
 
 
@@ -146,6 +186,9 @@ def render_html(report: dict) -> str:
         ("chosen cycle", report["cycle"]),
         ("modes shown", len(report["modes"])),
     ]
+    if report["dmd"]["enabled"]:
+        summary_rows.append(
+            ("DMD modes shown", len(report["dmd"]["modes"])))
     summary_html = "<table>" + "".join(
         f"<tr><th>{_esc(k)}</th><td>{_f(v)}</td></tr>"
         for k, v in summary_rows) + "</table>"
@@ -193,12 +236,53 @@ def render_html(report: dict) -> str:
         f"<tr><th>{_esc(k)}</th><td>{_f(v)}</td></tr>"
         for k, v in qual_rows) + "</table>")
 
+    dmd_html = ""
+    if report["dmd"]["enabled"]:
+        dm = report["dmd"]["modes"]
+        if dm:
+            dmodes_html = "".join(
+                '<div class="bar"><span class="lab">d{}</span>'
+                '<span class="fill" style="width:{:.1f}%"></span>'
+                '<span class="pct">{:.1f}%</span>'
+                '<span class="stat">freq {:.6g} · growth {:.6g} · '
+                'finite {:.6g} · range [{} , {}]</span></div>'.format(
+                    m["i"], float(m["energy_share"]) * 100.0,
+                    float(m["energy_share"]) * 100.0,
+                    m["freq"], m["growth"], m["finite_fraction"],
+                    _f(m["min"]), _f(m["max"]))
+                for m in dm)
+        else:
+            dmodes_html = "<p>No DMD modes.</p>"
+        drecon = report["dmd"]["recon"]
+        drec_rows = [
+            ("finite_fraction", drecon["finite_fraction"]),
+            ("captured_var", drecon["captured_var"]),
+            ("min", drecon["min"]), ("max", drecon["max"]),
+            ("coverage", drecon["coverage"]),
+        ]
+        drec_html = ("<table>" + "".join(
+            f"<tr><th>{_esc(k)}</th><td>{_f(v)}</td></tr>"
+            for k, v in drec_rows) + "</table>")
+        dq = report["dmd"]["quality"]
+        dq_rows = [
+            ("total_rmse", dq["total_rmse"]),
+            ("captured_var", dq["captured_var"]),
+            ("n_probes", dq["n_probes"]), ("n_cycles", dq["n_cycles"]),
+            ("k (modes kept)", dq["k"]), ("r (rank)", dq["r"]),
+        ]
+        dq_html = ("<table>" + "".join(
+            f"<tr><th>{_esc(k)}</th><td>{_f(v)}</td></tr>"
+            for k, v in dq_rows) + "</table>")
+        dmd_html = ("<h2>DMD modes</h2>" + dmodes_html +
+                    "<h2>DMD reconstruction</h2>" + drec_html +
+                    "<h2>DMD quality</h2>" + dq_html)
+
     body = (
         "<h2>Summary</h2>" + summary_html +
         "<h2>Mean field</h2>" + mean_html +
         "<h2>Modes</h2>" + modes_html +
         "<h2>Reconstruction</h2>" + recon_html +
-        "<h2>Probe quality</h2>" + qual_html)
+        "<h2>Probe quality</h2>" + qual_html + dmd_html)
 
     return (_DOC_TEMPLATE.replace("__TITLE__", field)
             .replace("__HEADER__", header, 1)
@@ -228,32 +312,40 @@ __HEADER____SUMMARY____BODY__
 
 def write_spatial_report(verts: np.ndarray, artifact: dict, out_dir: str, *,
                          top=5, p: float = 2.0, neighbors: int = 4,
-                         cycle: int = 0) -> dict:
+                         cycle: int = 0, dmd: bool = False,
+                         dmd_top: int = 3) -> dict:
     """Render + write ``<field>_spatial.html`` / ``_spatial.json`` + summary."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     report = build_spatial_report(verts, artifact, top=top, p=p,
-                                  neighbors=neighbors, cycle=cycle)
+                                  neighbors=neighbors, cycle=cycle,
+                                  dmd=dmd, dmd_top=dmd_top)
     name = artifact.get("name") or "field"
     safe = _safe(name)
     html_path = out / f"{safe}_spatial.html"
     html_path.write_text(render_html(report), encoding="utf-8")
     payload = {k: report[k] for k in
                ("field", "n_probes", "n_cycles", "n_vertices", "p",
-                "neighbors", "cycle", "mean", "modes", "recon", "quality")}
+                "neighbors", "cycle", "mean", "modes", "recon", "quality",
+                "dmd")}
     with open(out / f"{safe}_spatial.json", "w", encoding="utf-8") as fh:
         json.dump(payload, fh, indent=2)
     modes = report["modes"]
+    dmodes = report["dmd"]["modes"]
     summary = {
         "field": name, "html": f"{safe}_spatial.html",
         "json": f"{safe}_spatial.json",
         "n_probes": report["n_probes"], "n_cycles": report["n_cycles"],
         "n_vertices": report["n_vertices"], "top": int(top or 0),
         "cycle": int(cycle),
+        "dmd": bool(dmd), "dmd_top": int(dmd_top or 0),
         "top1_energy": modes[0]["energy_share"] if modes else None,
         "total_rmse": report["quality"]["total_rmse"],
         "recon_captured": report["recon"]["captured_var"],
         "recon_finite_fraction": report["recon"]["finite_fraction"],
+        "dmd_top_energy": dmodes[0]["energy_share"] if dmodes else None,
+        "dmd_total_rmse": report["dmd"]["quality"]["total_rmse"],
+        "dmd_captured": report["dmd"]["recon"]["captured_var"],
     }
     with open(out / "summary.json", "w", encoding="utf-8") as fh:
         json.dump(summary, fh, indent=2)
@@ -281,6 +373,9 @@ def main(argv: list | None = None) -> int:
     ap.add_argument("--p", type=float, default=2.0)
     ap.add_argument("--neighbors", type=int, default=4)
     ap.add_argument("--cycle", type=int, default=0)
+    ap.add_argument("--dmd", action="store_true",
+                    help="also report the DMD mode shapes + DMD reconstruction")
+    ap.add_argument("--dmd-top", type=int, default=3, help="max DMD modes")
     ap.add_argument("--out", default="spatialreport_out")
     args = ap.parse_args(argv)
     with open(args.trace_json, "r", encoding="utf-8") as fh:
@@ -299,7 +394,8 @@ def main(argv: list | None = None) -> int:
     try:
         summary = write_spatial_report(verts, art, args.out, top=args.top,
                                        p=args.p, neighbors=args.neighbors,
-                                       cycle=args.cycle)
+                                       cycle=args.cycle, dmd=args.dmd,
+                                       dmd_top=args.dmd_top)
     except ValueError as e:
         print(f"error: {e}", file=sys.stderr)
         return 2

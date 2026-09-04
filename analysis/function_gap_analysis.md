@@ -2518,6 +2518,64 @@ cycle 重构整个网格节点场——但两块**空间产物**只落到 CSV/JS
 **范围**：报告只呈现统计/表格/能量条粒度（与 R46/R51 一致），不内嵌非结构化网格位图渲染
 （需 VTK，超出 headless 纯 NumPy 范围）；DMD 全场重构（R53 明确延期的近似项）不纳入本轮。
 
+### 9.35 R55 基线外纵深·第二十五轮：DMD 全场模态重构（Full-field DMD Reconstruction）（2026-09-04 定稿）
+
+**动机**：R53 明确把「DMD 全场重构（需复包络近似）」列为超范围项。R55 补齐该对偶：把 R50 的复
+模态在任意时刻重建整个网格节点场，使空间模态栈达 POD/DMD 对偶（R53=R53 POD，R55=DMD）。纯
+NumPy，headless（无 CGNS/VTK 依赖）。
+
+**现状**：R50 `dmd_decompose` 用 Hankel 嵌入 + exact DMD，但**仅暴露 `|αᵢ|` 与 [re,im] 探针权重，
+未保存复数 λᵢ 与复数 αᵢ**，不足以做保相重构。R55 内部重跑分解（复用 `dmd._embedded_snapshot_matrix`/
+`_effective_rank`）拿到复数 λᵢ、αᵢ、φᵢ（探针 delay-0 块），按 R50 能量公式降序。
+
+**函数契约**（`fv/dmdrecon.py`）
+- `_dmd_pieces(artifact, *, r, dt, embed_d) -> dict|None`：`{"lam","alpha","phi","r","n_probes","n_cycles","dt"}`，
+  数据不足（n_cycles<4 / 无探针 / r_eff=0）返回 None。
+- `complex_idw_field(verts, probes, weights) -> (N,) complex`：对 Re/Im 各调一次 R52 `idw_field`
+  （探针节点实/虚部精确绑定），合成复场。
+- `reconstruct_field_dmd(verts, artifact, *, cycle, k, p, neighbors, r, embed_d) -> dict`：
+  `recon = Re(Σ_{i<k} αᵢ Qᵢ λᵢ^cycle)`；空/退化 → 全 NaN 场 + `captured_var=0`；`cycle` 越界抛
+  `ValueError`。DMD 在**未去均**数据上运行，DC 模态（λ≈1）自动承载时间均场，故**不**像 R53 显式加回
+  `mean_field`（仍回报名义 `mean_field` 供渲染）；`probe_recon[j]` = 探针节点模型值（IDW 精确绑定）；
+  `_matrix_quality` 用全快照矩阵算 `captured_var=1−SSE/SStot`、`total_rmse`。
+- `dmd_recon_quality(artifact, *, k, r, embed_d) -> dict`：探针节点矩阵级质量（per-probe/per-cycle/total RMSE）。
+- `write_dmdrecon(...) -> dict`：写 `<safe>_dmdrecon_cycle{cycle}.json`（recon_field + mean_field +
+  每模态 |Q| 统计）+ `<safe>_dmdrecon_nodes.csv`（node,x,y,z,recon）+ `<safe>_dmdrecon_quality.json` +
+  `summary.json`，命名复用 R53 `_safe`。
+- `_read_verts` + `main`：CLI `fv.dmdrecon <trace> <verts> --cycle --k --p --neighbors --r --embed-d --out`，
+  缺 probes → return 2，坏 verts / 越界 cycle → return 2。
+
+**复用**：`fv/dmd.py`（嵌入/有效秩）、`fv/modalfield.py`（idw_field）、`fv/reconfield.py`
+（mean_field/_safe/_read_verts）、`fv/pod.py`（snapshot_matrix）、`fv/spectrum.py`（mean_dt）。
+
+**范围**：聚焦重构引擎 + 质量 + I/O/CLI（与 R53 对偶）；DMD 模态形状场导出已由 R52 `build_mode_field`
+(source="dmd") 覆盖，不重复；不新做 HTML 报告（R54 只管 POD，DMD 场是否并入报告留待后续轮次）。
+
+### 9.36 R56 基线外纵深·第二十六轮：空间 HTML 报告纳入 DMD（POD/DMD 对偶）（2026-09-04 定稿）
+
+**动机**：R54 范围明确写着「DMD 场是否并入报告留待后续轮次」。R55 给出 DMD 模态形状场 + DMD 全场
+重构后，本轮把二者并入 R54 的空间 HTML 报告，补齐空间报告的 **POD/DMD 对偶呈现**。
+
+**设计**：DMD **opt-in**（`dmd=False` 默认关闭，R54 输出逐字节不变；`--dmd` 开启）。开启后 `build_spatial_report`
+追加 `dmd` 块：前 `dmd_top` 个 DMD 模态形状场（R55 `build_dmd_mode_field`，energy 降序，携 freq/growth/
+amplitude/energy_share/range）、DMD 全场重构（R55 `reconstruct_field_dmd`，chosen cycle）、DMD 质量
+（R55 `dmd_recon_quality`）。
+
+**函数契约变更**（`fv/spatialreport.py`）
+- `build_spatial_report(..., *, dmd=False, dmd_top=3)`：`dmd=True` 时计算 `base["dmd"]={"enabled","modes","recon","quality"}`。
+- `render_html`：开启时追加 `DMD modes` / `DMD reconstruction` / `DMD quality` 三小节 + Summary 增一行
+  "DMD modes shown"。
+- `write_spatial_report(..., *, dmd, dmd_top)`：`<field>_spatial.json` 持久化 dmd 块；summary 增 `dmd`/
+  `dmd_top`/`dmd_top_energy`/`dmd_total_rmse`/`dmd_captured`。
+- `main`：CLI 增 `--dmd` / `--dmd-top`（复用 cycle/p/neighbors）。
+
+**新增**（`fv/dmdrecon.py`）：`build_dmd_mode_field(verts, artifact, *, k=0, p, neighbors, r, embed_d) -> dict`
+（DMD 版 R52 模态形状场：`node_field=|Q_k|` 幅值场，meta 携 freq/growth/amplitude/energy_share/range；
+`_dmd_pieces` 增返回 `"energy"`）；`_mode_meta(lam, dt)` 复刻 R50 连续时间 freq/growth。
+
+**范围**：不改 R54 的 POD 逻辑与报告结构，仅 opt-in 追加 DMD 小节；DMD 重构沿用 R55（DC 模态承载均值，
+不加回）。
+
 ### 8.48 第五十一轮执行记录：R54-S1/S2 空间分析 HTML 报告（2026-09-04 落地）
 
 **S1 实现**（`fv/spatialreport.py`）
@@ -2535,6 +2593,145 @@ cycle 重构整个网格节点场——但两块**空间产物**只落到 CSV/JS
 - 覆盖：整合块齐全、模态能量降序、HTML 小节 + `<script>` 转义、无探针降级、空工件优雅、写文件
   怪名 `pres sure → pres_sure_spatial.html`、CLI 往返/缺 probes/坏 verts/越界 cycle、`top=1`
   `recon.captured_var == quality.captured_var` 一致性。
+
+### 8.49 第五十二轮执行记录：R55-S1/S2 DMD 全场模态重构（2026-09-04 落地）
+
+**S1 实现**（`fv/dmdrecon.py`）
+- `_dmd_pieces`：内跑分解拿到复数 `lam`/`alpha`/`phi`（delay-0 块）、按 R50 能量公式降序；数据不足 → None。
+- `complex_idw_field`：Re/Im 各一次 R52 `idw_field`，探针节点实/虚部精确绑定，合成 `(N,)` complex 场。
+- `reconstruct_field_dmd`：`recon = Re(Σ αᵢ Qᵢ λᵢ^cycle)`；空/退化全 NaN 降级（对齐 R53）；`cycle` 越界
+  `ValueError`；名义 `mean_field` 供渲染（DC 模态承载均值，不加回）；`probe_recon` 链到节点 IDW 精确绑定。
+- `dmd_recon_quality` + `_matrix_quality`：全快照矩阵 `captured_var=1−SSE/SStot`、per-probe/per-cycle/total RMSE。
+- `write_dmdrecon`：`<field>_dmdrecon_cycle<N>.json` + `_nodes.csv`（node,x,y,z,recon）+ `_quality.json` +
+  `summary.json`；`main` CLI 复用 `_read_verts`。
+
+**S2 测试**（`tests/test_r55_dmdrecon.py`，9 项全过）
+- 纯 NumPy + 复用 R50/R52/R53；R35–R55 编号回归本机 **188** 项全过，ruff 0（fv/ tests/ 全绿）。
+- `import mean_dt 从 fv.spectrum`（R50 在函数内局部导入，非模块级，需直连 spectrum）。
+- 覆盖：complex-IDW 探针节点实/虚部精确、节点 `recon_field[node]==probe_recon[j]`、全模态
+  `captured_var>0.99`+`total_rmse<1e-3`、`captured_var` 随 k 单调、`_dmd_pieces` 能量降序、
+  空/短工件降级、`cycle` 越界 `ValueError`、写文件怪名 `pres sure → pres_sure_dmdrecon_*`、CLI 往返
+  /坏 verts/缺 probes → exit 2。
+
+### 8.50 第五十三轮执行记录：R56-S1/S2 空间报告纳入 DMD（2026-09-04 落地）
+
+**S1 实现**
+- `fv/dmdrecon.py`：`_dmd_pieces` 增返回 `"energy"`（排序能量）；新增 `_mode_meta(lam, dt)`（复刻 R50
+  连续时间 freq/growth）；新增 `build_dmd_mode_field(verts, artifact, *, k=0, ...)`（DMD 版 R52 模态幅度场
+  `node_field=|Q_k|`，meta 携 freq/growth/amplitude/energy_share/range/cov，`k` 越界 `ValueError`，空/短工件
+  `enabled=False` 降级）。
+- `fv/spatialreport.py`：`build_spatial_report/write_spatial_report` 增 `dmd=False, dmd_top=3` opt-in；
+  开启时结 `base["dmd"]`（modes 能量降序 + recon + quality，复用 R55）；`render_html` 增 DMD 三小节 +
+  Summary "DMD modes shown"；`main` 增 `--dmd`/`--dmd-top`。默认关闭，R54 输出逐字节不变。
+
+**S2 测试**（`tests/test_r56_spatialreport_dmd.py`，8 项全过）
+- 纯 NumPy + 复用 R55；R35–R56 编号回归本机 **196** 项全过，ruff 0（fv/ tests/ 全绿）。
+- 修正：DMD mode-0 是本数据集的 DC/均值主导模态（freq=0），`freq>0` 断言改为「任一 DMD 模态
+  `_mode_meta(lam,dt)[0] > 0`」（复刻 R50 dominant 只挑振荡最高能量模态的语义）。
+- 覆盖：opt-in 关闭时 `dmd` 块空且 HTML 无 "DMD modes"、开启时 modes 能量降序 + recon captured>0 +
+  quality n_probes、HTML 含三个 DMD 小节、`build_dmd_mode_field` 探针节点幅值=|φ[j,k]|、空工件降级、
+  写文件怪名 `pres sure → pres_sure_spatial.*` + summary dmd 字段、CLI `--dmd` 往返、verts json/npy 解析。
+
+### 9.37 R57 基线外纵深·第二十七轮：空间重构动画序列 + 时变/非定常强度报告（2026-09-04 定稿）
+
+**动机**：R53/R55 在**单一 cycle** 重构全场并嵌入报告（R54/R56）。R57 补上时间轴：把一个周期窗内的
+全场重构做成**动画序列**，并给出 headless 空间场热力预览（纯 HTML Canvas/JS，无需 VTK/图像库）与
+时变/非定常强度统计。纯 NumPy + 内联 HTML/JS。
+
+**方案**（`fv/spatialanim.py`）
+1. `binned_preview(verts, field, *, gridsize=24) -> (g,g)`：把 (x,y) 顶点投影到网格单元，单元内取有限场值
+   平均，空单元 NaN；xy 跨度退化（满跨度±防护）安全。
+2. `reconstruct_sequence(verts, artifact, *, cycles=None, step=1, k, p, neighbors, source="pod")`：
+   - `cycles=None → range(0, n_cycles, step)`；否则校验为合法 cycle 下标集合（越界抛 `ValueError`）。
+   - 逐 cycle 用 R53 `reconstruct_field`（pod）或 R55 `reconstruct_field_dmd`（dmd）得到实「recon_field」帧；
+     返回 `{field, source, steps, cycle_idx, frames, n_vertices, n_cycles}`；无 probes/cycles → 空序列降级。
+3. `stationarity(verts, artifact, ...) -> dict`：对重构帧逐顶点做 NaN 安全约简 `mean/std/range/rms`，
+   返回各字段数组 + 各自 `_stats`（min/max/mean/finite_fraction/coverage），用于非定常强度图。
+4. `build_anim_report(verts, artifact, *, cycles, step, frames=24, k, p, neighbors, source, preview=24)`：
+   - 选定时刻（`frames` 上限内均匀抽样）→ 重构帧；每帧统计 min/max/mean/finite_fraction + captured_var
+     （POD 用 `recon.captured_var`，DMD 用重构 captured）。
+   - `preview_data = [binned_preview(verts, f, preview) ...]`（全局 min/max 归一化所需）；非定常对抽样帧做
+     `stationarity` 摘要；meta 含 field/source/n_vertices/n_cycles/step/cycle_idx/frames 数/网格尺寸/xy 范围。
+   - 空/short/1 帧 → 优雅降级（空 frames、空统计）。
+5. `render_html(report) -> str`：自包含页，Summary 表 + **Frame browser**（`<canvas>` 热力图 + 滑杆 JS
+   逐帧重绘 + 当前帧统计）+ **Unsteadiness**（statistics 表）；JS 用内联 `[0,1]→RGB` 色带纯 StandardJS，
+   无外部库。
+6. `write_anim_report(..., out, *, field)`：写 `<safe>_anim.html` + `<safe>_anim.json`（帧统计 + cycle_idx +
+   非定常统计，不内嵌全节点帧，体积可控）+ `<safe>_anim_nodes.csv`（node,x,y,z,每报告帧一列）+ `summary.json`；
+   `main` CLI `fv.spatialanim <trace> <verts> --source pod|dmd --cycles A:B --step --frames --k --p
+   --neighbors --preview --out`。
+
+**复用**：`fv/reconfield.py`（reconstruct_field/_stats 语义）、`fv/dmdrecon.py`（reconstruct_field_dmd）、
+R54 `_safe`/HTML 布局。**范围/诚实降级**：预览为粗粒度（默认 24×24 分箱平均场），非网格渲染，需 VTK 的
+精细渲染不在 headless 范围；1 帧窗口或无处取样 → std/range=0/空并如实呈现，不报错。
+
+### 8.51 第五十四轮执行记录：R57-S1/S2 空间重构动画序列 + 非定常报告（2026-09-04 落地）
+
+**S1 实现**（`fv/spatialanim.py`）
+- `binned_preview`/`reconstruct_sequence`/`stationarity`/`build_anim_report`/`render_html`/`write_anim_report`/
+  `main` 全落地；`_resolve_cycles` 校验越界 cycle 抛 `ValueError`；`_pick_frames` 均匀抽样到 `<=frames`；
+  `stationarity_on` 对 `len(idx)<2` 返回空非定常，防 1 帧窗口。
+- **修复**：`render_html` 的 `.format(m=, c0=, w=)` 原先因运算符优先级只作用到拼接串最后一个字符串字面量，
+  `{m}`/`{c0}` 未替换（也是 ruff F522）。改为先构建 `browser` 变体再 `.format`，`{m}`/`{cycle}` 正确落位。
+- **修复**：`main` 内局部 `from .reconfield import _read_verts` 遮蔽了模块级定义，使先前调用变
+  UnboundLocalError。删除该局部导入块，复用模块级 `_read_verts`。
+
+**S2 测试**（`tests/test_r57_spatialanim.py`，9 项全过）
+- 纯 NumPy + 复用 R53/R55；R35–R57 编号回归本机 **205** 项全过，ruff 0（fv/ tests/ 全绿）。
+- 覆盖：`binned_preview` 尺寸/单顶点单元均值/空网格 NaN/退化跨度；`reconstruct_sequence` pod 帧数与
+  cycle_idx 对齐、dmd 帧可行、无 probes 降级；越界 cycle 抛 `ValueError`；`stationarity` 恒定场
+  std/range≈0、统计块字段齐全；`build_anim_report` 帧数 `≤frames`、每帧 captured>0（pod）、preview 尺寸
+  =preview×preview；`render_html` 含 Frame browser/Unsteadiness/`<canvas>`/<script> 及怪 field 名转义；
+  空工件 "No data." 降级；`write_anim_report` 怪名 `pres sure → pres_sure_anim.*`、CLI 往返/缺 probes/
+  坏 verts/越界 `--cycles` → exit 2。
+
+### 9.38 R58 基线外纵深·第二十八轮：时空非定常频谱场图（Spatio-temporal Spectral Maps）（2026-09-05 定稿）
+
+**动机**：R57 把全场重构做成**时间轴动画**并给出逐顶点时域统计（mean/std/range/rms）。R58 补上**频域**：
+对 R57 的重构帧序列（M 帧 × N 顶点）在每个顶点做 FFT，把 R41/R44 的**探针级频谱族升维为全网格时空场**，
+输出三/四张热力图——时间均值场、脉动强度场（rms 与 rms-norm/湍流强度）、主导振荡频率场。与 R52 的
+「探针模态权重 → 全场模态场」构成对偶：R52 铺时域模态权重，R58 铺频域谱特征。
+
+**方案**（`fv/spectralmap.py`）
+1. `temporal_spectrum_field(frames, dt=None)`：帧矩阵 `(M,N)` 每顶点 `mean`（时间均值）、`rms`（去均值 std，
+   nan 安全）、`rms_intensity = rms/(|mean|+ε)`（近零均值→NaN）、去均值逐顶点 `rfft` 后
+   `freq=argmax(|F[1:]|)`（物理幅 `dom_amp=2|F|max/M`）、`dt`/`nyquist`；有限样本<2→NaN。
+2. `build_spectral_report(verts, artifact, *, cycles, step, frames, k, p, neighbors, source, preview, dt)`：
+   复用 R57 `reconstruct_sequence` 取帧序列（缺省全窗，`frames` 为可选上限均匀子采样）；`dt` 缺省用 R41
+   `mean_dt(cycles[idx])`；四 map 各经 `binned_preview` 得 preview、`_stats` 统计；meta
+   field/source/n_vertices/n_cycles/n_frames/k/p/neighbors/dt/nyquist/xy extent。空/short(<2帧)/无 probes
+   → 优雅降级（全 NaN 地图、空 stats）。
+3. `render_html(report)`：Summary 表 + 4 canvas 热力图（mean/rms/intensity/freq），每 map 标题/统计/`<canvas>`，
+   内联 JS load 时按 `[0,1]→RGB` 色带上色，无外部库；字段名转义。
+4. `write_spectral_report(...)`：`<safe>_spectral.html` + `<safe>_spectral.json`（stats + preview 网格 +
+   dt/nyquist，**不**内嵌 `(N,)` 节点数组，体积可控）+ `<safe>_spectral_nodes.csv`
+   （node,x,y,z,mean,rms,intensity,freq）+ `summary.json`；`main` CLI
+   `fv.spectralmap <trace> <verts> --source pod|dmd --cycles A:B --step --frames --k --p --neighbors
+   --preview --dt --out`。
+
+**复用**：R57 `reconstruct_sequence`/`binned_preview`/`_safe`/`_stats`/HTML、R41 `mean_dt`、R44 `turbulent_intensity`
+语义。**范围/诚实降级**：频谱为去均值周期图（非窗平均），预览为粗粒度（默认 24×24 分箱），需 VTK 的精细渲染
+不在 headless 范围；<2 帧或全常数场 → 无振荡，报告如实 NaN/0 呈现。
+
+### 8.52 第五十五轮执行记录：R58-S1/S2 时空非定常频谱场图（2026-09-05 落地）
+
+**S1 实现**（`fv/spectralmap.py`）
+- `temporal_spectrum_field`：逐顶点 `nanmean`/去均值 `rfft`/排除 DC 取 `argmax|F[1:]|` 得主导频率与物理幅
+  `2|F|max/M`；`rms_intensity` 仿 R44 湍流强度，近零均值→NaN；`<2` 有限样本顶点→NaN。
+- `build_spectral_report`：缺省全窗分析（`frames=None`，不牺牲频域分辨率），`frames` 为可选均匀子采样；
+  `dt` 缺省用 R41 `mean_dt` 推断；四 map 各出 preview + stats；空/short 工件降级。
+- `render_html`：4 张 canvas 热力图，内联 JS load 上色 + 字段名转义。
+- `write_spectral_report`：json **slim**（不内嵌节点数组），CSV 含 mean/rms/intensity/freq 四列；CLI 复用
+  `_read_verts`，坏 verts/缺 probes/越界 `--cycles` → exit 2。
+- **修正**：CSV 三处用错 key `rms_intensity`（报告内 map 键为 `intensity`）→ 统一为 `m["intensity"]`。
+
+**S2 测试**（`tests/test_r58_spectralmap.py`，8 项全过）
+- 纯 NumPy；R35–R58 编号回归本机 **213** 项全过，ruff 0（fv/ tests/ 全绿）。
+- 覆盖：正弦帧 → mean≈1、rms≈√2、freq≈1Hz、dom_amp≈2、intensity>0，恒定列 rms≈0；退化 M<2/N==0 →
+  全 NaN；`build_spectral_report` map/stat/preview 齐全、显式 dt 与推断 dt 一致、无 probes 降级；`render_html`
+  含 4 个 canvas + 脚本转义（怪 field 名）、空工件 "No data."；`write_spectral_report` 怪名
+  `pres sure → pres_sure_spectral.*` + slim json 无 "maps" 键 + CSV 表头、CLI 往返/缺 probes/坏 verts/
+  越界 `--cycles` → exit 2。
 
 
 
