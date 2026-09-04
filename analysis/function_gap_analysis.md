@@ -2449,5 +2449,50 @@ R47–R51 把**探针级**的模态分析做全了（相关矩阵、POD、DMD、
   （fv/ tests/ 全绿）。IDW 测试中点顶点取 x=1.0 与端点(0,2)等距保证唯一；`neighbors=1` 用
   x=0.25/x=1.5 消除平局。
 
+### 9.33 R53 基线外纵深·第二十三轮：全场模态重构（Full-field Modal Reconstruction）（2026-09-04 定稿）
+
+R49 在**探针点**上低秩重构了监测历史；R52 把单个模态的空间形态铺到了全场，但从未合成出
+**可用的物理重构场**。R53 把两者合成：用主导 POD 模态**重构整个网格在任一 cycle 的节点场**——
+`重构场(node,cycle) = 时均场(node) + Σⱼₖ 模态形状场(node)·时间系数ⱼ(cycle)`。这给出流域上任一
+物理量的低秩空间快照（可被场加载器/渲染器消费），为 R49 的稀疏重构补上"响应空间分布"。
+在探针节点 IDW 精确绑定 → 退化回 R49 精确重构；全模态时 ≈ 真实探针值，可 headless 精确验证。
+纯 NumPy、复用 R48 `pod_decompose` + R52 `idw_field`。
+
+**S1 `fv/reconfield.py`**
+- `mean_field(verts, probes, *, p, neighbors)`：每个探针时均（有限值平均）经 `idw_field` 铺成全场。
+- `reconstruct_field(verts, artifact, *, cycle=0, k=None, p, neighbors)`：`pod_decompose` 一次，
+  每模式 i<k 用 `idw_field(modeⱼ)` 得全场形状场，`recon = mean_field + Σ shapeᵢ·coeffᵢ[cycle]`；
+  cycle/k 越界 → ValueError；空工件优雅空结果；meta 含 `captured_var`、覆盖统计。
+- `recon_quality(artifact, *, k=None)`：在**探针节点**精确验证（全场无真值）——`recon(node,cycle)
+  = probe均 + Σ mode·coeff`（恢复 mean），输出 per_probe/per_cycle/total RMSE + `captured_var`；
+  `k=None`（全模态）时 total_rmse≈0。
+- `write_reconfield`：写 `<safe>_recon_cycle{c}.json` + `<safe>_recon_nodes.csv`（表头
+  node,x,y,z,recon）+ `<safe>_recon_quality.json` + `summary.json`；CLI
+  `fv.reconfield <trace>.json <verts.npy|json> --cycle --k --p --neighbors --out`。
+- 范围说明：仅 POD 重构（精确、可验证）；DMD 全场重构需复数包络近似，本轮不纳入。
+
+**S2 测试**（`tests/test_r53_reconfield.py`，9 项，纯 NumPy）
+- `mean_field` 探针节点 == 探针时均；`reconstruct_field` 探针节点 == 手动公式 `均 + Σ mode·coeff`；
+  `k=None` 探针节点 ≈ 真实 `values[c]`（1e-6）；`recon_quality` total_rmse 随 k 下降、`k=None`≈0、
+  `captured_var>0`；空工件优雅空结果；cycle 越界 ValueError；write 产物四件 + 怪名过滤；CLI 往返
+  + 缺 probes / cycle 越界返 2；`_read_verts` 处理 .json/.npy。
+
+**门禁预期**：ruff 0、测试 +9、回归 R35–R52 全绿——GATE PASS。
+
+### 8.47 第五十轮执行记录：R53-S1/S2 全场模态重构（2026-09-04 落地）
+
+**S1 实现**（`fv/reconfield.py`）
+- 每模式形状场直接调 `pod_decompose` 一次取 `modes[i]` 后逐模式 `idw_field`（避免每模式重复分解）。
+- 探针节点全场无真值 → 质量验证锚定在**探针节点**（IDW 精确绑定处）：`recon = 均 + Σ mode·coeff`，
+  即 R49 值加回 mean，与 `values` 直接比对。
+- 序列化 JSON 时 NaN 无法 json 序列化 → `None if v!=v else float(v)` 转换；CSV 中 NaN 写空单元格。
+
+**S2 测试**（`tests/test_r53_reconfield.py`，9 项全过）
+- 纯 NumPy + 复用 R48/R52；连同 R35(12)/R36(9)/R37(11)/R38(9)/R39(9)/R40(7)/R41(11)/R42(11)/
+  R43(9)/R44(9)/R45(6)/R46(7)/R47(9)/R48(8)/R49(8)/R50(9)/R51(8)/R52(9) 回归共 **170** 项通过；
+  ruff 0（fv/ tests/ 全绿）。
+- 修：怪名 CSV 命名实测为 `<safe>_recon_nodes.csv`（无 cycle 后缀），测试断言同步；`write_reconfield`
+  返回 `summary` 未用 → ruff F841 删除赋值。
+
 
 

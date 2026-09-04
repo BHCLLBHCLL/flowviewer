@@ -249,5 +249,13 @@ gate on push/PR.
   bounded-memory chunked distances; mode_weights sources a POD mode or the DMD
   dominant mode's per-probe participation; build_mode_field returns the node field
   + coverage stats; write_mode_field emits <field>_mode<k>.json +
-  <field>_mode<k>_nodes.csv (node,x,y,z,weight) + summary.json; CLI fv.modalfield,
-  pure NumPy, headless, no CGNS/vtk deps).
+  <field>_mode<k>_nodes.csv (node,x,y,z,weight) + summary.json;
+  CLI fv.modalfield, pure NumPy, headless, no CGNS/vtk deps).
+- R53 - beyond-scPOST: full-field modal reconstruction at a cycle (reconstructs the
+  whole mesh node field at any cycle from the dominant POD modes as
+  recon = mean_field + Σ mode_shapeⱼ·coeffⱼ(cycle), lifting each mode's per-probe weight
+  onto the domain via R52's idw_field; mean_field spreads the probe temporal means onto
+  the mesh; recon_quality verifies the reconstruction at the probe nodes where the IDW
+  ties are exact (≈0 RMSE with all modes); write_reconfield emits <field>_recon_cycle<N>.json
+  + <field>_recon_nodes.csv (node,x,y,z,recon) + <field>_recon_quality.json + summary.json;
+  CLI fv.reconfield, pure NumPy, headless, no CGNS/vtk deps).
