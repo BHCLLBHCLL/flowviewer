@@ -301,3 +301,13 @@ gate on push/PR.
   no (N,) node arrays) + <field>_spectral_nodes.csv + summary.json; CLI
   fv.spectralmap <trace> <verts> --source pod|dmd --cycles A:B --dt --frames
   --k --p --neighbors --preview --out, pure NumPy, headless, no CGNS/vtk deps).
+- R59 - beyond-scPOST: spatio-temporal co-oscillation (coherence) field map, the
+  spatial-correlation counterpart of R58 (single-point spectra). Coheres every
+  vertex's reconstructed frame sequence against a reference probe via Welch
+  magnitude-squared coherence (R42 semantics, vectorised over vertex chunks) and
+  maps peak coherence / its frequency / mean coherence / cross-phase as four HTML
+  <canvas> heatmaps; write_coherence_report emits <field>_coherence.html +
+  <field>_coherence.json (stats + previews + meta, no (N,) node arrays) +
+  <field>_coherence_nodes.csv + summary.json; CLI fv.coherencemap <trace> <verts>
+  --ref <i> --source pod|dmd --cycles A:B --nperseg --dt --frames --k --p
+  --neighbors --preview --out, pure NumPy, headless, no CGNS/vtk deps).

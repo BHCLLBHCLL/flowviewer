@@ -2733,5 +2733,52 @@ R54 `_safe`/HTML 布局。**范围/诚实降级**：预览为粗粒度（默认 
   `pres sure → pres_sure_spectral.*` + slim json 无 "maps" 键 + CSV 表头、CLI 往返/缺 probes/坏 verts/
   越界 `--cycles` → exit 2。
 
+### 9.39 R59 基线外纵深·第二十九轮：时空共振荡（相干性）场图（2026-09-05 定稿）
+
+**动机**：R58 逐顶点 FFT 给出单点频域场。R59 补上**空间相关**轴：把 R42 的探针级 **Welch 幅值平方相干**
+（coherence）升维到全网格——每个顶点的重构帧序列与一个**参考探针**做相干分析，输出四张热力图：
+**peak coherence（0..1）/ 其主导相干频率 / mean coherence（f>0 均值）/ phase at peak（互谱相位，揭示传播）**。
+这是 R47「探针相干组」从离散探针到**连续空间域**的延拓，正交于 R58 的单点频域；也完成「探针级量 → 全场」
+家族（R52 模态权重 / R58 单点谱 / R59 空间相干）的第四块。
+
+**方案**（`fv/coherencemap.py`）
+1. `coherence_field(vert_frames, ref, *, nperseg=None, dt=1.0, overlap=0.5, blocksize=4096)`：
+   帧矩阵 `(M,N)` 每顶点与 `ref`（`(M,)`）做 Welch 幅值平方相干（去段均值 → 段 `rfft` → 累加 pxx/pyy/pxy →
+   归一）；分块向量化控内存；返回 `{peak_freq, peak_coherence, mean_coherence, phase, nseg, nperseg, dt,
+   nyquist}`（各 `(N,)`）。有限样本<2 / 退化 → NaN；`ref` 长度≠帧数 → `ValueError`。
+2. `build_coherence_report(verts, artifact, *, ref_probe=0, cycles, step, k, p, neighbors, source,
+   preview, nperseg, dt, blocksize)`：复用 R57 `reconstruct_sequence`（缺省全窗，`frames` 可选子采样并同步
+   子采样参考）；`dt` 缺省用 R41 `mean_dt`；四 map 各经 `binned_preview`/`_stats`；`ref_probe` 越界 →
+   `ValueError`；空/short 工件降级。
+3. `render_html`：复用 R58 draw-JS，4 canvas 热力图，字段名转义；空 → "No data."。
+4. `write_coherence_report`：`<safe>_coherence.html` + json（slim，无节点数组）+ `_nodes.csv`
+   （node,x,y,z,peak_coherence,peak_freq,mean_coherence,phase）+ `summary.json`；CLI
+   `fv.coherencemap <trace> <verts> --ref --source --cycles --step --frames --k --p --neighbors
+   --nperseg --dt --preview --out`。
+
+**复用**：R57 `reconstruct_sequence`/`binned_preview`/`_safe`/`_stats`、R58 `_DRAW_JS`/`_grid_range`、R41 `mean_dt`、
+R42 `coherence`/`DEFAULT_NPSEG`。**范围/诚实降级**：相量为 Welch 段平均，绝对相位仅具空间相对意义；预览为
+粗粒度（默认 24×24 分箱），需 VTK 的精细渲染不在 headless 范围；<2 帧或全常数 → 相干如实 0/NaN。
+
+### 8.53 第五十六轮执行记录：R59-S1/S2 时空共振荡（相干性）场图（2026-09-05 落地）
+
+**S1 实现**（`fv/coherencemap.py`）
+- `coherence_field`：逐顶点 Welch（段去均值 → `rfft` → 累加 pxx/pyy/pxy → `|pxy|²/(pxx·pyy)`），分块的顶点
+  沿 N 切，`pyy` 为共享 `(fn,)`（参考全局相同）→ 广播进分母 `pxx·pyy[:,None]`；`phase=angle(pxy[峰值])`；
+  `<2` 有限样本顶点 → NaN。
+- `build_coherence_report`：参考 = `probes[ref_probe].values[idx]`（随 `frames` 子采样同步对齐）；`ref_probe`
+  越界 → `ValueError`（CLI → exit 2）；`dt` 缺省 `mean_dt` 推断；四 map 出 preview + stats。
+- `write_coherence_report`：json **slim**（不内嵌节点数组）；CSV 四列；CLI 复用 `_read_verts`。
+- **修正**：互谱 `pxy += fw·conj(fr)` 维度错误 → `conj(fr)[:,None]`；参考谱 `pyy` 原按 `(fn,Nb)` 累加导致
+  广播失败 → 改为共享 `(fn,)`、分母处 `pyy[:,None]`。
+
+**S2 测试**（`tests/test_r59_coherencemap.py`，8 项全过）
+- 纯 NumPy；R35–R59 编号回归本机 **221** 项全过，ruff 0（fv/ tests/ 全绿）。
+- 覆盖：同相正弦 → `peak_coherence≈1` + `peak_freq≈参考主导频率`，恒定列 → `mean_coherence≈0`，反相同频率 →
+  幅值平方相干仍≈1 且 `phase≈±π`（相位无关性）；`ref` 长度错 → `ValueError`、M<2 → 全 NaN；报告 ref 自身节点
+  `peak_coherence>0.9` + `dt` 推断一致、`ref_probe` 越界 → `ValueError`、空工件降级；HTML 含 4 canvas + 脚本
+  转义；写文件怪名 `pres sure → pres_sure_coherence.*` + slim json 无节点数组 + CSV 表头；CLI 往返/缺 probes/
+  坏 verts/越界 `--cycles`/坏 `--ref` → exit 2。
+
 
 
