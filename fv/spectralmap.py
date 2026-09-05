@@ -112,6 +112,7 @@ def build_spectral_report(verts: np.ndarray, artifact: dict, *, cycles=None,
             "n_cycles": n_cycles, "n_frames": 0, "n_vertices": N,
             "k": int(k) if k else None, "p": float(p), "neighbors": int(neighbors),
             "dt": None, "nyquist": 0.0, "preview": int(preview),
+            "probes_xy": _probes_xy(probes),
             "extent": {"xmin": None, "xmax": None, "ymin": None, "ymax": None},
             "maps": _empty_maps(N, dt), "stats": _empty_stats(),
             "previews": {"mean": [], "rms": [], "intensity": [], "freq": []}}
@@ -165,26 +166,84 @@ def _empty_stats() -> dict:
 
 # ── HTML render ─────────────────────────────────────────────────────────────
 
-_DRAW_JS = __import__("inspect").cleandoc("""
-  const MAPS=__MAPS__; const VM=__VM__; const G=__GRID__; const NAMES=__NAMES__;
+# Single interactive canvas JS shared by R58/R59/R60 (panel prefix "") and by
+# R61 (console, panel prefix "spectral"/"coherence"/"spectevol") and R62 (field
+# maps in the spatial report). Besides painting the heatmap it adds: a colour
+# legend strip + hi/lo ticks on the right of each canvas, a hover tooltip that
+# maps a pixel back to the real-space bin-centre coordinate and value, and
+# probe markers overlaid at their real (x, y) positions. All interactive bits
+# are plain DOM/Canvas, headless, no backend.
+_FIELD_JS = __import__("inspect").cleandoc("""
+  const PANELS=__PANELS__; const G=__GRID__; const EXT=__EXT__; const PROBES=__PROBES__; const LW=32;
+  const XMIN=EXT.xmin||0, XMAX=EXT.xmax||1, YMIN=EXT.ymin||0, YMAX=EXT.ymax||1;
+  const XS=(XMAX-XMIN)||1, YS=(YMAX-YMIN)||1;
   function cmap(t){t=t<0?0:(t>1?1:t);
-    const stops=[[0,38,0,115],[.25,58,124,185],[.5,255,255,255],[.75,255,120,40],[1,90,0,0]];
-    let i=0; while(i<stops.length-2&&t>=stops[i+1][0])i++;
-    const a=stops[i],b=stops[i+1],u=(t-a[0])/(b[0]-a[0]);
-    return 'rgb('+Math.round(a[1]+(b[1]-a[1])*u)+','+Math.round(a[2]+(b[2]-a[2])*u)+','+Math.round(a[3]+(b[3]-a[3])*u)+')';
-  }
-  function paint(){
-    for(const nm of NAMES){
-      const cv=document.getElementById('cv_'+nm); const c=cv.getContext('2d');
-      const g=MAPS[nm], lo=VM[nm][0], hi=VM[nm][1], span=(hi-lo)||1;
-      for(let gy=0;gy<G;gy++)for(let gx=0;gx<G;gx++){
-        const vv=g[gy]&&g[gy][gx]; if(vv===null||vv===undefined){continue;}
-        c.fillStyle=cmap((vv-lo)/span); c.fillRect(gx*6,gy*6,6,6);
-      }
-    }
-  }
-  window.addEventListener('load',paint);
+    const s=[[0,38,0,115],[.25,58,124,185],[.5,255,255,255],[.75,255,120,40],[1,90,0,0]];
+    let i=0; while(i<s.length-2&&t>=s[i+1][0])i++;
+    const a=s[i],b=s[i+1],u=(t-a[0])/(b[0]-a[0]);
+    return 'rgb('+Math.round(a[1]+(b[1]-a[1])*u)+','+Math.round(a[2]+(b[2]-a[2])*u)+','+Math.round(a[3]+(b[3]-a[3])*u)+')';}
+  function paint(){for(const pre in PANELS){const p=PANELS[pre];
+    for(const nm of p.names){
+      const cv=document.getElementById('cv_'+pre+nm); const c=cv.getContext('2d');
+      const g=p.maps[nm], lo=p.vm[nm][0], hi=p.vm[nm][1], span=(hi-lo)||1;
+      c.clearRect(0,0,cv.width,cv.height);
+      for(let gy=0;gy<G;gy++)for(let gx=0;gx<G;gx++){const vv=g[gy]&&g[gy][gx];
+        if(vv===null||vv===undefined)continue;
+        c.fillStyle=cmap((vv-lo)/span); c.fillRect(gx*6,gy*6,6,6);}
+      // colour legend strip on the right; hi at top, lo at bottom
+      for(let iy=0;iy<G*6;iy++){c.fillStyle=cmap(1-iy/((G*6-1)||1)); c.fillRect(G*6,iy,LW,1);}
+      c.fillStyle='#555'; c.font='10px system-ui';
+      c.fillText(hi.toExponential(2),G*6+3,11); c.fillText(lo.toExponential(2),G*6+3,G*6-3);
+      c.strokeStyle='#aaa'; c.strokeRect(G*6,0,LW,G*6-1);
+      // probe markers at their real (x, y) position
+      for(const pr of PROBES){const px=(pr.x-XMIN)/XS*G*6, py=(pr.y-YMIN)/YS*G*6;
+        c.strokeStyle='#0a0a0a'; c.fillStyle='#fff';
+        c.beginPath(); c.arc(px,py,4,0,7); c.fill(); c.stroke();}
+    }}}
+  function tooltips(){const tip=document.createElement('div');
+    tip.style.cssText='position:fixed;pointer-events:none;background:rgba(20,20,30,.88);color:#fff;padding:6px 9px;font:12px system-ui;border-radius:4px;display:none;z-index:99;white-space:pre;line-height:1.5';
+    document.body.appendChild(tip);
+    for(const pre in PANELS){const p=PANELS[pre];
+      for(const nm of p.names){
+        const cv=document.getElementById('cv_'+pre+nm);
+        cv.addEventListener('mousemove',(e)=>{const r=cv.getBoundingClientRect();
+          const pxx=e.clientX-r.left, pyy=e.clientY-r.top;
+          if(pxx<0||pxx>=G*6||pyy<0||pyy>=G*6){tip.style.display='none';return;}
+          const gx=Math.min(G-1,Math.floor(pxx/6)), gy=Math.min(G-1,Math.floor(pyy/6));
+          const g=p.maps[nm], vv=(g[gy]&&g[gy][gx]!==undefined)?g[gy][gx]:null;
+          const cx=XMIN+(gx+0.5)*XS/G, cy=YMIN+(gy+0.5)*YS/G;
+          const label=nm+(pre?(' ['+pre+']'):'');
+          tip.textContent=label+'\\n(x, y) = ('+cx.toFixed(3)+', '+cy.toFixed(3)+')';
+          tip.textContent+='\\nvalue = '+(vv===null?'n/a':(+vv).toFixed(6));
+          tip.style.left=(e.clientX+12)+'px'; tip.style.top=(e.clientY+12)+'px'; tip.style.display='block';});
+        cv.addEventListener('mouseleave',()=>{tip.style.display='none';});
+      }}}
+  window.addEventListener('load',()=>{paint();tooltips();});
 """)
+
+
+def _field_js(panels: dict, grid: int, extent, probes) -> str:
+    """Build the interactive canvas JS for ``panels`` over a ``grid``.
+
+    ``panels`` maps a canvas-id prefix to ``{"names", "maps", "vm"}`` (empty
+    prefix for the flat R58/R59/R60 reports, panel name for R61/R62). ``extent``
+    is {xmin,xmax,ymin,ymax}; ``probes`` is [{x,y}, ...] in real coordinates.
+    """
+    return (_FIELD_JS
+            .replace("__PANELS__", json.dumps(panels))
+            .replace("__GRID__", str(int(grid) or 1))
+            .replace("__EXT__", json.dumps(extent or {}))
+            .replace("__PROBES__", json.dumps(probes or [])))
+
+
+def _probes_xy(probes: list) -> list:
+    """Real (x, y) pairs of the probes (from ``xyz``, falling back to ``query``)."""
+    out = []
+    for p in probes:
+        q = p.get("xyz") or p.get("query")
+        if q and len(q) >= 2 and q[0] is not None and q[1] is not None:
+            out.append({"x": float(q[0]), "y": float(q[1])})
+    return out
 
 
 def _grid_range(grid) -> tuple:
@@ -228,13 +287,11 @@ def render_html(report: dict) -> str:
                  "<div style='margin:6px 0;color:#666;font-size:12px'>" +
                  f"min {_f(st.get('min'))} · max {_f(st.get('max'))} · " +
                  f"mean {_f(st.get('mean'))} · finite {_f(st.get('finite_fraction'))}</div>" +
-                 f'<canvas id="cv_{name}" width="{g*6}" height="{g*6}"></canvas>')
+                 f'<canvas id="cv_{name}" width="{g*6+32}" height="{g*6}"></canvas>')
         canvas_rows += block
-    js = (_DRAW_JS
-          .replace("__MAPS__", json.dumps(maps_js))
-          .replace("__VM__", json.dumps(vm_js))
-          .replace("__GRID__", str(g))
-          .replace("__NAMES__", json.dumps([n for n, _ in metas])))
+    panels = {"": {"names": [n for n, _ in metas], "maps": maps_js, "vm": vm_js}}
+    js = _field_js(panels, g, report.get("extent"),
+                   report.get("probes_xy") or [])
     body = ("<h2>Summary</h2>" + summ_html +
             "<h2>Spectral maps</h2>" + canvas_rows +
             "<script>" + js + "</script>")

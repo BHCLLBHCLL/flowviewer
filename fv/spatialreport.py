@@ -111,7 +111,11 @@ def build_spatial_report(verts: np.ndarray, artifact: dict, *, top=5,
     if field and probes and cycles_l and N > 0:
         from .coherencemap import build_coherence_report
         from .spectevol import build_spectevol_report
-        from .spectralmap import build_spectral_report
+        from .spectralmap import _probes_xy, build_spectral_report
+        fm = base["field_maps"]
+        fm["probes_xy"] = _probes_xy(probes)
+        fm["extent"] = {"xmin": float(v[:, 0].min()), "xmax": float(v[:, 0].max()),
+                        "ymin": float(v[:, 1].min()), "ymax": float(v[:, 1].max())}
         common = dict(cycles=cycles, step=step, frames=frames, k=None, p=p,
                       neighbors=neighbors, source=source, preview=preview, dt=dt)
         reps = {"spectral": build_spectral_report(v, artifact, **common),
@@ -119,7 +123,6 @@ def build_spatial_report(verts: np.ndarray, artifact: dict, *, top=5,
                                                     nperseg=nperseg, **common),
                 "spectevol": build_spectevol_report(v, artifact, nperseg=nperseg,
                                                     **common)}
-        fm = base["field_maps"]
         for name, rep in reps.items():
             fm[name] = {"meta": {"n_frames": rep.get("n_frames", 0),
                                  "n_vertices": rep.get("n_vertices", 0),
@@ -201,12 +204,13 @@ def _field_maps_html(fm: dict) -> str:
 
     Renders one sub-section per non-empty field panel (each with its four
     ``<canvas id="cv_{panel}_{map}">`` heatmaps + per-map stats), painted by one
-    shared JS lifted from R61's console (lazy imports avoid the
-    spatialreport <- spatialanim <- spectralmap <- fieldconsole import cycle).
+    shared interactive JS (hover tooltip / legend / probe overlay) from
+    ``spectralmap._field_js`` (lazy imports avoid the
+    spatialreport <- spatialanim <- spectralmap import cycle).
     Returns "" when no panel carries previews.
     """
-    from .fieldconsole import _CONSOLE_JS, PANEL_SPEC
-    from .spectralmap import _grid_range
+    from .fieldconsole import PANEL_SPEC
+    from .spectralmap import _field_js, _grid_range
 
     order = [n for n in ("spectral", "coherence", "spectevol")
              if fm.get(n, {}).get("previews")]
@@ -231,11 +235,9 @@ def _field_maps_html(fm: dict) -> str:
                      "<div style='margin:6px 0;color:#666;font-size:12px'>" +
                      f"min {_f(st.get('min'))} · max {_f(st.get('max'))} · " +
                      f"mean {_f(st.get('mean'))} · finite {_f(st.get('finite_fraction'))}</div>" +
-                     f'<canvas id="cv_{n}_{m}" width="{g*6}" height="{g*6}" style="border:1px solid #ddd"></canvas>')
-    js = (_CONSOLE_JS
-          .replace("__PANELS__", json.dumps(pan_js))
-          .replace("__GRID__", str(g))
-          .replace("__TABS__", json.dumps([])))
+                     f'<canvas id="cv_{n}_{m}" width="{g*6+32}" height="{g*6}" '
+                     'style="border:1px solid #ddd"></canvas>')
+    js = _field_js(pan_js, g, fm.get("extent"), fm.get("probes_xy") or [])
     return "<h2>Field maps</h2>" + rows + "<script>" + js + "</script>"
 
 
@@ -437,7 +439,8 @@ def write_spatial_report(verts: np.ndarray, artifact: dict, out_dir: str, *,
 
 def _field_maps_slim(fm: dict) -> dict:
     """JSON-safe copy of field_maps: stats/meta + list-of-lists previews."""
-    slim = {"enabled": bool(fm.get("enabled")), "preview": int(fm.get("preview", 24))}
+    slim = {"enabled": bool(fm.get("enabled")), "preview": int(fm.get("preview", 24)),
+            "extent": fm.get("extent"), "probes_xy": fm.get("probes_xy", [])}
     for n in ("spectral", "coherence", "spectevol"):
         pane = fm.get(n) or {}
         prevs = pane.get("previews", {})

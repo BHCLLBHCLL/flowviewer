@@ -2953,4 +2953,33 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 - 邻接回归：R54 9/9、R58 8/8、R60 9/9、R61 9/9、R62 8/8 全绿；ruff 0（fv/ tests/ 全过）。
 
 
+### 8.58 第六十轮执行记录：R63 场图交互化（2026-09-05 落地）
 
+**目标**：R58/R59/R60 单报告、R61 控制台、R62 空间报告的 12 张场图此前是静态 canvas
+（纯 heatmap、无色标、无坐标、无探针定位），缺乏"读取真值"的交互。R63 用**一份统一内联 JS**
+同时驱动全部场图，补齐三段交互：① 悬停 **tooltip**（canvas 像素 → 真实空间坐标 + 该 bin 数值）；
+② 右侧竖直**色标图例**（高值在上、低值在下，上下刻度，band 描边）；③ **探针叠加**（在真实 (x,y)
+坐标处画白圆黑边标记）。
+
+**S1 实现**（`fv/spectralmap.py` 定义共享原语）
+- 替换原 `_DRAW_JS` 为 `_FIELD_JS`：注入 `PANELS`（names/maps/vm）、`G`（分箱）、`EXT`
+  （extent: xmin/xmax/ymin/ymax）、`PROBES`（真实 (x,y) 列表）、`LW`（图例带宽 32）。`paint`
+  逐 bin 上色后绘制右侧色标条 + 上下刻度；`tooltips` 对所有 `cv_{pre}{nm}` canvas 挂
+  `mousemove`（像素→bin→`XMIN+(gx+0.5)*XS/G` 中心 + 数值）与 `mouseleave`。
+- 新增 `_field_js(panels, grid, extent, probes)`（做 JSON 替换回填模板）与 `_probes_xy(probes)`
+  （自 `xyz` 回退 `query` 提取 (x,y)，忽略缺失/None）。canvas 加宽为 `g*6+LW` 容纳图例。
+- `coherencemap.py` / `spectevol.py` / `fieldconsole.py` / `spatialreport.py` 改从 `spectralmap`
+  复用 `_field_js` / `_probes_xy`，报告/控制台/空间报告均携带 `extent` + `probes_xy`，删除各自的
+  本地 draw-JS（fieldconsole 保留 `_TABS_JS` 管标签切换）。
+
+**缺陷修复**（`fv/modalfield.py` `idw_field`，R52 既有隐患被 R63 测试暴露）
+- 探针 `xyz` 含 `None`（如 z 缺失、仅用于叠加定位）时 `float(v) for v in ref` 抛
+  `TypeError`。修复：坐标整段转换包 `try/except (TypeError, ValueError)`，转换失败的探针跳过 IDW
+  （与"无坐标则丢弃"语义一致）；`probes_xy` 仍照常暴露其 (x,y) 供叠加。R52/R58-62 全绿无回退。
+
+**S2 测试**（`tests/test_r63_field_interact.py`，8 项全过；纯 NumPy 无头，120 帧子窗加速）
+- 覆盖：四类 builder 报告均带 `probes_xy` + `extent`（0..2 × 0..2）；R58 HTML 含
+  tooltips/mousemove/mouseleave/toExponential/probe-arc `PROBES` 标记且 4 canvas、宽 176（非 144）；
+  控制台 12 canvas + `tabs()`/mousemove + 三种 `cv_{panel}_{map}` id；R62 空间报告 `field=True`
+  下 field_maps 交互标记齐全；`xyz` 含 `None` 的探针不崩 build/render 且 (x,y) 仍修正；`_field_js`
+  回填 token；`_probes_xy` 各回退分支；CLI 冒烟产出 `P_spectral.html`。

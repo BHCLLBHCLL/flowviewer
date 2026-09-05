@@ -59,14 +59,19 @@ def idw_field(verts: np.ndarray, probes: Sequence[dict],
     if not probes:
         return np.full(N, np.nan, dtype=np.float64)
 
-    # reference points + weights (drop probes with neither xyz nor query)
+    # reference points + weights (drop probes with neither xyz nor query, or
+    # with an incomplete coordinate — e.g. a None z only usable for the overlay)
     P = []
     w = []
     for pr in probes:
         ref = pr.get("xyz") if pr.get("xyz") is not None else pr.get("query")
         if ref is None:
             continue
-        P.append([float(v) for v in ref])
+        try:
+            cref = [float(v) for v in ref]
+        except (TypeError, ValueError):
+            continue  # incomplete coordinate -> cannot place it in the mesh
+        P.append(cref)
         w.append(weights[len(w)])
     if not P:
         return np.full(N, np.nan, dtype=np.float64)

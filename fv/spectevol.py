@@ -28,7 +28,7 @@ import numpy as np
 
 from .relate import DEFAULT_NPSEG
 from .spatialanim import _f, _safe, _stats, binned_preview, reconstruct_sequence
-from .spectralmap import _DRAW_JS, _esc, _grid_range
+from .spectralmap import _esc, _field_js, _grid_range, _probes_xy
 from .spectrum import mean_dt
 
 
@@ -155,6 +155,7 @@ def build_spectevol_report(verts: np.ndarray, artifact: dict, *, cycles=None,
             "k": int(k) if k else None, "p": float(p), "neighbors": int(neighbors),
             "nperseg": int(nperseg) if nperseg else None, "nwin": 0,
             "dt": None, "nyquist": 0.0, "preview": int(preview),
+            "probes_xy": _probes_xy(probes),
             "extent": {"xmin": None, "xmax": None, "ymin": None, "ymax": None},
             "maps": _empty_field(N, dt), "stats": _empty_stats(),
             "previews": {"centroid": [], "bandwidth": [], "drift": [],
@@ -250,12 +251,10 @@ def render_html(report: dict) -> str:
                         "<div style='margin:6px 0;color:#666;font-size:12px'>" +
                         f"min {_f(st.get('min'))} · max {_f(st.get('max'))} · " +
                         f"mean {_f(st.get('mean'))} · finite {_f(st.get('finite_fraction'))}</div>" +
-                        f'<canvas id="cv_{name}" width="{g*6}" height="{g*6}"></canvas>')
-    js = (_DRAW_JS
-          .replace("__MAPS__", json.dumps(maps_js))
-          .replace("__VM__", json.dumps(vm_js))
-          .replace("__GRID__", str(g))
-          .replace("__NAMES__", json.dumps([n for n, _ in metas])))
+                        f'<canvas id="cv_{name}" width="{g*6+32}" height="{g*6}"></canvas>')
+    panels = {"": {"names": [n for n, _ in metas], "maps": maps_js, "vm": vm_js}}
+    js = _field_js(panels, g, report.get("extent"),
+                   report.get("probes_xy") or [])
     body = ("<h2>Summary</h2>" + summ_html +
             "<h2>Evolution maps</h2>" + canvas_rows +
             "<script>" + js + "</script>")

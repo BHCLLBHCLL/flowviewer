@@ -28,7 +28,7 @@ import numpy as np
 from .coherencemap import build_coherence_report
 from .spatialanim import _f, _safe
 from .spectevol import build_spectevol_report
-from .spectralmap import _esc, _grid_range, build_spectral_report
+from .spectralmap import _esc, _field_js, _grid_range, _probes_xy, build_spectral_report
 
 PANEL_SPEC = {
     "spectral": {
@@ -65,11 +65,17 @@ def build_console(verts: np.ndarray, artifact: dict, *,
     field = artifact.get("name") or ""
     probes = list(artifact.get("probes", []))
     selected = tuple(n for n in panels if n in PANEL_SPEC)
+    if v.shape[0]:
+        ex = {"xmin": float(v[:, 0].min()), "xmax": float(v[:, 0].max()),
+              "ymin": float(v[:, 1].min()), "ymax": float(v[:, 1].max())}
+    else:
+        ex = {"xmin": None, "xmax": None, "ymin": None, "ymax": None}
     console = {"kind": "fieldconsole", "field": field, "source": source,
                "n_probes": len(probes),
                "n_cycles": int(len(list(artifact.get("cycles", [])))),
                "n_vertices": v.shape[0], "k": int(k) if k else None,
                "p": float(p), "neighbors": int(neighbors),
+               "probes_xy": _probes_xy(probes), "extent": ex,
                "preview": int(preview), "panels": {}, "panel_order": list(selected)}
     common = dict(cycles=cycles, step=step, frames=frames, k=k, p=p,
                   neighbors=neighbors, source=source, preview=preview, dt=dt)
@@ -134,15 +140,13 @@ def render_html(console: dict) -> str:
                      "<div style='margin:4px 0;color:#666;font-size:12px'>" +
                      f"min {_f(st.get('min'))} · max {_f(st.get('max'))} · " +
                      f"mean {_f(st.get('mean'))} · finite {_f(st.get('finite_fraction'))}</div>" +
-                     f'<canvas id="cv_{n}_{m}" width="{g*6}" height="{g*6}"></canvas>')
+                     f'<canvas id="cv_{n}_{m}" width="{g*6+32}" height="{g*6}"></canvas>')
         style = "" if i == 0 else ' style="display:block"'
         sections += (f"<section class='panel' data-pan='{n}'{style}>" +
                      rows + "</section>")
 
-    js = (_CONSOLE_JS
-          .replace("__PANELS__", json.dumps(pan_js))
-          .replace("__GRID__", str(g))
-          .replace("__TABS__", json.dumps(order)))
+    js = _field_js(pan_js, g, console.get("extent"),
+                   console.get("probes_xy") or []) + "\n" + _TABS_JS
     body = ("<h2>Summary</h2>" + _table(summ) + tabs + sections +
             "<script>" + js + "</script>")
     return (_DOC.replace("__TITLE__", field)
@@ -155,26 +159,17 @@ def _table(rows) -> str:
                                for k, v in rows) + "</table>"
 
 
-_CONSOLE_JS = __import__("inspect").cleandoc("""
-  const P=__PANELS__; const G=__GRID__; const ORDER=__TABS__;
-  function cmap(t){t=t<0?0:(t>1?1:t);
-    const s=[[0,38,0,115],[.25,58,124,185],[.5,255,255,255],[.75,255,120,40],[1,90,0,0]];
-    let i=0; while(i<s.length-2&&t>=s[i+1][0])i++;
-    const a=s[i],b=s[i+1],u=(t-a[0])/(b[0]-a[0]);
-    return 'rgb('+Math.round(a[1]+(b[1]-a[1])*u)+','+Math.round(a[2]+(b[2]-a[2])*u)+','+Math.round(a[3]+(b[3]-a[3])*u)+')';}
-  function paint(){for(const key in P){const p=P[key];
-    for(const nm of p.names){const cv=document.getElementById('cv_'+key+'_'+nm);
-      const c=cv.getContext('2d'),g=p.maps[nm],lo=p.vm[nm][0],hi=p.vm[nm][1],sp=(hi-lo)||1;
-      for(let gy=0;gy<G;gy++)for(let gx=0;gx<G;gx++){const vv=g[gy]&&g[gy][gx];
-        if(vv===null||vv===undefined)continue;
-        c.fillStyle=cmap((vv-lo)/sp);c.fillRect(gx*6,gy*6,6,6);}}}}
+# Canvas painting + hover tooltips + legend + probe overlay shared by all field
+# reports live in ``spectralmap._field_js`` (this console reuses it with the
+# panel name as the canvas-id prefix). Only the tab switching is local.
+_TABS_JS = __import__("inspect").cleandoc("""
   function tabs(){const bs=document.querySelectorAll('.tbtn');
     bs.forEach(b=>b.addEventListener('click',()=>{
       bs.forEach(x=>x.classList.remove('active'));
       document.querySelectorAll('.panel').forEach(s2=>s2.style.display='none');
       b.classList.add('active');
       document.querySelector('.panel[data-pan="'+b.dataset.pan+'"]').style.display='block';}));}
-  window.addEventListener('load',()=>{paint();tabs();});
+  window.addEventListener('load',tabs);
 """)
 
 
