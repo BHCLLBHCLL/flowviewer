@@ -2879,4 +2879,56 @@ R42 `coherence`/`DEFAULT_NPSEG`。**范围/诚实降级**：相量为 Welch 段�
   正常路径产出 `CLI_fieldconsole.html`。
 
 
+### 9.42 R62 基线外纵深·第三十二轮：空间报告纳入频域场图（Field Maps in Spatial Report）（2026-09-05 定稿）
+
+**动机**：R54 空间报告呈现 **POD/DMD 模态空间**（时均场、模态能量、重构、质量），R61 控制台呈现 **频域场图**
+（R58 谱 / R59 相干 / R60 谱演化）。两者同属"全网格单场分析"，但分散在两页，无法一页对比"模态空间 ↔ 频域场"
+关系。R62 做**空间-频域整合收官轮**：仿 R56（把 DMD 纳入 R54 空间报告，`--dmd` opt-in，默认输出兼容）模式，
+给 `fv.spatialreport` 增加 `--field` opt-in，把 R58/R59/R60 三份场报告（各 4 张 canvas 热力图 + 逐图统计）并入
+R54 单页报告——**一个 HTML 里 POD/DMD/频域全维度同页呈现**，默认输出与 R54 逐字节兼容。
+
+**方案**（扩展 `fv/spatialreport.py`）
+1. `build_spatial_report(..., *, field=False, source="pod", preview=24, nperseg=None,
+   dt=None, ref_probe=0, cycles=None, step=1, frames=None) -> dict`：新增报告键
+   `field_maps = {"enabled", "preview", "spectral", "coherence", "spectevol"}`。`field=True` 且有 probes/
+   cycles/verts 时，依次调 R58/R59/R60 `build_*_report`（参数统一转发，`ref_probe`/`nperseg` 仅相干/演化面板
+   用），每面板只保留 `{"stats", "previews", "meta(n_frames/n_vertices/dt/nyquist)"}`（不内嵌 `(N,)` 节点数组）；
+   空/短工件 → 子报告已降级，如实保留空 dict。
+2. `render_html(report) -> str`：`field_maps["enabled"]` 且有面板数据时，body 末尾追加 `<h2>Field maps</h2>` +
+   三个子节（Spectral / Coherence / Evolution），每节标题 + 4 张 `<canvas id="cv_{panel}_{map}">` + 每图
+   min/max/mean/finite 统计行；**一份**内联 JS（复用 R61 `_CONSOLE_JS`，注入 `PANELS`/`GRID`，`TABS=[]`）load
+   时绘制全部 canvas；无数据 → 跳过该子节；全部空 → 不输出区块。**默认 `field=False` 输出与 R54 完全一致**。
+3. `write_spatial_report(...) -> dict`：html 含场图区块；slim json 追加 `field_maps`（`_field_maps_slim` 转
+   JSON 安全 previews 列表 + stats/meta，无节点数组）；`summary.json` 追加 `field_maps`/`field_source`；CLI 新增
+   `--field --source pod|dmd --preview --nperseg --dt --ref --cycles A:B --step --frames`。
+
+**复用与循环 import**：`spatialreport.py` 顶部不新增跨模块 import（`spatialreport ← spatialanim ← spectralmap ←
+fieldconsole` 存在加载环），`build_*_report` 与 `PANEL_SPEC`/`_CONSOLE_JS`/`_grid_range` 一律函数体内延迟
+import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 分箱）；精细节点数据/CSV 由各子报告产出，不在此重复。
+
+### 8.56 第五十九轮执行记录：R62-S1/S2 空间报告纳入频域场图（2026-09-05 落地）
+
+**S1 实现**（`fv/spatialreport.py`）
+- `build_spatial_report` 增 `field`/`source`/`preview`/`nperseg`/`dt`/`ref_probe`/`cycles`/`step`/`frames`
+  参数；`field=True` 且有数据时懒加载三个 `build_*_report`（dict 构造，避免 lambda 冗余），只收 stats/previews/
+  meta；`field_maps` 顶层含 `preview` 供 canvas 尺寸。
+- `_field_maps_html(fm)`：函数内延迟 import `PANEL_SPEC`/`_CONSOLE_JS`（fieldconsole）与 `_grid_range`
+  （spectralmap）；按 `previews` 非空筛面板，生成 `pan_js`（maps/vm/names）与 12 canvas + 统计行，复用 R61
+  一份 JS 绘制；canvas 内联 border（R54 CSS 模板无 canvas 规则，保持模板不动以保 `field=False` 逐字节兼容）。
+- `render_html`：`field_maps["enabled"]` 时 body 追加 `_field_maps_html`；`write_spatial_report` 加
+  `_field_maps_slim`（JSON 安全 previews）、summary 加 `field_maps`/`field_source`；CLI 增 `--field` 等与
+  `--cycles A:B` 解析（复用 R58 窗口语义，与 `--cycle` 单帧区分）。
+- **修正**：ruff I001 导入排序 → `_CONSOLE_JS` 排在 `PANEL_SPEC` 前（下划线先于大写），`ruff --fix` 一键修。
+
+**S2 测试**（`tests/test_r62_spatialfield.py`，8 项全过）
+- 纯 NumPy；本机 R54 回归 9/9 全绿（默认输出不变），R62 新增全绿，ruff 0。为控制工具超时，场图用 120 帧
+  子窗口（6 s）加速。
+- 覆盖：默认（`field=False`）`field_maps["enabled"]` False、无 canvas 无 Field maps（R54 兼容）；`field=True`
+  三面板 stats+previews+meta 齐全、`n_vertices==9`；`ref_probe=99` → OOR ValueError；空工件 enabled True 但
+  面板空、render 无 Field maps 区块；HTML 12 canvas + `cv_{panel}_{map}` id + 脚本转义；写文件 `pres sure →
+  pres_sure_spatial.*` + slim json 含 field_maps（递归无 ndarray、无节点数组）+ summary `field_maps:true`；
+  默认写文件无 `field_maps` 键；CLI 缺 probes/坏 verts/越界 `--cycles`/`--field --ref 99` → exit 2，正常路径
+  产出 `P_spatial.html` + summary `field_maps:true`。
+
+
 

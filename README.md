@@ -332,3 +332,17 @@ gate on push/PR.
   <field>_fieldconsole.json (JSON-safe previews) + summary.json; CLI fv.fieldconsole
   <trace> <verts> --panels --ref --source pod|dmd --cycles A:B --dt --frames --k
   --p --neighbors --preview --out, pure NumPy, headless, no CGNS/vtk deps).
+- R62 - beyond-scPOST: spatial report folded with the field maps (spatial-frequency
+  integration round). The R54 spatial report gains an opt-in ``--field`` that folds
+  the R58 spectral / R59 coherence / R60 spectral-evolution field reports onto the
+  same single-page HTML (each panel keeps its four <canvas> heatmaps + per-map
+  stats + meta, no (N,) node arrays), so POD/DMD modal space and frequency-domain
+  maps are comparable on one page; default output stays byte-identical to R54;
+  build_spatial_report field_maps block re-runs build_spectral_report /
+  build_coherence_report / build_spectevol_report (ref_probe/nperseg only where
+  relevant) and render_html appends one shared-JS Field maps section (lazy imports
+  avoid the spatialanim<->spatialreport cycle); write_spatial_report emits
+  <field>_spatial.html + <field>_spatial.json (slim field_maps, JSON-safe previews)
+  + summary.json (field_maps flag + field_source); CLI fv.spatialreport --field
+  --source pod|dmd --cycles A:B --step --frames --preview --nperseg --dt --ref,
+  pure NumPy, headless, no CGNS/vtk deps).

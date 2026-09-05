@@ -68,23 +68,30 @@ def _stats(arr: np.ndarray) -> dict:
 def build_spatial_report(verts: np.ndarray, artifact: dict, *, top=5,
                          p: float = 2.0, neighbors: int = 4,
                          cycle: int = 0, dmd: bool = False,
-                         dmd_top: int = 3) -> dict:
+                         dmd_top: int = 3, field: bool = False,
+                         source: str = "pod", preview: int = 24,
+                         nperseg=None, dt=None, ref_probe: int = 0,
+                         cycles=None, step: int = 1, frames=None) -> dict:
     """Digest vertices + an R38 trace artifact into a spatial report dict.
 
     Fuses the temporal-mean field (R53), the top ``top`` POD mode shape fields
     (R52), the full-field reconstruction at ``cycle`` (R53) and its probe-node
     quality (R53). When ``dmd`` is true it additionally digests the top
     ``dmd_top`` DMD mode-shape fields (R55/R52), the DMD full-field
-    reconstruction and its quality — the POD/DMD spatial pair. Empty artifact /
-    empty vertices -> graceful empty result (no exception). ``top=None`` (and
-    ``dmd_top=None``) keeps every mode.
+    reconstruction and its quality — the POD/DMD spatial pair. When ``field``
+    is true it additionally folds the R58/R59/R60 field reports (their binned
+    previews + stats + meta, no ``(N,)`` node arrays) under ``field_maps`` so
+    the one page shows POD/DMD and frequency-domain maps together (default
+    keeps the report byte-identical to R54). Empty artifact / empty vertices ->
+    graceful empty result (no exception). ``top=None`` (and ``dmd_top=None``)
+    keeps every mode.
     """
     v = np.asarray(verts, dtype=np.float64)
     N = v.shape[0]
-    field = artifact.get("name") or ""
+    field_name = artifact.get("name") or ""
     probes = list(artifact.get("probes", []))
-    cycles = list(artifact.get("cycles", []))
-    base = {"field": field, "n_probes": len(probes), "n_cycles": len(cycles),
+    cycles_l = list(artifact.get("cycles", []))
+    base = {"field": field_name, "n_probes": len(probes), "n_cycles": len(cycles_l),
             "n_vertices": N, "p": float(p), "neighbors": int(neighbors),
             "cycle": int(cycle),
             "mean": {"min": None, "max": None, "mean": None,
@@ -98,8 +105,28 @@ def build_spatial_report(verts: np.ndarray, artifact: dict, *, top=5,
                     "recon": {"finite_fraction": 0.0, "captured_var": 0.0,
                               "min": None, "max": None, "coverage": 0},
                     "quality": {"total_rmse": None, "captured_var": 0.0,
-                                "n_probes": 0, "n_cycles": 0, "k": 0, "r": 0}}}
-    if not probes or not cycles or N == 0:
+                                "n_probes": 0, "n_cycles": 0, "k": 0, "r": 0}},
+            "field_maps": {"enabled": bool(field), "preview": int(preview),
+                           "spectral": {}, "coherence": {}, "spectevol": {}}}
+    if field and probes and cycles_l and N > 0:
+        from .coherencemap import build_coherence_report
+        from .spectevol import build_spectevol_report
+        from .spectralmap import build_spectral_report
+        common = dict(cycles=cycles, step=step, frames=frames, k=None, p=p,
+                      neighbors=neighbors, source=source, preview=preview, dt=dt)
+        reps = {"spectral": build_spectral_report(v, artifact, **common),
+                "coherence": build_coherence_report(v, artifact, ref_probe=ref_probe,
+                                                    nperseg=nperseg, **common),
+                "spectevol": build_spectevol_report(v, artifact, nperseg=nperseg,
+                                                    **common)}
+        fm = base["field_maps"]
+        for name, rep in reps.items():
+            fm[name] = {"meta": {"n_frames": rep.get("n_frames", 0),
+                                 "n_vertices": rep.get("n_vertices", 0),
+                                 "dt": rep.get("dt"), "nyquist": rep.get("nyquist")},
+                        "stats": rep.get("stats", {}),
+                        "previews": rep.get("previews", {})}
+    if not probes or not cycles_l or N == 0:
         return base
 
     mean_f = mean_field(v, probes, p=p, neighbors=neighbors)
@@ -167,6 +194,49 @@ def build_spatial_report(verts: np.ndarray, artifact: dict, *, top=5,
 
 
 # ── HTML render ────────────────────────────────────────────────────────────
+
+
+def _field_maps_html(fm: dict) -> str:
+    """HTML block + inline JS for the R58/R59/R60 previews folded into the page.
+
+    Renders one sub-section per non-empty field panel (each with its four
+    ``<canvas id="cv_{panel}_{map}">`` heatmaps + per-map stats), painted by one
+    shared JS lifted from R61's console (lazy imports avoid the
+    spatialreport <- spatialanim <- spectralmap <- fieldconsole import cycle).
+    Returns "" when no panel carries previews.
+    """
+    from .fieldconsole import _CONSOLE_JS, PANEL_SPEC
+    from .spectralmap import _grid_range
+
+    order = [n for n in ("spectral", "coherence", "spectevol")
+             if fm.get(n, {}).get("previews")]
+    if not order:
+        return ""
+    g = max(4, int(fm.get("preview", 24) or 24))
+    pan_js = {}
+    rows = ""
+    for n in order:
+        pane = fm[n]
+        prevs = pane["previews"]
+        spec = PANEL_SPEC[n]
+        maps_js = {m: [[None if v != v else float(v) for v in row]
+                       for row in prevs.get(m, [])] for m, _ in spec["maps"]}
+        vm_js = {m: list(_grid_range(prevs.get(m, []))) for m, _ in spec["maps"]}
+        pan_js[n] = {"maps": maps_js, "vm": vm_js,
+                     "names": [m for m, _ in spec["maps"]]}
+        rows += f"<h2>{_esc(spec['title'])}</h2>"
+        for m, title in spec["maps"]:
+            st = pane["stats"].get(m, {})
+            rows += (f"<h3>{_esc(title)}</h3>" +
+                     "<div style='margin:6px 0;color:#666;font-size:12px'>" +
+                     f"min {_f(st.get('min'))} · max {_f(st.get('max'))} · " +
+                     f"mean {_f(st.get('mean'))} · finite {_f(st.get('finite_fraction'))}</div>" +
+                     f'<canvas id="cv_{n}_{m}" width="{g*6}" height="{g*6}" style="border:1px solid #ddd"></canvas>')
+    js = (_CONSOLE_JS
+          .replace("__PANELS__", json.dumps(pan_js))
+          .replace("__GRID__", str(g))
+          .replace("__TABS__", json.dumps([])))
+    return "<h2>Field maps</h2>" + rows + "<script>" + js + "</script>"
 
 
 def render_html(report: dict) -> str:
@@ -284,6 +354,10 @@ def render_html(report: dict) -> str:
         "<h2>Reconstruction</h2>" + recon_html +
         "<h2>Probe quality</h2>" + qual_html + dmd_html)
 
+    fm = report.get("field_maps") or {}
+    if fm.get("enabled"):
+        body += _field_maps_html(fm)
+
     return (_DOC_TEMPLATE.replace("__TITLE__", field)
             .replace("__HEADER__", header, 1)
             .replace("__SUMMARY__", "", 1)
@@ -313,13 +387,19 @@ __HEADER____SUMMARY____BODY__
 def write_spatial_report(verts: np.ndarray, artifact: dict, out_dir: str, *,
                          top=5, p: float = 2.0, neighbors: int = 4,
                          cycle: int = 0, dmd: bool = False,
-                         dmd_top: int = 3) -> dict:
+                         dmd_top: int = 3, field: bool = False,
+                         source: str = "pod", preview: int = 24,
+                         nperseg=None, dt=None, ref_probe: int = 0,
+                         cycles=None, step: int = 1, frames=None) -> dict:
     """Render + write ``<field>_spatial.html`` / ``_spatial.json`` + summary."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     report = build_spatial_report(verts, artifact, top=top, p=p,
                                   neighbors=neighbors, cycle=cycle,
-                                  dmd=dmd, dmd_top=dmd_top)
+                                  dmd=dmd, dmd_top=dmd_top, field=field,
+                                  source=source, preview=preview,
+                                  nperseg=nperseg, dt=dt, ref_probe=ref_probe,
+                                  cycles=cycles, step=step, frames=frames)
     name = artifact.get("name") or "field"
     safe = _safe(name)
     html_path = out / f"{safe}_spatial.html"
@@ -328,6 +408,8 @@ def write_spatial_report(verts: np.ndarray, artifact: dict, out_dir: str, *,
                ("field", "n_probes", "n_cycles", "n_vertices", "p",
                 "neighbors", "cycle", "mean", "modes", "recon", "quality",
                 "dmd")}
+    if report["field_maps"]["enabled"]:
+        payload["field_maps"] = _field_maps_slim(report["field_maps"])
     with open(out / f"{safe}_spatial.json", "w", encoding="utf-8") as fh:
         json.dump(payload, fh, indent=2)
     modes = report["modes"]
@@ -339,6 +421,7 @@ def write_spatial_report(verts: np.ndarray, artifact: dict, out_dir: str, *,
         "n_vertices": report["n_vertices"], "top": int(top or 0),
         "cycle": int(cycle),
         "dmd": bool(dmd), "dmd_top": int(dmd_top or 0),
+        "field_maps": bool(field), "field_source": source if field else None,
         "top1_energy": modes[0]["energy_share"] if modes else None,
         "total_rmse": report["quality"]["total_rmse"],
         "recon_captured": report["recon"]["captured_var"],
@@ -350,6 +433,21 @@ def write_spatial_report(verts: np.ndarray, artifact: dict, out_dir: str, *,
     with open(out / "summary.json", "w", encoding="utf-8") as fh:
         json.dump(summary, fh, indent=2)
     return summary
+
+
+def _field_maps_slim(fm: dict) -> dict:
+    """JSON-safe copy of field_maps: stats/meta + list-of-lists previews."""
+    slim = {"enabled": bool(fm.get("enabled")), "preview": int(fm.get("preview", 24))}
+    for n in ("spectral", "coherence", "spectevol"):
+        pane = fm.get(n) or {}
+        prevs = pane.get("previews", {})
+        slim[n] = {"meta": pane.get("meta", {}),
+                   "stats": pane.get("stats", {}),
+                   "previews": {m: [[None if v is None or v != v else float(v)
+                                     for v in row]
+                                    for row in grid]
+                                for m, grid in prevs.items()}}
+    return slim
 
 
 def _read_verts(path: str) -> np.ndarray:
@@ -376,6 +474,20 @@ def main(argv: list | None = None) -> int:
     ap.add_argument("--dmd", action="store_true",
                     help="also report the DMD mode shapes + DMD reconstruction")
     ap.add_argument("--dmd-top", type=int, default=3, help="max DMD modes")
+    ap.add_argument("--field", action="store_true",
+                    help="also fold the R58/R59/R60 field maps into this report")
+    ap.add_argument("--source", choices=("pod", "dmd"), default="pod",
+                    help="reconstruction source for the field maps")
+    ap.add_argument("--preview", type=int, default=24,
+                    help="binned preview grid for the field maps")
+    ap.add_argument("--nperseg", type=int, default=None)
+    ap.add_argument("--dt", type=float, default=None)
+    ap.add_argument("--ref", type=int, default=0,
+                    help="reference probe index (coherence field map)")
+    ap.add_argument("--cycles", default=None,
+                    help="field-map cycle range 'A:B' (default full; step via --step)")
+    ap.add_argument("--step", type=int, default=1)
+    ap.add_argument("--frames", type=int, default=None)
     ap.add_argument("--out", default="spatialreport_out")
     args = ap.parse_args(argv)
     with open(args.trace_json, "r", encoding="utf-8") as fh:
@@ -391,11 +503,30 @@ def main(argv: list | None = None) -> int:
     if verts.ndim != 2 or verts.shape[1] != 3 or verts.shape[0] == 0:
         print("error: verts must be an (N,3) array with N>0", file=sys.stderr)
         return 2
+    n_cycles = int(len(list(art.get("cycles", []))))
+    cycles = None
+    if args.cycles:
+        try:
+            a, _, b = args.cycles.partition(":")
+            a = int(a) if a.strip() else 0
+            b = int(b) if b.strip() else n_cycles
+            if b < 0:
+                b = n_cycles + b
+            if not (0 <= a and a <= b and b <= n_cycles):
+                raise ValueError("out of range")
+            cycles = list(range(a, b))
+        except ValueError as e:
+            print(f"error: bad '--cycles': {e}", file=sys.stderr)
+            return 2
     try:
         summary = write_spatial_report(verts, art, args.out, top=args.top,
                                        p=args.p, neighbors=args.neighbors,
                                        cycle=args.cycle, dmd=args.dmd,
-                                       dmd_top=args.dmd_top)
+                                       dmd_top=args.dmd_top, field=args.field,
+                                       source=args.source, preview=args.preview,
+                                       nperseg=args.nperseg, dt=args.dt,
+                                       ref_probe=args.ref, cycles=cycles,
+                                       step=args.step, frames=args.frames)
     except ValueError as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
