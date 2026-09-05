@@ -375,3 +375,18 @@ gate on push/PR.
   combo fed by the open(path) history, so generated reports can be re-opened
   with one click. main.py adds an "Export Report..." menu item routing to the
   panel's export(). Pure logic stays headless-testable.
+- R67 - Analysis parameter panel: surfaces the run_report tunable defaults as a
+  per-kind GUI dialog instead of hiding them in code. fv.gui.analysis adds a
+  Param frozen dataclass (key/label/type/default/choices/min/max/help) plus pure
+  schema helpers report_params/default_params/normalize_params/param_summary/
+  _coerce (type-driven coercions int/float/bool/choice/str/str_opt/tuple, JSON-
+  serializable so a snapshot round-trips through the dialog) and expands
+  run_report to take every previously-defaulted kw (dt/cycles/step/frames/
+  ref_probe/nperseg/blocksize/top/p/neighbors/preview/source/dmd/field/panels/
+  field_name/cycle/dmd_top), forwarding only what each writer accepts. New
+  fv.gui.paramdialog.ParamDialog renders the schema as Qt widgets (QFormLayout
+  walking report_params). main.py wires a "Report Options..." menu item
+  (QInputDialog kind pick -> ParamDialog -> normalize -> store per-kind snapshot
+  -> status shows param_summary) and on_analysis_report normalizes stored params,
+  falls back to _analysis_dt for dt, and forwards **params. Pure logic stays
+  headless-testable.

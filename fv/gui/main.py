@@ -177,6 +177,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._analysis_artifact = None      # R65: data source for Analysis reports
         self._analysis_dt = None            # R65: optional sample period (s)
         self._analysis_panel = None         # R65: reused ReportPanel pane
+        self._analysis_params = {}          # R67: per-kind report parameter snapshots
 
         from ..render.scene import Scene
         self.scene = Scene(enable_3d=enable_3d)
@@ -515,6 +516,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         for key, title in report_menu():
             add(m, title, lambda _=False, k=key: self.on_analysis_report(k))
         m.addSeparator()
+        add(m, "Report Options…", self._set_report_options)
         add(m, "Set Analysis Data Source…", self._set_analysis_source)
         add(m, "Clear Analysis Data Source",
             lambda _=False: self.set_analysis_artifact(None))
@@ -679,22 +681,49 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             return
         self.set_analysis_artifact(artifact)
 
+    def _set_report_options(self) -> None:
+        """Choose an Analysis report kind and edit its tunable parameters (R67)."""
+        from PyQt5.QtWidgets import QInputDialog
+
+        from .analysis import param_summary, report_menu
+        menu = report_menu()
+        if not menu:
+            return
+        titles = [t for _k, t in menu]
+        chosen, ok = QInputDialog.getItem(
+            self, "Report Options", "Report kind:", titles, 0, False)
+        if not ok:
+            return
+        kind = next(k for k, t in menu if t == chosen)
+        from .paramdialog import ParamDialog
+        dlg = ParamDialog(kind, self)
+        if not dlg.exec_():
+            return
+        params = dlg.result_params()
+        self._analysis_params[kind] = params
+        self.status.showMessage(
+            f"Analysis [{kind}] options: {param_summary(kind, params)}", 6000)
+
     def on_analysis_report(self, kind: str) -> None:
         """Run one Analysis-report kind on the current data source (R64/R65)."""
-        from .analysis import prepare_verts, run_report
+        from .analysis import normalize_params, param_summary, prepare_verts, run_report
         if self._analysis_artifact is None:
             self._set_analysis_source()
             if self._analysis_artifact is None:
                 return
         verts = prepare_verts(self.dataset)
-        dt = self._analysis_dt
+        params = normalize_params(kind, self._analysis_params.get(kind, {}))
+        if params.get("dt") is None:
+            params["dt"] = self._analysis_dt
         path = run_report(kind, verts, self._analysis_artifact,
-                          self._analysis_out_dir(), dt=dt)
+                          self._analysis_out_dir(), **params)
         if not path:
             self.status.showMessage(f"Analysis [{kind}]: no report produced", 4000)
             return
         self._open_report(path)
-        self.status.showMessage(f"Analysis [{kind}]: {Path(path).name}", 6000)
+        self.status.showMessage(
+            f"Analysis [{kind}]: {Path(path).name} · {param_summary(kind, params)}",
+            6000)
 
     def _analysis_out_dir(self) -> str:
         """A stable scratch directory for generated analysis reports."""

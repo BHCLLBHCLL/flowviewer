@@ -55,6 +55,189 @@ REPORTS: dict[str, ReportKind] = {
 }
 
 
+@dataclass(frozen=True)
+class Param:
+    """A single tunable parameter exposed by an Analysis report kind.
+
+    ``type`` drives both the dialog widget and pure coercion: ``int`` | ``float``
+    | ``bool`` | ``choice`` | ``str`` | ``str_opt`` | ``tuple``. ``str_opt`` maps
+    empty free text to ``None``; ``tuple`` stores an ordered set of tokens. All
+    values are kept JSON-serializable so a snapshot can round-trip through the
+    dialog and be re-fed to :func:`run_report`.
+    """
+    key: str
+    label: str
+    type: str
+    default: Any = None
+    choices: tuple = ()
+    min: Optional[int] = None
+    max: Optional[int] = None
+    help: str = ""
+
+
+_SOURCE_CHOICES = ("pod", "dmd")
+
+
+def _field_frame_params() -> list[Param]:
+    """Shared params for the whole-mesh field-map family (R58-R61)."""
+    return [
+        Param("source", "Reconstruction source", "choice", "pod", _SOURCE_CHOICES,
+              help="pod (R53) or dmd (R55) mode shapes drive the frame sequence"),
+        Param("cycles", "Cycle window (A:B)", "str_opt", None,
+              help="e.g. 0:100; blank = all cycles"),
+        Param("dt", "Sample period (s)", "float", None,
+              help="blank = infer from the cycle axis"),
+        Param("step", "Frame stride", "int", 1, min=1),
+        Param("frames", "Frame count", "int", None, min=1,
+              help="blank = use every frame in the window"),
+        Param("k", "Mode count", "int", None, min=1,
+              help="top-k modes for the reconstruction; blank = auto"),
+        Param("p", "IDW power", "float", 2.0, min=0.1),
+        Param("neighbors", "Neighbours", "int", 4, min=1),
+        Param("preview", "Bin grid", "int", 24, min=2),
+    ]
+
+
+def _welch_params() -> list[Param]:
+    """Params for the Welch / reference-probe field maps (R59-R60)."""
+    return [
+        Param("ref_probe", "Reference probe", "int", 0, min=0,
+              help="probe index the field coheres/relates against"),
+        Param("nperseg", "FFT segment", "int", None, min=2,
+              help="Welch segment length; blank = auto"),
+        Param("blocksize", "Block size", "int", 4096, min=16),
+    ]
+
+
+def _spatial_params() -> list[Param]:
+    """Params for the modal-snapshot spatial reports (R54/R55/R62)."""
+    return [
+        Param("cycles", "Cycle window (A:B)", "str_opt", None,
+              help="e.g. 0:100; blank = all cycles"),
+        Param("dt", "Sample period (s)", "float", None,
+              help="blank = infer from the cycle axis"),
+        Param("step", "Frame stride", "int", 1, min=1),
+        Param("frames", "Frame count", "int", None, min=1),
+        Param("top", "Top modes", "int", 5, min=1),
+        Param("cycle", "Snapshot cycle", "int", 0, min=0,
+              help="reconstruction cycle for the snapshot"),
+        Param("p", "IDW power", "float", 2.0, min=0.1),
+        Param("neighbors", "Neighbours", "int", 4, min=1),
+        Param("preview", "Bin grid", "int", 24, min=2),
+    ]
+
+
+def report_params(kind: str) -> list[Param]:
+    """Ordered parameter schema for ``kind`` (the R67 parameter panel)."""
+    if kind not in REPORTS:
+        raise ValueError(f"unknown analysis report kind: {kind!r}")
+    if kind == "spectral":
+        return _field_frame_params()
+    if kind == "coherence":
+        return _field_frame_params() + _welch_params()
+    if kind == "evolution":
+        return _field_frame_params() + _welch_params()
+    if kind == "console":
+        return _field_frame_params() + _welch_params() + [
+            Param("panels", "Panels (comma-separated)", "tuple",
+                  ("spectral", "coherence", "spectevol"),
+                  help="which tabs the Field Console shows, e.g. spectral,coherence"),
+        ]
+    if kind == "spatial_pod":
+        return _spatial_params()
+    if kind == "spatial_dmd":
+        return _spatial_params() + [
+            Param("dmd_top", "DMD top modes", "int", 3, min=1),
+        ]
+    if kind == "spatial_field":
+        return _spatial_params() + _welch_params() + [
+            Param("source", "Field-map source", "choice", "pod", _SOURCE_CHOICES,
+                  help="pod (R53) or dmd (R55) reconstruction for the folded maps"),
+        ]
+    raise ValueError(f"unknown analysis report kind: {kind!r}")
+
+
+def default_params(kind: str) -> dict:
+    """The default parameter snapshot for ``kind`` (all ``Param`` defaults)."""
+    return {p.key: p.default for p in report_params(kind)}
+
+
+def normalize_params(kind: str, raw: dict) -> dict:
+    """Coerce + clamp a raw dict into a safe parameter snapshot for ``kind``.
+
+    Unknown keys are dropped; missing keys take their ``Param`` default; values
+    are cast per ``Param.type`` (empty free text maps to the default, optional
+    numerics map blank to ``None``). The returned snapshot is JSON-serializable.
+    """
+    out = {}
+    for p in report_params(kind):
+        out[p.key] = _coerce(p, raw.get(p.key, p.default))
+    return out
+
+
+def param_summary(kind: str, params: dict) -> str:
+    """Short human-readable summary of an active parameter snapshot."""
+    if not params:
+        return "defaults"
+    parts = []
+    for p in report_params(kind):
+        v = params.get(p.key, p.default)
+        if v in (None, "", p.default):
+            continue
+        parts.append(f"{p.key}={v}")
+    return ", ".join(parts) if parts else "defaults"
+
+
+def _coerce(p: Param, v: Any) -> Any:
+    """Coerce a single raw value to ``p.type`` with range clamping."""
+    if v is None:
+        return p.default
+    if p.type == "int":
+        try:
+            i = int(v)
+        except (TypeError, ValueError):
+            return p.default
+        if p.min is not None:
+            i = max(i, p.min)
+        if p.max is not None:
+            i = min(i, p.max)
+        return i
+    if p.type == "float":
+        if isinstance(v, str) and not v.strip():
+            return p.default
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            return p.default
+        if p.min is not None:
+            f = max(f, p.min)
+        if p.max is not None:
+            f = min(f, p.max)
+        return f
+    if p.type == "bool":
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, (int, float)):
+            return bool(v)
+        if isinstance(v, str):
+            return v.strip().lower() in ("1", "true", "yes", "on")
+        return p.default
+    if p.type == "choice":
+        return v if v in p.choices else p.default
+    if p.type == "tuple":
+        if isinstance(v, (tuple, list)):
+            return tuple(str(x) for x in v)
+        if isinstance(v, str) and v.strip():
+            return tuple(x.strip() for x in v.split(",") if x.strip())
+        return p.default
+    if p.type == "str_opt":
+        str_v = str(v)
+        return None if not str_v.strip() else str_v
+    if isinstance(v, str):
+        return v.strip() if v else ""
+    return str(v)
+
+
 def report_menu() -> list[tuple[str, str]]:
     """Ordered ``(key, title)`` pairs for the GUI Analysis menu."""
     return [(k, r.title) for k, r in REPORTS.items()]
@@ -84,7 +267,11 @@ def _call(fn: Callable[..., Any], verts: np.ndarray, artifact: dict,
 def run_report(kind: str, verts, artifact, out_dir: str, *, dt=None,
                cycles=None, step: int = 1, frames=None, dmd: bool = False,
                field: bool = False, top: Optional[int] = 5,
-               preview: int = 24) -> Optional[str]:
+               preview: int = 24, k=None, p: float = 2.0, neighbors: int = 4,
+               ref_probe: int = 0, nperseg=None, blocksize: int = 4096,
+               dmd_top: int = 3, cycle: int = 0,
+               panels=("spectral", "coherence", "spectevol"),
+               field_name: str = "", source: Optional[str] = None) -> Optional[str]:
     """Generate + write the ``kind`` report and return its HTML path (or None).
 
     Returns ``None`` — without raising — when ``artifact`` is missing so the
@@ -100,12 +287,18 @@ def run_report(kind: str, verts, artifact, out_dir: str, *, dt=None,
         return None
     vert = np.asarray(verts, dtype=np.float64)
     kw = {"dt": dt, "cycles": cycles, "step": step, "frames": frames,
-          "preview": preview, "top": top}
+          "preview": preview, "top": top, "k": k, "p": p, "neighbors": neighbors,
+          "ref_probe": ref_probe, "nperseg": nperseg, "blocksize": blocksize,
+          "dmd_top": dmd_top, "cycle": cycle, "panels": panels}
+    if source:
+        kw["source"] = source
+    if kind in ("spectral", "coherence", "evolution", "console") and field_name:
+        kw["field"] = field_name
     if kind == "spatial_dmd":
         kw["dmd"] = True
     if kind == "spatial_field":
         kw["field"] = True
-        kw["source"] = "pod"
+        kw.setdefault("source", "pod")
     summary = _call(rk.write, vert, artifact, out_dir, **kw)
     rel = summary.get("html") if isinstance(summary, dict) else None
     if rel:

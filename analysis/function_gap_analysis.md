@@ -3062,3 +3062,20 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 
 **验证**
 - R63 8/8 + R64 13/13 + R65 9/9 + R66 6/6 = 36/36 全绿；`ruff check fv/gui/reportview.py fv/gui/analysis.py fv/gui/main.py tests/test_r66_analysis_export.py` 0；`fv.gui.reportview` 无 PyQt 也能安全导入，WebEngine 可用时面板正常构建。
+
+### 8.62 第六十五轮执行记录：R67 分析参数面板（2026-09-05 落地）
+
+**缺口**：R63-R66 让分析报告族（spectral/coherence/evolution/console/spatial_pod/spatial_dmd/spatial_field）能在 GUI 生成、内嵌展示并导出，但 `run_report` 里大量参数（dt/cycles/step/frames/ref_probe/nperseg/blocksize/top/p/neighbors/preview/source/dmd/field/panels/field_name/cycle/dmd_top）全部走函数默认值，用户无法在界面调整，只能改代码。
+
+**S1 实现（纯逻辑与 Qt 分离）**
+- `fv/gui/analysis.py`（修改）新增 `Param` frozen dataclass，用 `type` 驱动对话框组件与纯转换（`int`|`float`|`bool`|`choice`|`str`|`str_opt`|`tuple`）。`str_opt` 空串→`None`；`tuple` 存 token 有序集；所有值保持 JSON 可序列化，让参数快照能经对话框往返并重新喂给 `run_report`。
+- `analysis.py` 补充参数 schema 纯函数：`_field_frame_params()`（spectral 族：source/cycles/dt/step/frames/k/p/neighbors/preview）、`_welch_params()`（coherence/evolution：ref_probe/nperseg/blocksize）、`_spatial_params()`（spatial 族：cycles/dt/step/frames/top/cycle/p/neighbors/preview），并暴露 `report_params(kind)` / `default_params(kind)` / `normalize_params(kind, raw)` / `param_summary(kind, params)` / `_coerce(p, v)`。
+- `analysis.py` 扩展 `run_report` 签名：新增全部默认参数为 keyword-only，内部统一放入 `kw` 转发（spectral/spatial 按 kind 条件化开关），并使 `_call` 只转发 writer 接受的参数。
+- `fv/gui/paramdialog.py`（新建）`ParamDialog(kind)`：按 `report_params(kind)` 逐个生成控件（QSpinBox/QDoubleSpinBox/QCheckBox/QComboBox/QLineEdit），`result_params()` 收集原始值后交给 `normalize_params`，纯强制转换仍留在 `analysis`（可无头测试），本模块只持有 Qt 控件。
+- `fv/gui/main.py`（修改）Analysis 菜单新增 `Report Options…` 项 → `_set_report_options()`：`QInputDialog.getItem` 选 kind → `ParamDialog` 编辑 → 保存到 `self._analysis_params[kind]` 并显示 `param_summary`；`on_analysis_report()` 改为 `normalize_params(kind, self._analysis_params.get(kind, {}))`，dt 为空时回退 `_analysis_dt`，再 `run_report(..., **params)`。
+
+**S2 测试**（`tests/test_r67_analysis_params.py`，16 项全过；纯 NumPy/pathlib，无 PyQt）
+- 覆盖：每种 kind 的参数唯一且带类型、默认值取 Param.default、int clamp、float 空串→None/非法→None、choice 非法→默认、tuple 支持 list 与 CSV、JSON 往返、bool 契约、param_summary 默认/标记非默认、run_report 转发新增 kw（spectral/coherence/console/spatial_dmd/spatial_field 均产出带额外参数的 HTML）。
+
+**验证**
+- R63 8/8 + R64 13/13 + R65 9/9 + R66 6/6 + R67 16/16 = 52/52 全绿；`ruff check fv/gui/analysis.py fv/gui/paramdialog.py fv/gui/main.py tests/test_r67_analysis_params.py` 0；`fv.gui`（analysis/reportview/paramdialog/main）无头可安全导入，`ParamDialog` 与 `FlowViewer` 均存在。
