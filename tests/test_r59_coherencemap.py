@@ -14,6 +14,7 @@ import json
 import numpy as np
 import pytest
 from fv.coherencemap import (
+    FLAT_TOL,
     build_coherence_report,
     coherence_field,
     main,
@@ -167,3 +168,19 @@ def test_cli_error_cases(tmp_path, capsys):
                "--dt", "0.05", "--out", str(tmp_path / "ok")])
     assert rc == 0
     assert (tmp_path / "ok" / "P_coherence.html").exists()
+
+
+def test_flat_spectrum_peak_freq_falls_back_to_ref_tone():
+    """Fully coherent vertices have a ~unit, ~flat coherence spectrum; the
+    no-coherence peak is then meaningless, so peak_freq must fall back to the
+    reference's dominant frequency instead of an arbitrary argmax bin."""
+    frames, ref, dt = _frames_ref()
+    cf = coherence_field(frames, ref, dt=dt)
+    # identical (0) and anti-phase (2) copies are fully coherent -> ref tone
+    for idx in (0, 2):
+        assert 0.8 < cf["peak_freq"][idx] < 1.2
+        assert cf["peak_coherence"][idx] > 0.99
+    # constant column keeps a (near-flat, ~zero) coherence but no crash
+    assert np.isfinite(cf["peak_freq"][1])
+    # the flat-detection threshold used by the fallback is reachable
+    assert 0.0 < FLAT_TOL < 1e-2

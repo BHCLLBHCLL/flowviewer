@@ -2930,5 +2930,27 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
   默认写文件无 `field_maps` 键；CLI 缺 probes/坏 verts/越界 `--cycles`/`--field --ref 99` → exit 2，正常路径
   产出 `P_spatial.html` + summary `field_maps:true`。
 
+### 8.57 缺陷修复：R59 全相干峰值频率选择（2026-09-05 落地）
+
+**问题**：`fv/coherencemap.py` 的 `coherence_field` 用 `np.argmax(sub_pos, axis=0)` 选相干谱峰值 bin。当某顶点与
+参考信号**完全相干**（同信号 / 精确同相 / 反相副本）时，其相干谱在全部正频率≈1（近平坦），浮点噪声下 argmax 会
+落在**任意 bin**。R59 测试 `test_coherence_field_same_const_reverse` / `test_build_report_ref_node_fully_coherent`
+在 numpy 2.5.2 下失败：本应 1Hz 的主导频率被 argmax 落到 2.5Hz / 0.23Hz 等任意 bin（旧 numpy 恰好落在 1Hz 掩盖了
+该脆弱性）。该缺陷不属 R62 改动（`git diff` 证实 R62 未触碰 coherencemap），系既有数值隐患被环境升级触发。
+
+**修复**（`fv/coherencemap.py`）
+- 新增模块常量 `FLAT_TOL = 1e-3`：相干谱跨正频率的峰谷差 `ptp < FLAT_TOL` 视为"近平坦退化谱"（即完全相干的锁相
+  副本 → 相干峰值在所有频率均无区分度）。
+- `coherence_field` 块循环内：`flat = np.ptp(sub_pos, axis=0) < FLAT_TOL`；对 `flat` 的顶点，将峰值 bin 回退为
+  **参考信号自身主导频率** `ref_peak_bin = pos[argmax(pyy[pos])]`（参考 PSD `pyy` 跨块共享，回退 bin 块不变）；
+  `peak_c` 仍取实际最大相干（≈1），`phase` 在回退 bin 处取值。常数列（零相干、近平坦≈0）同样触发回退，
+  `peak_freq` 取到参考主导频率而非 NaN/垃圾 bin，`mean_coherence` 仍 ≈0（不受影响）。
+- `coherence_field` docstring 与模块注释补充回退语义说明。
+
+**验证**
+- R59 套件 9/9 全过（新增 `test_flat_spectrum_peak_freq_falls_back_to_ref_tone` 回归测试钉住此行为：同相/反相副本
+  `peak_freq ∈ (0.8,1.2)`、`peak_coherence > 0.99`，常数列 `peak_freq` 有限，`0 < FLAT_TOL < 1e-2`）。
+- 邻接回归：R54 9/9、R58 8/8、R60 9/9、R61 9/9、R62 8/8 全绿；ruff 0（fv/ tests/ 全过）。
+
 
 

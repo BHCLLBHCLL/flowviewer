@@ -34,6 +34,14 @@ from .spatialanim import _f, _safe, _stats, binned_preview, reconstruct_sequence
 from .spectralmap import _DRAW_JS, _esc, _grid_range
 from .spectrum import mean_dt
 
+# A coherence spectrum flatter than this (across positive frequencies) means the
+# vertex is (nearly) fully coherent at every frequency — the degenerate
+# identical / exact-phase / anti-phase copy of the reference. There is no
+# meaningful coherence "peak" in that case, so `coherence_field` falls back to
+# the reference's own dominant frequency rather than betting on float noise via
+# argmax.
+FLAT_TOL = 1e-3
+
 
 def _empty_field(n: int, dt) -> dict:
     nan = np.full(n, np.nan) if n else np.empty((0,), dtype=np.float64)
@@ -51,7 +59,12 @@ def coherence_field(vert_frames, ref, *, nperseg=None, dt=1.0, overlap=0.5,
     ``peak_coherence`` / ``peak_freq`` / ``mean_coherence`` / ``phase`` (angle of
     the cross spectrum at the peak bin) + ``nseg`` / ``nperseg`` / ``dt`` /
     ``nyquist``. Vertices with fewer than two finite samples, or the degenerate
-    (M<2 / nperseg<2 / N==0) cases, collapse to all-NaN maps.
+    (M<2 / nperseg<2 / N==0) cases, collapse to all-NaN maps. When a vertex's
+    coherence spectrum is nearly flat (``ptp < FLAT_TOL`` — a fully coherent,
+    phase-locked copy of the reference, so the true coherence peak is
+    everywhere), ``peak_freq`` falls back to the reference's dominant frequency
+    instead of an arbitrary argmax bin; ``peak_coherence`` stays the near-unity
+    max.
     """
     A = np.asarray(vert_frames, dtype=np.float64)
     ref = np.asarray(ref, dtype=np.float64).ravel()
@@ -108,6 +121,16 @@ def coherence_field(vert_frames, ref, *, nperseg=None, dt=1.0, overlap=0.5,
         sub_pos = mscoh[pos, :]
         jj = np.argmax(sub_pos, axis=0)
         kk = pos[jj]
+        # Fully coherent vertices (the signal itself, or its exact/anti-phase
+        # copy) have a coherence spectrum that is ~1 across every frequency; a
+        # noisy argmax then lands on an arbitrary bin. Detect the near-flat
+        # degenerate spectrum and fall back to the reference's dominant
+        # frequency — physically the shared oscillation tone. Ref PSD (pyy) is
+        # shared by all vertex blocks, so the fallback bin is block-invariant.
+        flat = np.ptp(sub_pos, axis=0) < FLAT_TOL
+        if flat.any():
+            ref_peak_bin = int(pos[np.argmax(pyy[pos])])
+            kk = np.where(flat, ref_peak_bin, kk)
         peak_c[b] = sub_pos[jj, np.arange(Nb)]
         peak_freq[b] = freqs[kk]
         mean_c[b] = np.nanmean(sub_pos, axis=0)
