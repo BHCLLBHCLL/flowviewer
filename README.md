@@ -455,3 +455,19 @@ gate on push/PR.
   _run_all_reports, which ensures a data source, prepares verts, normalises the
   current per-kind params, runs the bundle and opens the generated index in the
   report pane. Pure logic stays headless-testable.
+- R72 - Batch report packaging: lets a run-all batch be packed into one
+  shareable .zip and reopened later, so the batch no longer lives only in a
+  scratch temp dir that is overwritten on the next run. fv.gui.analysis adds
+  report_index_html(paths, title=...) (the shared index-page HTML builder),
+  export_report_bundle(paths, zip_path, title=...) (writes each report and an
+  index.html into a single .zip, returning the Path or None when there is
+  nothing readable to pack) and open_report_bundle(zip_path, out_dir) (safely
+  extracts the archive into out_dir -- skipping directory entries and any
+  entry that would escape out_dir via an absolute path or a '..' segment -- and
+  returns the reopened index.html path, or None when the archive is missing,
+  corrupt, or has no index). write_report_index now reuses report_index_html.
+  main.py adds "Export Bundle..." and "Open Bundle..." under Analysis wired to
+  _export_report_bundle (zip the last run-all batch to a chosen .zip) and
+  _open_report_bundle (choose a .zip and reopen it in the report pane);
+  _run_all_reports records the latest batch for export. Pure logic stays
+  headless-testable.

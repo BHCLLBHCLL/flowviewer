@@ -3143,3 +3143,21 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 
 **验证**
 - R67 16/16 + R68 15/15 + R69 8/8 + R70 14/14 + R71 12/12 = 65/65 全绿；`ruff check fv/gui/analysis.py fv/gui/main.py tests/test_r71_run_all.py` 0；`py_compile` 通过；offscreen 下构建 `FlowViewer(enable_3d=False)`，注入 `_analysis_artifact` 后调用 `_run_all_reports`，跑完 7 个报告并生成 `index.html`，状态栏显示 "Analysis batch: 7 report(s) · index.html" 不崩溃，冒烟通过。
+
+
+### 8.67 第七十轮执行记录：R72 批量报告打包（bundle export / import / reopen zip）（2026-09-05 落地）
+
+**缺口**：R71 能把 7 个报告一次性生成并整理成 `index.html`，但产物落在临时 scratch 目录 `flowviewer_analysis`，下一次运行会覆盖，且无法把整个批次归档成单个文件分享给他人，也无法跨会话回看。R66 仅支持单个报告导出（`copy_report` 单文件 HTML），无批量打包能力。R72 补齐"打包→分享→回开"闭环。
+
+**S1 实现（纯逻辑与 Qt 分离）**
+- `analysis.py`（修改）新增 `report_index_html(paths, title="flowviewer analysis bundle") -> str`：从 `write_report_index` 提取共享的索引页 HTML 生成逻辑（逐报告以 basename 生成 `<a>` 链接、标题/文件名 `html.escape`、含报告计数），供磁盘索引与 zip 打包复用。
+- `analysis.py`（修改）`write_report_index` 改用 `report_index_html` 生成内容（行为不变）。
+- `analysis.py`（修改）新增 `export_report_bundle(paths, zip_path, *, title="flowviewer analysis bundle") -> Optional[Path]`：把一批报告按 basename 写入单个 `.zip` 归档并附带 `index.html`，返回归档路径；`paths` 为空或无可读报告文件时返回 `None`（不抛异常）；写入失败返回 `None`。
+- `analysis.py`（修改）新增 `open_report_bundle(zip_path, out_dir) -> Optional[Path]`：安全解包归档到 `out_dir` 并返回 `index.html` 路径；仅抽取常规文件、跳过目录条目；对会逃逸 `out_dir` 的条目（绝对路径或 `..` 段）予以跳过，防止恶意归档写往外部；归档缺失/损坏或解包后无 `index.html` 时返回 `None`（不抛异常）。
+- `main.py`（修改）Analysis 菜单在 "Export Report…" 后新增 "Export Bundle…" 与 "Open Bundle…"，分别接入 `_export_report_bundle` 与 `_open_report_bundle`；`_run_all_reports` 记录本次批次路径（`self._analysis_bundle_paths = paths`）。
+
+**S2 测试**（`tests/test_r72_report_bundle.py`，13 项全过；纯 stdlib/pathlib，无 PyQt）
+- 覆盖：`report_index_html` basename 链接与 HTML 转义；`write_report_index` 复用索引 HTML；`export_report_bundle` 空 paths 返回 None、全部缺失返回 None、成功打包报告+索引、跳过缺失文件；`open_report_bundle` 往返解包索引+报告、缺失归档返回 None、阻断 `../` 路径穿越、跳过目录条目、无索引返回 None、损坏归档返回 None。
+
+**验证**
+- R67 16/16 + R68 15/15 + R69 8/8 + R70 14/14 + R71 12/12 + R72 13/13 全绿；`ruff check fv/gui/analysis.py fv/gui/main.py tests/test_r72_report_bundle.py` 0；`py_compile` 通过；offscreen 下构建 `FlowViewer(enable_3d=False)`，注入 `_analysis_artifact` 后调用 `_run_all_reports`（记录批次路径），monkeypatch `QFileDialog` 后调用 `_export_report_bundle`（zip 落盘、`zipfile` 校验报告+索引）与 `_open_report_bundle`（解包回看 `index.html` 不崩溃），冒烟通过。

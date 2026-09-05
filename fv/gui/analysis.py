@@ -18,6 +18,7 @@ import inspect
 import json
 import os
 import shutil
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -339,6 +340,26 @@ def run_reports(verts, artifact, out_dir, *, kinds=None, params=None,
     return out
 
 
+def report_index_html(paths: dict, title="flowviewer analysis bundle") -> str:
+    """Return the ``index.html`` body linking each generated report.
+
+    Every report is a self-contained single-file HTML, so a plain ``<a>`` to the
+    report's basename is enough to reopen it wherever that HTML lives. Shared by
+    :func:`write_report_index` (disk) and :func:`export_report_bundle` (zip).
+    """
+    items = []
+    for kind, path in paths.items():
+        label = REPORTS[kind].title if kind in REPORTS else str(kind)
+        items.append(f'<li><a href="{html.escape(Path(path).name)}">'
+                     f"{html.escape(label)}</a></li>")
+    body = "".join(items)
+    return ("<!doctype html>\n<html><head><meta charset=\"utf-8\">"
+            f"<title>{html.escape(title)}</title></head><body>"
+            f"<h1>{html.escape(title)}</h1>"
+            f"<p>{len(paths)} report(s) generated.</p>"
+            f"<ul>{body}</ul></body></html>\n")
+
+
 def write_report_index(paths: dict, out_dir,
                        title="flowviewer analysis bundle") -> Path:
     """Write an ``index.html`` linking each generated report; returns its path.
@@ -348,19 +369,8 @@ def write_report_index(paths: dict, out_dir,
     """
     dest = Path(out_dir)
     dest.mkdir(parents=True, exist_ok=True)
-    items = []
-    for kind, path in paths.items():
-        label = REPORTS[kind].title if kind in REPORTS else str(kind)
-        items.append(f'<li><a href="{html.escape(Path(path).name)}">'
-                     f"{html.escape(label)}</a></li>")
-    body = "".join(items)
-    doc = ("<!doctype html>\n<html><head><meta charset=\"utf-8\">"
-           f"<title>{html.escape(title)}</title></head><body>"
-           f"<h1>{html.escape(title)}</h1>"
-           f"<p>{len(paths)} report(s) generated.</p>"
-           f"<ul>{body}</ul></body></html>\n")
     index = dest / "index.html"
-    index.write_text(doc, encoding="utf-8")
+    index.write_text(report_index_html(paths, title), encoding="utf-8")
     return index
 
 
@@ -372,6 +382,63 @@ def run_report_bundle(verts, artifact, out_dir, *, kinds=None, params=None,
     if paths:
         write_report_index(paths, out_dir)
     return paths
+
+
+def export_report_bundle(paths: dict, zip_path, *,
+                         title="flowviewer analysis bundle") -> Optional[Path]:
+    """Zip a batch of reports + an index page into one shareable archive.
+
+    Each report is a self-contained single-file HTML, so the bundle is written
+    straight into the archive under its basename. Returns the archive path, or
+    ``None`` -- without raising -- when ``paths`` is empty or holds no readable
+    report file. The archive always contains an ``index.html`` linking the
+    reports by basename, mirroring :func:`write_report_index` on disk.
+    """
+    if not paths:
+        return None
+    items = [(kind, Path(p)) for kind, p in paths.items() if Path(p).is_file()]
+    if not items:
+        return None
+    dest = Path(zip_path)
+    index = report_index_html(paths, title)
+    try:
+        with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("index.html", index)
+            for _kind, p in items:
+                zf.write(p, arcname=p.name)
+    except OSError:
+        return None
+    return dest
+
+
+def open_report_bundle(zip_path, out_dir) -> Optional[Path]:
+    """Extract a report-bundle archive into ``out_dir``; return the index path.
+
+    Only regular files are extracted; an entry that would escape ``out_dir``
+    (absolute path or a ``..`` segment) is skipped, so a hostile archive cannot
+    write outside the destination. Returns ``None`` -- without raising -- when
+    the archive is missing, unreadable, or yields no ``index.html``.
+    """
+    dest = Path(out_dir)
+    dest.mkdir(parents=True, exist_ok=True)
+    try:
+        with zipfile.ZipFile(zip_path) as zf:
+            for info in zf.infolist():
+                name = info.filename
+                if name.endswith("/"):
+                    continue
+                target = (dest / name).resolve()
+                if dest not in (target, *target.parents):
+                    continue
+                try:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(zf.read(info))
+                except OSError:
+                    continue
+    except (OSError, ValueError, zipfile.BadZipFile):
+        return None
+    index = dest / "index.html"
+    return index if index.is_file() else None
 
 
 def field_names(ts) -> list[str]:

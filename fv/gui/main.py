@@ -178,6 +178,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._analysis_dt = None            # R65: optional sample period (s)
         self._analysis_panel = None         # R65: reused ReportPanel pane
         self._analysis_params = {}          # R67: per-kind report parameter snapshots
+        self._analysis_bundle_paths = {}    # R72: last batch {kind: html_path}
         from .analysis import PresetStore, default_preset_path  # R68: shared presets
         self._preset_store = PresetStore(path=default_preset_path())
 
@@ -542,6 +543,8 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         add(m, "Clear Analysis Data Source",
             lambda _=False: self.set_analysis_artifact(None))
         add(m, "Export Report…", lambda _=False: self._export_report())
+        add(m, "Export Bundle…", self._export_report_bundle)
+        add(m, "Open Bundle…", self._open_report_bundle)
 
         # Help
         m = mb.addMenu("Help")
@@ -823,6 +826,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if not paths:
             self.status.showMessage("Analysis: no reports produced", 4000)
             return
+        self._analysis_bundle_paths = paths
         index = Path(self._analysis_out_dir()) / "index.html"
         self._open_report(str(index))
         self.status.showMessage(
@@ -851,6 +855,44 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self.status.showMessage("Analysis: no report to export", 4000)
             return
         self._analysis_panel.export()
+
+    def _export_report_bundle(self) -> None:
+        """Save the latest analysis batch as a shareable .zip archive (R72)."""
+        from PyQt5.QtWidgets import QFileDialog
+
+        from .analysis import export_report_bundle
+        if not self._analysis_bundle_paths:
+            self.status.showMessage(
+                "Analysis: run reports first (Run All Reports…)", 4000)
+            return
+        default = str(Path.home() / "flowviewer_analysis_bundle.zip")
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Analysis Bundle", default,
+            "Analysis bundles (*.zip);;All files (*)")
+        if not path:
+            return
+        out = export_report_bundle(self._analysis_bundle_paths, path)
+        if not out:
+            self.status.showMessage("Analysis bundle export failed", 6000)
+            return
+        self.status.showMessage(f"Analysis bundle export: {out.name}", 6000)
+
+    def _open_report_bundle(self) -> None:
+        """Open a saved analysis bundle archive in the report pane (R72)."""
+        from PyQt5.QtWidgets import QFileDialog
+
+        from .analysis import open_report_bundle
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open Analysis Bundle", str(Path.home()),
+            "Analysis bundles (*.zip);;All files (*)")
+        if not path:
+            return
+        out = open_report_bundle(path, self._analysis_out_dir())
+        if not out:
+            self.status.showMessage("Analysis bundle open failed", 6000)
+            return
+        self._open_report(str(out))
+        self.status.showMessage(f"Analysis bundle open: {Path(path).name}", 6000)
 
     # ── actions ───────────────────────────────────────────────────────────
 
