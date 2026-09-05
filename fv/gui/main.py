@@ -174,6 +174,9 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._redo_stack = []
         self._ts_lookup = {}                # cycle -> time from Time Series
         self._ts_data = None
+        self._analysis_artifact = None      # R65: data source for Analysis reports
+        self._analysis_dt = None            # R65: optional sample period (s)
+        self._analysis_panel = None         # R65: reused ReportPanel pane
 
         from ..render.scene import Scene
         self.scene = Scene(enable_3d=enable_3d)
@@ -511,6 +514,10 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         m = mb.addMenu("Analysis")
         for key, title in report_menu():
             add(m, title, lambda _=False, k=key: self.on_analysis_report(k))
+        m.addSeparator()
+        add(m, "Set Analysis Data Source…", self._set_analysis_source)
+        add(m, "Clear Analysis Data Source",
+            lambda _=False: self.set_analysis_artifact(None))
 
         # Help
         m = mb.addMenu("Help")
@@ -625,6 +632,85 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             f"<b>flowviewer</b> {__version__}<br>"
             "scPOST-style post-processor for FLD / FPH / GPH<br>"
             "PyQt5 + VTK")
+
+    # ── Analysis report hooks (R64/R65) ────────────────────────────────────────────────────────────────────────
+
+    def set_analysis_artifact(self, artifact, dt=None) -> None:
+        """Set the Analysis data source (an R38-style artifact) for the menu."""
+        from .analysis import artifact_summary
+        self._analysis_artifact = artifact
+        self._analysis_dt = dt
+        if artifact is None:
+            self.status.showMessage("Analysis data source cleared", 4000)
+        else:
+            self.status.showMessage(
+                f"Analysis data source: {artifact_summary(artifact)}", 6000)
+
+    def _set_analysis_source(self) -> None:
+        """Choose the Analysis data source (an applied Time Series)."""
+        ts = self._ts_data
+        if ts is None:
+            self.message_win.log(
+                "Analysis: apply a Time Series first (Create → Time Series)",
+                "WARN")
+            self.status.showMessage("Analysis: no Time Series data source", 4000)
+            return
+        from .analysis import artifact_from_timeseries, field_names
+        names = field_names(ts)
+        if not names:
+            self.message_win.log(
+                "Analysis: the Time Series has no series to analyse", "WARN")
+            return
+        field = None
+        if len(names) > 1:
+            from PyQt5.QtWidgets import QInputDialog
+            items = [f"All series ({len(names)})"] + names
+            chosen, ok = QInputDialog.getItem(
+                self, "Analysis Data Source",
+                "Monitor / series to analyse:", items, 0, False)
+            if not ok:
+                return
+            field = None if chosen.startswith("All series") else chosen
+        try:
+            artifact = artifact_from_timeseries(ts, field=field)
+        except ValueError as exc:
+            self.message_win.log(f"Analysis: {exc}", "WARN")
+            return
+        self.set_analysis_artifact(artifact)
+
+    def on_analysis_report(self, kind: str) -> None:
+        """Run one Analysis-report kind on the current data source (R64/R65)."""
+        from .analysis import prepare_verts, run_report
+        if self._analysis_artifact is None:
+            self._set_analysis_source()
+            if self._analysis_artifact is None:
+                return
+        verts = prepare_verts(self.dataset)
+        dt = self._analysis_dt
+        path = run_report(kind, verts, self._analysis_artifact,
+                          self._analysis_out_dir(), dt=dt)
+        if not path:
+            self.status.showMessage(f"Analysis [{kind}]: no report produced", 4000)
+            return
+        self._open_report(path)
+        self.status.showMessage(f"Analysis [{kind}]: {Path(path).name}", 6000)
+
+    def _analysis_out_dir(self) -> str:
+        """A stable scratch directory for generated analysis reports."""
+        import tempfile
+        out = Path(tempfile.gettempdir()) / "flowviewer_analysis"
+        out.mkdir(parents=True, exist_ok=True)
+        return str(out)
+
+    def _open_report(self, path: str) -> None:
+        """Show a generated report in the dockable ReportPanel pane."""
+        from .panes import PaneFrame
+        from .reportview import ReportPanel
+        if self._analysis_panel is None:
+            frame = PaneFrame("Analysis Report", ReportPanel(self))
+            self._analysis_panel = frame.body
+            self._right_splitter.insertWidget(0, frame)
+        self._analysis_panel.open(str(path))
 
     # ── actions ───────────────────────────────────────────────────────────
 

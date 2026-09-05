@@ -110,3 +110,57 @@ def run_report(kind: str, verts, artifact, out_dir: str, *, dt=None,
     if rel:
         return str(Path(out_dir) / rel)
     return str(Path(out_dir))
+
+
+def field_names(ts) -> list[str]:
+    """Monitoring-point / series names available on a ``TimeSeriesObject``."""
+    if ts is None:
+        return []
+    return [str(n) for n in (ts.series or {}).keys()]
+
+
+def artifact_from_timeseries(ts, field=None) -> dict:
+    """Build an R38-style trace artifact from a ``TimeSeriesObject``-like object.
+
+    Each named ``series`` becomes a probe; its coordinate (when present in the
+    object's ``probes`` ``(name, x, y, z)`` list) becomes the probe's ``xyz``.
+    ``field`` selects a single series; ``None`` uses *every* series as a probe
+    (the multi-probe form the POD / DMD / spatial report family expects). The
+    returned dict matches :func:`fv.spectralmap.build_spectral_report` and the
+    other report builders: ``{name, cycles, probes:[{query, node, xyz, values}]}``.
+    """
+    cycles = list(ts.cycles or [])
+    coord: dict = {}
+    for item in (ts.probes or []):
+        try:
+            coord[str(item[0])] = tuple(float(v) for v in item[1:4])
+        except (TypeError, ValueError, IndexError):
+            coord[str(item[0])] = None
+    probes: list = []
+    for name, values in (ts.series or {}).items():
+        if field is not None and str(name) != str(field):
+            continue
+        xyz = coord.get(str(name))
+        q = (0.0, 0.0, 0.0) if xyz is None else xyz
+        vals = list(values) if values is not None else []
+        probes.append({
+            "query": q,
+            "node": -1,
+            "xyz": xyz,
+            "values": [float(v) for v in vals],
+        })
+    if not probes:
+        raise ValueError(
+            "timeseries carries no series"
+            + (f" for field {field!r}" if field is not None else ""))
+    return {"name": str(field) if field is not None else "Time Series",
+            "cycles": cycles, "probes": probes}
+
+
+def artifact_summary(artifact) -> str:
+    """Short human-readable summary of an artifact (status-bar display)."""
+    if not artifact:
+        return "none"
+    probes = list(artifact.get("probes", []) or [])
+    return (f"{artifact.get('name') or '?'} · {len(probes)} probe(s), "
+            f"{len(list(artifact.get('cycles', []) or []))} cycle(s)")

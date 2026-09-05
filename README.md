@@ -356,3 +356,13 @@ gate on push/PR.
   renders the result inline via QWebEngineView when PyQt5.QtWebEngineWidgets is
   importable, falling back to an "Open in browser" button otherwise. Pure logic
   stays headless-testable; only main.py wires the menu + on_analysis_report.
+- R65 - Analysis data-source selection: makes the R64 Analysis menu actually
+  functional by bridging the applied Time Series to an R38-style trace artifact
+  (fv.gui.analysis adds field_names / artifact_from_timeseries / artifact_summary;
+  artifact_from_timeseries maps each named series to a probe carrying its
+  coordinate + values plus the object cycles, and artifact_summary gives a
+  status-bar one-liner). main.py adds "Set Analysis Data Source..." / "Clear
+  Analysis Data Source" menu items plus the handlers (set_analysis_artifact,
+  _set_analysis_source, on_analysis_report, _analysis_out_dir, _open_report), so
+  clicking an Analysis report no longer raises - the menu now has a real data
+  source. Pure logic stays headless-testable.

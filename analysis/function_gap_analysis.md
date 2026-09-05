@@ -3030,3 +3030,20 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 - R64 13/13 全过；R64+R63 联合回归 21/21 全绿；`ruff check fv/gui/ tests/test_r64_gui_analysis.py
   tests/test_r63_field_interact.py` 0；`fv.gui.main` 导入冒烟通过；`support_webview()` 返回 True
   （`PyQt5.QtWebEngineWidgets` 可导入）。
+
+### 8.60 第六十三轮执行记录：R65 分析数据源选择（2026-09-05 落地）
+
+**缺口**：R64 只把报告注册表接进 GUI 的 `Analysis` 菜单，但真正点击时菜单是“死”的——`on_analysis_report` 里依赖的 `set_analysis_artifact` / `_set_analysis_source` / `_open_report` / `_analysis_out_dir` 全程未被实现，点击即抛 `AttributeError`。根本原因是菜单没有真实的数据源：报告流水线需要一份 R38 风格的 trace artifact，而 GUI 端能提供的最贴近的输入就是已施加的 Time Series。
+
+**S1 实现（纯逻辑与 Qt 分离，保持无头可测）**
+- `fv/gui/analysis.py`（修改，新增三个纯函数，仍无 PyQt 导入）：
+  - `field_names(ts)` 列出 `TimeSeriesObject` 上的监测点/序列名（`ts.series` 的键）。
+  - `artifact_from_timeseries(ts, field=None)` 把「Time Series」对象桥换成 R38 trace artifact `{name, cycles, probes:[{query, node, xyz, values}]}`：每条 `series` 映射成一个 probe，坐标取自 `ts.probes` 的 `(name, x, y, z)`（缺失回退 `None`，`query` 用零向量）；`field` 选定单条序列，`None` 则全部序列都作 probe（POD/DMD/空间族所需的多样本形态）；无序列时抛 `ValueError`（含 `field` 提示），`name` 取 `field` 或 `"Time Series"`。
+  - `artifact_summary(artifact)` 生成状态栏短摘要（名称 · 探针数 · 周期数），`None`/空显示 `none`。
+- `fv/gui/main.py`（修改，接线）：`__init__` 新增 `_analysis_artifact` / `_analysis_dt` / `_analysis_panel` 状态；`Analysis` 菜单在 `report_menu()` 循环后追加 `"Set Analysis Data Source..."` 与 `"Clear Analysis Data Source"` 两项；新增五个方法 `set_analysis_artifact(artifact, dt=None)`（写状态 + 状态栏摘要）、`_set_analysis_source()`（读取 `self._ts_data`，多序列时弹 `QInputDialog` 选一条或全部，调 `artifact_from_timeseries` 并注入）、`on_analysis_report(kind)`（无数据源时先暗转 `_set_analysis_source`，再经 `prepare_verts` + `run_report` 生成并 `_open_report(path)`）、`_analysis_out_dir()`（临时目录 `flowviewer_analysis`）、`_open_report(path)`（惰性构建 `PaneFrame("Analysis Report", ReportPanel)` 插入右侧 splitter，调用 `panel.open(path)`）。
+
+**S2 测试**（`tests/test_r65_gui_analysis_source.py`，9 项全过；纯 NumPy 无头，无 PyQt 组件实例化）
+- 覆盖：`field_names` 列出序列 / `None` 与空返回 `[]`；`artifact_from_timeseries` 全部序列（`name="Time Series"`、`cycles` 透传、2 个 probe 的 `xyz`/`query`/`node=-1`/`values` 浮点化）、单字段选定、缺失坐标回退零向量 + `xyz=None`、整数 values 浮点化、无序列 / 字段不匹配抛 `ValueError`；`artifact_summary` 的 `none` 与格式化；以及端到端 `run_report("spectral")` 在 `artifact_from_timeseries` 产物上生成 `_spectral.html`（含 `<canvas>`）。
+
+**验证**
+- R65 9/9 + R64 13/13 = 22/22 全绿；`ruff check fv/gui/main.py fv/gui/analysis.py tests/test_r65_gui_analysis_source.py` 0；`fv.gui.main` 导入冒烟通过。
