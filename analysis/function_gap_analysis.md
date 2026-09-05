@@ -3079,3 +3079,18 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 
 **验证**
 - R63 8/8 + R64 13/13 + R65 9/9 + R66 6/6 + R67 16/16 = 52/52 全绿；`ruff check fv/gui/analysis.py fv/gui/paramdialog.py fv/gui/main.py tests/test_r67_analysis_params.py` 0；`fv.gui`（analysis/reportview/paramdialog/main）无头可安全导入，`ParamDialog` 与 `FlowViewer` 均存在。
+### 8.63 第六十六轮执行记录：R68 参数预置（presets）（2026-09-05 落地）
+
+**缺口**：R67 让用户能通过对话框编辑每个报告的参数并保存在内存中，但每次打开程序都回到默认值，无法把一套调好的参数快照留到下次使用；分析参数只存在于进程内，无法跨会话复用或分享。
+
+**S1 实现（纯逻辑与 Qt 分离）**
+- `analysis.py`（修改）新增 `default_preset_path()`：返回 `Path.home() / ".flowviewer" / "analysis_presets.json"` 作为稳定的按用户预置文件位置。
+- `analysis.py` 新增 `PresetStore` 类：以 `{kind: {name: normalized_params}}` 布局存命名预置；`save()` 用 `normalize_params` 归一化（只存已知、强转后的键，未知 kind 抛 `ValueError`）；`load()` 返回 dict 深拷贝、缺失/非法返回 `None`；`delete()` 返回是否存在并清理空 bucket；`names()`/`kinds()` 排序；`clear()` 清空；`path=None` 时纯内存（适合测试），否则每次改动 flush 到 JSON 文件，所有值按设计 JSON 可序列化。
+- `paramdialog.py`（修改）`ParamDialog` 新增 `store` 参数（可注入共享 `PresetStore`，缺省用 `default_preset_path()` 的持久化实例），并加一条预置栏（QComboBox + Load/Save/Delete）：Save 用 `QInputDialog` 取名字后存 `result_params()`；Load 把存储快照回填到控件（新增 `_apply_params`/`_set_value`，分别处理 QSpinBox/QDoubleSpinBox 与 QLineEdit 两类 int/float 控件）；Delete 删除所选预置；`_refresh_presets` 重填下拉。
+- `main.py`（修改）`__init__` 创建共享 `self._preset_store = PresetStore(path=default_preset_path())`；`_set_report_options()` 把 store 传给 `ParamDialog`，状态栏附加当前 kind 的预置数量（`presets: N`）。
+
+**S2 测试**（`tests/test_r68_presets.py`，15 项全过；纯 NumPy/pathlib，无 PyQt）
+- 覆盖：`default_preset_path` 位置与绝对路径、内存模式 `path=None` 不写盘、`save` 归一化并往返、未知 kind 抛 `ValueError`、`load` 缺失/非法返回 `None`、`delete` 返回存在性并清理 bucket、`names` 排序、`kinds` 非空排序、`clear`、写文件并在新 store 重载、自动建父目录、畸形 JSON 回退为空。
+
+**验证**
+- R67 16/16 + R68 15/15 = 31/31 全绿；`ruff check fv/gui/analysis.py fv/gui/paramdialog.py fv/gui/main.py tests/test_r68_presets.py` 0；`fv.gui`（analysis/paramdialog）无头可安全导入，offscreen 下 `ParamDialog`（含预置栏）+ `PresetStore` 交互（保存/刷新/加载回填/删除）冒烟通过。

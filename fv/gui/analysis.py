@@ -13,6 +13,8 @@ headless-testable; ``reportview`` owns only the Qt widget. No PyQt import here
 from __future__ import annotations
 
 import inspect
+import json
+import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -378,3 +380,81 @@ def copy_report(src, dest_dir, name=None) -> Optional[Path]:
     except OSError:
         return None
     return out
+
+def default_preset_path() -> Path:
+    """Stable per-user location for the named parameter-preset file."""
+    return Path.home() / ".flowviewer" / "analysis_presets.json"
+
+
+class PresetStore:
+    """Named parameter-preset store, optionally persisted to a JSON file.
+
+    Layout: ``{kind: {name: normalized_params}}``. ``save`` normalises incoming
+    params via :func:`normalize_params` (so only known, coerced keys are stored)
+    and raises on an unknown ``kind``. With ``path=None`` the store is in-memory
+    only (ideal for tests); otherwise every mutation is flushed to the JSON file
+    so presets survive restarts. All values are JSON-serializable by design.
+    """
+
+    def __init__(self, path: Optional[os.PathLike] = None):
+        self._path = None if path is None else Path(path)
+        self._data: dict = {}
+        if self._path is not None and self._path.is_file():
+            try:
+                loaded = json.loads(self._path.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict):
+                    self._data = loaded
+            except (OSError, ValueError):
+                self._data = {}
+
+    @property
+    def path(self) -> Optional[Path]:
+        """The backing JSON file, or ``None`` for an in-memory store."""
+        return self._path
+
+    def _persist(self) -> None:
+        if self._path is not None:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            self._path.write_text(
+                json.dumps(self._data, ensure_ascii=False, indent=2),
+                encoding="utf-8")
+
+    def save(self, kind: str, name: str, params: dict) -> dict:
+        """Store ``params`` under ``(kind, name)``; returns the normalised dict."""
+        snapshot = normalize_params(kind, params)
+        self._data.setdefault(kind, {})[str(name)] = snapshot
+        self._persist()
+        return snapshot
+
+    def load(self, kind: str, name: str) -> Optional[dict]:
+        """Return the stored snapshot, or ``None`` when missing/invalid."""
+        bucket = self._data.get(kind)
+        if not bucket:
+            return None
+        snap = bucket.get(str(name))
+        return dict(snap) if isinstance(snap, dict) else None
+
+    def delete(self, kind: str, name: str) -> bool:
+        """Remove one preset; returns ``True`` if it existed."""
+        bucket = self._data.get(kind)
+        if not bucket or str(name) not in bucket:
+            return False
+        del bucket[str(name)]
+        if not bucket:
+            self._data.pop(kind, None)
+        self._persist()
+        return True
+
+    def names(self, kind: str) -> list:
+        """Sorted preset names for ``kind``."""
+        return sorted((self._data.get(kind) or {}).keys())
+
+    def kinds(self) -> list:
+        """Sorted kinds that hold at least one preset."""
+        return sorted(k for k, bucket in self._data.items() if bucket)
+
+    def clear(self) -> None:
+        """Drop every preset."""
+        self._data = {}
+        self._persist()
+

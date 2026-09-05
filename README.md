@@ -390,3 +390,18 @@ gate on push/PR.
   -> status shows param_summary) and on_analysis_report normalizes stored params,
   falls back to _analysis_dt for dt, and forwards **params. Pure logic stays
   headless-testable.
+- R68 - Named parameter presets: persists the per-kind parameter snapshot so a
+  tuned config can be recalled next session instead of resetting to defaults.
+  fv.gui.analysis adds default_preset_path() (-> ~/.flowviewer/
+  analysis_presets.json) and a PresetStore class ({kind: {name: normalized}}
+  layout) with save/load/delete/names/kinds/clear; save normalizes via
+  normalize_params (unknown kind raises, only known/coerced keys stored), load
+  returns a deep copy or None for missing/invalid, and every mutation is flushed
+  to the JSON file when a path is set (path=None => pure in-memory for tests).
+  fv.gui.paramdialog.ParamDialog gains an injectable store (defaulting to the
+  per-user JSON path) plus a Presets row (QComboBox + Load/Save/Delete): Save
+  names result_params() via QInputDialog, Load back-fills the widgets
+  (_apply_params/_set_value handle both QSpinBox/QLineEdit int-float widgets),
+  Delete removes the chosen preset. main.py builds one shared _preset_store and
+  passes it into the dialog, and the status line appends the preset count for
+  the kind. Pure logic stays headless-testable.

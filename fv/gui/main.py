@@ -178,6 +178,8 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._analysis_dt = None            # R65: optional sample period (s)
         self._analysis_panel = None         # R65: reused ReportPanel pane
         self._analysis_params = {}          # R67: per-kind report parameter snapshots
+        from .analysis import PresetStore, default_preset_path  # R68: shared presets
+        self._preset_store = PresetStore(path=default_preset_path())
 
         from ..render.scene import Scene
         self.scene = Scene(enable_3d=enable_3d)
@@ -696,13 +698,15 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             return
         kind = next(k for k, t in menu if t == chosen)
         from .paramdialog import ParamDialog
-        dlg = ParamDialog(kind, self)
+        dlg = ParamDialog(kind, self, store=self._preset_store)
         if not dlg.exec_():
             return
         params = dlg.result_params()
         self._analysis_params[kind] = params
+        n = len(self._preset_store.names(kind))
         self.status.showMessage(
-            f"Analysis [{kind}] options: {param_summary(kind, params)}", 6000)
+            f"Analysis [{kind}] options: {param_summary(kind, params)} · presets: {n}",
+            6000)
 
     def on_analysis_report(self, kind: str) -> None:
         """Run one Analysis-report kind on the current data source (R64/R65)."""
