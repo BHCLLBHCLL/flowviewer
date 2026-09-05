@@ -366,3 +366,12 @@ gate on push/PR.
   _set_analysis_source, on_analysis_report, _analysis_out_dir, _open_report), so
   clicking an Analysis report no longer raises - the menu now has a real data
   source. Pure logic stays headless-testable.
+- R66 - Analysis report export + recent history: makes the R64/R65 report
+  results persist instead of vanishing in the temp dir. fv.gui.analysis adds
+  copy_report(src, dest_dir, name=None) (pure, headless-testable) which copies
+  a self-contained single-file HTML report to a destination directory
+  (creating it as needed, returning None for a missing source). The ReportPanel
+  gains a Save As... button (QFileDialog -> copy_report) and a Recent reports
+  combo fed by the open(path) history, so generated reports can be re-opened
+  with one click. main.py adds an "Export Report..." menu item routing to the
+  panel's export(). Pure logic stays headless-testable.

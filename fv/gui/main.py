@@ -518,6 +518,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         add(m, "Set Analysis Data Source…", self._set_analysis_source)
         add(m, "Clear Analysis Data Source",
             lambda _=False: self.set_analysis_artifact(None))
+        add(m, "Export Report…", lambda _=False: self._export_report())
 
         # Help
         m = mb.addMenu("Help")
@@ -711,6 +712,13 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self._analysis_panel = frame.body
             self._right_splitter.insertWidget(0, frame)
         self._analysis_panel.open(str(path))
+
+    def _export_report(self) -> None:
+        """Save the currently shown Analysis report to a user-chosen path."""
+        if self._analysis_panel is None:
+            self.status.showMessage("Analysis: no report to export", 4000)
+            return
+        self._analysis_panel.export()
 
     # ── actions ───────────────────────────────────────────────────────────
 

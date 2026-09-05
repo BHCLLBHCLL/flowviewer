@@ -3047,3 +3047,18 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 
 **验证**
 - R65 9/9 + R64 13/13 = 22/22 全绿；`ruff check fv/gui/main.py fv/gui/analysis.py tests/test_r65_gui_analysis_source.py` 0；`fv.gui.main` 导入冒烟通过。
+
+### 8.61 第六十四轮执行记录：R66 报告导出与最近历史（2026-09-05 落地）
+
+**缺口**：R64/R65 让报告能生成并内嵌展示，但产物写到临时目录 `flowviewer_analysis`，文件名按 `{name}_{kind}.html` 固定，同一报告每次生成都会覆盖，且断线即丢——用户无法把一份报告另存为持久位置，也无法回看之前生成的报告。
+
+**S1 实现（纯逻辑与 Qt 分离）**
+- `fv/gui/analysis.py`（修改）新增 `copy_report(src, dest_dir, name=None) -> Optional[Path]`：R58-R65 报告族是自包含单文件 HTML，因此按单文件复制；需要时创建 `dest_dir`；源缺失/不可读返回 `None`（不抛异常，供 GUI 优雅降级）。纯函数、无 PyQt，可无头测试。
+- `fv/gui/reportview.py`（修改）ReportPanel 工具栏新增 `Save As…` 按钮（`QFileDialog.getSaveFileName` → `copy_report`，导出后状态栏显示结果路径）与 `Recent reports` 下拉（`open(path)` 时把当前报告记入 `_history`，`_refresh_recent` 重建列表，选择一项即重新 `open` 该报告）；`open()` 同时启用 `Save As`。
+- `fv/gui/main.py`（修改）Analysis 菜单追加 `Export Report…` 项 → `_export_report()`：无面板时状态栏提示，否则委派 `self._analysis_panel.export()`，复用面板的导出逻辑，菜单与按钮不重复。
+
+**S2 测试**（`tests/test_r66_analysis_export.py`，6 项全过；纯 NumPy/pathlib，无 PyQt）
+- 覆盖 `copy_report`：默认名复制（内容一致）、自定义名、返回 `Path`、自动创建目标目录、源缺失返回 `None`、目录型源返回 `None`。
+
+**验证**
+- R63 8/8 + R64 13/13 + R65 9/9 + R66 6/6 = 36/36 全绿；`ruff check fv/gui/reportview.py fv/gui/analysis.py fv/gui/main.py tests/test_r66_analysis_export.py` 0；`fv.gui.reportview` 无 PyQt 也能安全导入，WebEngine 可用时面板正常构建。

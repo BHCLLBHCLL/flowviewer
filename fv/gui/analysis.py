@@ -13,6 +13,7 @@ headless-testable; ``reportview`` owns only the Qt widget. No PyQt import here
 from __future__ import annotations
 
 import inspect
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -164,3 +165,23 @@ def artifact_summary(artifact) -> str:
     probes = list(artifact.get("probes", []) or [])
     return (f"{artifact.get('name') or '?'} · {len(probes)} probe(s), "
             f"{len(list(artifact.get('cycles', []) or []))} cycle(s)")
+
+
+def copy_report(src, dest_dir, name=None) -> Optional[Path]:
+    """Copy a self-contained HTML report to ``dest_dir`` and return the path.
+
+    The R58-R65 report family emits single-file HTML (inline JS/CSS), so a
+    report is copied as one file. Creates ``dest_dir`` when needed and returns
+    ``None`` -- without raising -- when ``src`` is missing or unreadable.
+    """
+    p = Path(src)
+    if not p.is_file():
+        return None
+    dest = Path(dest_dir)
+    dest.mkdir(parents=True, exist_ok=True)
+    out = dest / (name or p.name)
+    try:
+        shutil.copyfile(p, out)
+    except OSError:
+        return None
+    return out
