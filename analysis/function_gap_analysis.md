@@ -3161,3 +3161,20 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 
 **验证**
 - R67 16/16 + R68 15/15 + R69 8/8 + R70 14/14 + R71 12/12 + R72 13/13 全绿；`ruff check fv/gui/analysis.py fv/gui/main.py tests/test_r72_report_bundle.py` 0；`py_compile` 通过；offscreen 下构建 `FlowViewer(enable_3d=False)`，注入 `_analysis_artifact` 后调用 `_run_all_reports`（记录批次路径），monkeypatch `QFileDialog` 后调用 `_export_report_bundle`（zip 落盘、`zipfile` 校验报告+索引）与 `_open_report_bundle`（解包回看 `index.html` 不崩溃），冒烟通过。
+
+### 8.68 第七十一轮执行记录：R73 命名批量分析项目（save / run / delete named batch config）（2026-09-06 落地）
+
+**缺口**：R71 能一键生成 7 个报告并整理成 `index.html`，R72 能打包/回看归档，但"跑哪几个 kind + 各 kind 的 Report Options 参数快照"这一整套批次配置无法命名保存；每次重跑都要重新挑选 kind、重新编辑选项。R68-R70 已有单报告预设（`PresetStore`），但那是单 kind 的 `{params}`，无"整套批次 kinds"的命名复用。R73 补齐"保存整套批次 → 一键重跑 → 删除"闭环。
+
+**S1 实现（纯逻辑与 Qt 分离）**
+- `analysis.py`（修改）新增 `project_store_path() -> Path`：返回稳定的按用户 JSON 文件路径 `~/.flowviewer/analysis_projects.json`（与 `default_preset_path` 同目录约定）。
+- `analysis.py`（修改）新增 `ProjectStore`：具名批次项目存储，布局 `{name: {"kinds": [kind, ...], "params": {kind: normalized_params}}}`；`path=None` 时纯内存（便于测试），否则每次变更 `_persist` 落盘保证跨会话存活；`names()` 返回排序名称；`get(name)` 深拷贝返回；`save(name, kinds, params)` 丢弃未知 kind、按所剩 kind 规范化并裁剪 `params`（无合法 kind 时 `raise ValueError`）、落盘并返回规范化 `{kinds,params}`；`delete(name)` 返回是否存在；`clear()` 清空。
+- `analysis.py`（修改）新增 `project_menu(store) -> list[tuple[str, list[str]]]`：按名称排序的 `(name, kinds)` 对，供 GUI Projects 子菜单刷新。
+- `analysis.py`（修改）新增 `run_project(store, name, verts, artifact, out_dir, *, dt=None) -> Optional[dict]`：加载项目并转发给 `run_report_bundle`（仅当至少产出一个报告时写批量索引页）；项目缺失返回 `None`（不抛异常），`artifact` 为 `None` 时返回空 dict。
+- `main.py`（修改）`__init__` 新增 `self._project_store = ProjectStore(path=project_store_path())`；Analysis 菜单在 "Report Options…" 后新增 "Projects" 子菜单（`aboutToShow` 刷新，列出 `(no saved projects)` 或各项目 `名字 — N report(s)`，点击即运行），菜单含 "Save Project…" 与 "Delete Project…"；新增 `_save_project`（`QInputDialog` 询问名称，保存当前批次的 kinds + 参数快照）、`_run_selected_project(name)`（复用 `run_project`，打开 batch `index.html`）、`_delete_project`（`QInputDialog` 选择删除）。
+
+**S2 测试**（`tests/test_r73_analysis_projects.py`，15 项全过；纯 stdlib/pathlib，无 PyQt）
+- 覆盖：`project_store_path` 路径；`names` 初始为空；`save/get` 往返与深拷贝；`save` 丢弃未知 kind；无有效 kind 时 `raise ValueError`；`save` 规范化参数（`frames="7"→7`，丢弃 bogus）；`save` 裁剪参数到所选 kinds；`delete` 存在/不存在；`clear` 清空；跨实例持久化；`project_menu` 排序；`run_project` 缺失返回 None；`run_project` 分发正确 params；`run_project` dt 回退。
+
+**验证**
+- R67 16/16 + R68 15/15 + R69 8/8 + R70 14/14 + R71 12/12 + R72 13/13 + R73 15/15 全绿；`ruff check fv/gui/analysis.py fv/gui/main.py tests/test_r73_analysis_projects.py` 0；`py_compile` 通过；offscreen 下构建 `FlowViewer(enable_3d=False)`，定位 Analysis → Projects 子菜单并触发 `aboutToShow`，见 `(no saved projects)` + `Save Project…` + `Delete Project…`，冒烟通过。

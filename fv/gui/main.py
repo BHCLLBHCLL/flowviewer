@@ -181,6 +181,8 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._analysis_bundle_paths = {}    # R72: last batch {kind: html_path}
         from .analysis import PresetStore, default_preset_path  # R68: shared presets
         self._preset_store = PresetStore(path=default_preset_path())
+        from .analysis import ProjectStore, project_store_path  # R73: named batch projects
+        self._project_store = ProjectStore(path=project_store_path())
 
         from ..render.scene import Scene
         self.scene = Scene(enable_3d=enable_3d)
@@ -514,7 +516,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             m.addAction(act)
 
         # Analysis (R64): run the standalone report family from current data
-        from .analysis import preset_menu, report_menu
+        from .analysis import preset_menu, project_menu, report_menu
         m = mb.addMenu("Analysis")
         for key, title in report_menu():
             add(m, title, lambda _=False, k=key: self.on_analysis_report(k))
@@ -537,6 +539,23 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         m.addSeparator()
         add(m, "Run All Reports…", self._run_all_reports)
         add(m, "Report Options…", self._set_report_options)
+        pj = m.addMenu("Projects")
+
+        def refill_projects() -> None:
+            pj.clear()
+            items = project_menu(self._project_store)
+            if not items:
+                act = pj.addAction("(no saved projects)")
+                act.setEnabled(False)
+            for name, kinds in items:
+                act = pj.addAction(f"{name}  —  {len(kinds)} report(s)")
+                act.triggered.connect(
+                    lambda _=False, n=name: self._run_selected_project(n))
+            pj.addSeparator()
+            add(pj, "Save Project…", self._save_project)
+            add(pj, "Delete Project…", self._delete_project)
+
+        pj.aboutToShow.connect(refill_projects)
         add(m, "Import Presets…", self._import_presets)
         add(m, "Export Presets…", self._export_presets)
         add(m, "Set Analysis Data Source…", self._set_analysis_source)
@@ -769,6 +788,66 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._open_report(path)
         self.status.showMessage(
             f"Analysis preset [{kind} / {name}]: {Path(path).name}", 6000)
+
+    def _save_project(self) -> None:
+        """Save the current batch kinds + parameter snapshots as a named project (R73)."""
+        from PyQt5.QtWidgets import QInputDialog
+
+        from .analysis import normalize_params, report_menu
+        kinds = [k for k, _t in report_menu()]
+        if not kinds:
+            self.status.showMessage("Analysis project: no reports available", 4000)
+            return
+        name, ok = QInputDialog.getText(self, "Save Project", "Project name:")
+        if not ok or not name.strip():
+            return
+        name = name.strip()
+        params = {k: normalize_params(k, self._analysis_params.get(k, {}))
+                  for k in kinds}
+        try:
+            saved = self._project_store.save(name, kinds, params)
+        except ValueError as exc:
+            self.status.showMessage(f"Analysis project: {exc}", 4000)
+            return
+        self.status.showMessage(
+            f"Analysis project saved: {name} — {len(saved['kinds'])} report(s)", 6000)
+
+    def _run_selected_project(self, name: str) -> None:
+        """Run a saved batch project by name on the current data source (R73)."""
+        from .analysis import prepare_verts, run_project
+        if self._analysis_artifact is None:
+            self._set_analysis_source()
+            if self._analysis_artifact is None:
+                return
+        verts = prepare_verts(self.dataset)
+        paths = run_project(self._project_store, name, verts,
+                            self._analysis_artifact, self._analysis_out_dir(),
+                            dt=self._analysis_dt)
+        if not paths:
+            self.status.showMessage(
+                f"Analysis project [{name}]: no report produced", 4000)
+            return
+        self._analysis_bundle_paths = paths
+        index = Path(self._analysis_out_dir()) / "index.html"
+        self._open_report(str(index))
+        self.status.showMessage(
+            f"Analysis project [{name}]: {len(paths)} report(s) · {index.name}",
+            6000)
+
+    def _delete_project(self) -> None:
+        """Delete a saved batch project by name (R73)."""
+        from PyQt5.QtWidgets import QInputDialog
+        names = self._project_store.names()
+        if not names:
+            self.status.showMessage("Analysis project: no saved projects", 4000)
+            return
+        name, ok = QInputDialog.getItem(self, "Delete Project", "Project:",
+                                        names, 0, False)
+        if not ok:
+            return
+        if self._project_store.delete(name):
+            self.status.showMessage(
+                f"Analysis project deleted: {name}", 6000)
 
     def _import_presets(self) -> None:
         """Import named presets from a JSON file, merging (no overwrite, R70)."""

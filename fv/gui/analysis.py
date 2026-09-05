@@ -697,3 +697,110 @@ def import_presets(store: PresetStore, src, *, kinds=None,
                    overwrite=False) -> dict:
     """Import presets into ``store`` (see :meth:`PresetStore.import_`)."""
     return store.import_(src, kinds=kinds, overwrite=overwrite)
+
+
+def project_store_path() -> Path:
+    """Stable per-user location for the named batch-analysis project file."""
+    return Path.home() / ".flowviewer" / "analysis_projects.json"
+
+
+class ProjectStore:
+    """Named batch-analysis project store, optionally persisted to a JSON file.
+
+    A project captures *which* report kinds a batch should run plus the per-kind
+    parameter snapshots to feed them, so a tuned subset can be re-run in one
+    click instead of re-picking kinds and re-editing Report Options each time.
+    Layout: ``{name: {"kinds": [kind, ...], "params": {kind: normalized_params}}}``.
+    ``kinds`` keep the order given, dropping unknown report kinds; ``params`` is
+    normalised per kind and pruned to the selected kinds, so only known, coerced
+    keys are stored. With ``path=None`` the store is in-memory only (ideal for
+    tests); otherwise every mutation is flushed to the JSON file so projects
+    survive restarts. All values are JSON-serializable by design.
+    """
+
+    def __init__(self, path: Optional[os.PathLike] = None):
+        self._path = None if path is None else Path(path)
+        self._data: dict = {}
+        if self._path is not None and self._path.is_file():
+            try:
+                loaded = json.loads(self._path.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict):
+                    self._data = loaded
+            except (OSError, ValueError):
+                self._data = {}
+
+    @property
+    def path(self) -> Optional[Path]:
+        """The backing JSON file, or ``None`` for an in-memory store."""
+        return self._path
+
+    def _persist(self) -> None:
+        if self._path is not None:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            self._path.write_text(
+                json.dumps(self._data, ensure_ascii=False, indent=2),
+                encoding="utf-8")
+
+    def names(self) -> list:
+        """Sorted project names."""
+        return sorted(self._data.keys())
+
+    def get(self, name) -> Optional[dict]:
+        """Return a deep copy of ``name``'s project, or ``None`` when missing."""
+        found = self._data.get(str(name))
+        return copy.deepcopy(found) if isinstance(found, dict) else None
+
+    def save(self, name, kinds, params) -> dict:
+        """Store a batch project; returns the normalised ``{kinds, params}`` dict.
+
+        Unknown report kinds are dropped; ``params`` is normalised per selected
+        kind and pruned to those kinds. Raises ``ValueError`` when no selectable
+        report kind remains.
+        """
+        selected = [k for k in kinds if k in REPORTS]
+        if not selected:
+            raise ValueError("no valid analysis report kinds selected")
+        snap = {k: normalize_params(k, (params or {}).get(k, {}))
+                for k in selected}
+        project = {"kinds": list(selected), "params": snap}
+        self._data[str(name)] = project
+        self._persist()
+        return copy.deepcopy(project)
+
+    def delete(self, name) -> bool:
+        """Remove one project; returns ``True`` if it existed."""
+        key = str(name)
+        if key not in self._data:
+            return False
+        del self._data[key]
+        self._persist()
+        return True
+
+    def clear(self) -> None:
+        """Drop every project."""
+        self._data = {}
+        self._persist()
+
+
+def project_menu(store: ProjectStore) -> list[tuple[str, list[str]]]:
+    """Ordered ``(name, kinds)`` pairs for the GUI Analysis Projects submenu."""
+    return [(n, list((store.get(n) or {}).get("kinds", [])))
+            for n in store.names()]
+
+
+def run_project(store: ProjectStore, name: str, verts, artifact, out_dir, *,
+                dt=None) -> Optional[dict]:
+    """Run a saved batch project; returns ``{kind: path}`` or ``None``.
+
+    Loads the ``(kinds, params)`` stored under ``name`` and forwards them to
+    :func:`run_report_bundle` (which writes the batch index page only when at
+    least one report is produced). Returns ``None`` -- without raising -- when
+    the project is missing, and an empty dict when ``artifact`` is ``None``.
+    """
+    project = store.get(name)
+    if not project:
+        return None
+    return run_report_bundle(verts, artifact, out_dir,
+                             kinds=project.get("kinds"),
+                             params=project.get("params", {}),
+                             dt=dt)

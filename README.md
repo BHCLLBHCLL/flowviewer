@@ -471,3 +471,19 @@ gate on push/PR.
   _open_report_bundle (choose a .zip and reopen it in the report pane);
   _run_all_reports records the latest batch for export. Pure logic stays
   headless-testable.
+- R73 - Named batch projects: lets the current batch ("which report kinds", plus
+  the per-kind Report Options snapshot) be saved under a name and re-run from
+  the Analysis menu in one click, so a tuned subset no longer has to be
+  re-picked and re-edited each time. fv.gui.analysis adds project_store_path()
+  (a per-user JSON file under ~/.flowviewer), the ProjectStore class (an
+  optional on-disk store whose {name: {kinds, params}} records are normalised
+  -- unknown kinds dropped, params coerced and pruned to the selected kinds --
+  and flushed on every mutation; path=None keeps it in-memory for tests),
+  project_menu(store) (ordered (name, kinds) pairs for the menu) and
+  run_project(store, name, verts, artifact, out_dir, *, dt=None) (loads a
+  project and forwards its kinds+params to run_report_bundle, returning None
+  when the project is missing). main.py adds a "Projects" submenu under
+  Analysis wired to _save_project (name the current batch kinds+params), a
+  refreshed list that runs _run_selected_project(name), and _delete_project;
+  _run_selected_project reuses run_project and opens the batch index in the
+  report pane. Pure logic stays headless-testable.
