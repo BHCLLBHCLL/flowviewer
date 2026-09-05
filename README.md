@@ -487,3 +487,18 @@ gate on push/PR.
   refreshed list that runs _run_selected_project(name), and _delete_project;
   _run_selected_project reuses run_project and opens the batch index in the
   report pane. Pure logic stays headless-testable.
+- R74 - Headless report CLI: exposes the R64-R73 batch / bundle / project
+  machinery at a terminal and to CI, so a report workflow can be scripted
+  instead of clicked. fv/report.py adds a ``python -m fv.report`` entry point
+  that reads a JSON input ``{"verts": [[x, y, z], ...], "artifact": {...}}``
+  (a bare artifact file is also accepted, verts then defaulting to empty) and
+  emits HTML reports to an output directory, optionally an index page and a
+  shareable zip. load_input / load_params parse the input and per-kind params
+  overlay; run orchestrates run_report_bundle (or run_project when --project is
+  given) and prints a machine-readable manifest to stdout
+  ``{"out_dir", "reports", "index", "zip", "count"}`` with paths relative to the
+  output directory; main is the argparse entry (--all / -k repeatable /
+  --project / -p params / -z zip / -t title / -d dt). No PyQt is imported, so it
+  stays headless. main.py adds "Export Analysis Data Source..." under Analysis,
+  dumping the current verts+artifact as a CLI-ready JSON so the same workload
+  can be re-run from the terminal.

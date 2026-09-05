@@ -561,6 +561,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         add(m, "Set Analysis Data Source…", self._set_analysis_source)
         add(m, "Clear Analysis Data Source",
             lambda _=False: self.set_analysis_artifact(None))
+        add(m, "Export Analysis Data Source…", self._export_analysis_source)
         add(m, "Export Report…", lambda _=False: self._export_report())
         add(m, "Export Bundle…", self._export_report_bundle)
         add(m, "Open Bundle…", self._open_report_bundle)
@@ -748,6 +749,36 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.status.showMessage(
             f"Analysis [{kind}] options: {param_summary(kind, params)} · presets: {n}",
             6000)
+
+    def _export_analysis_source(self) -> None:
+        """Export the current Analysis data source as a CLI-ready input JSON (R74)."""
+        import json
+
+        import numpy as np
+        from PyQt5.QtWidgets import QFileDialog
+
+        from .analysis import prepare_verts
+        if self._analysis_artifact is None:
+            self._set_analysis_source()
+            if self._analysis_artifact is None:
+                return
+        verts = np.asarray(prepare_verts(self.dataset), dtype=np.float64)
+        start = str(self.options.last_dir) if self.options.last_dir else str(Path.cwd())
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Analysis Data Source", start, "JSON (*.json)")
+        if not path:
+            return
+        if not path.lower().endswith(".json"):
+            path += ".json"
+        payload = {"verts": verts.tolist(), "artifact": self._analysis_artifact}
+        try:
+            Path(path).write_text(json.dumps(payload), encoding="utf-8")
+        except OSError as exc:
+            self.status.showMessage(f"Export analysis source: {exc}", 6000)
+            return
+        self.status.showMessage(
+            f"Analysis source exported: {Path(path).name} → "
+            f"python -m fv.report \"{path}\"", 8000)
 
     def on_analysis_report(self, kind: str) -> None:
         """Run one Analysis-report kind on the current data source (R64/R65)."""

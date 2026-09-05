@@ -3178,3 +3178,17 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 
 **验证**
 - R67 16/16 + R68 15/15 + R69 8/8 + R70 14/14 + R71 12/12 + R72 13/13 + R73 15/15 全绿；`ruff check fv/gui/analysis.py fv/gui/main.py tests/test_r73_analysis_projects.py` 0；`py_compile` 通过；offscreen 下构建 `FlowViewer(enable_3d=False)`，定位 Analysis → Projects 子菜单并触发 `aboutToShow`，见 `(no saved projects)` + `Save Project…` + `Delete Project…`，冒烟通过。
+
+### 8.69 第七十二轮执行记录：R74 无头报告 CLI（python -m fv.report）（2026-09-06 落地）
+
+**缺口**：R64-R73 的批量报告、zip 打包、命名项目都能在 GUI 里点出报告，但它们都依赖 Qt 界面；想要"输入一串 verts+artifact → 从终端/CI 生成一套报告"只能手动点选，无法脚本化。R74 把 R64-R73 的编排逻辑暴露为 `python -m fv.report` 命令，让报告流程可脚本化、可在 CI 中无人值守运行。
+
+**S1 实现（纯逻辑与 Qt 分离）**
+- `report.py`（新增）无头 CLI 模块：不导入 PyQt，仅用 `argparse/json/os/sys` + `numpy` + 复用 `analysis.py` 的 `run_report_bundle / run_project / export_report_bundle / project_store_path`。`_as_verts(verts)` 把原始 verts 强制为 `(N, 3)` float 数组；`load_input(path)` 解析输入 JSON 为 `(verts, artifact)`，顶层无 `artifact` 键时整个对象视作 artifact（verts 默认空数组）；`load_params(path)` 加载 `{kind: {param: value}}` 覆盖层；`_rel(path, base)` 用 `os.path.relpath` 把路径转成相对输出目录的 posix 路径（跨盘符/输出目录在 bundle 之外时回退绝对路径）；`run(config)` 编排 `run_report_bundle`（或 `run_project`，当 `--project` 给定）并打印机器可读 manifest `{"out_dir", "reports": {kind: rel_html}, "index", "zip", "count"}` 到 stdout；`main(argv)` 是 argparse 入口（`--all` / `-k` 可重复 / `--project` / `-p params` / `-z zip` / `-t title` / `-d dt`），带 `if __name__ == "__main__": raise SystemExit(main())` 入口守卫使 `python -m fv.report` 有输出。
+- `main.py`（修改）Analysis 菜单在 "Clear Analysis Data Source…" 后新增 "Export Analysis Data Source…"（`_export_analysis_source`）：把当前 verts+artifact 写为 CLI 可用 JSON `{"verts": verts.tolist(), "artifact": self._analysis_artifact}`，状态栏提示可用 `python -m fv.report "<path>"` 复跑同一负载，由此打通 GUI → CLI 闭环。
+
+**S2 测试**（`tests/test_r74_report_cli.py`，23 项全过；monkeypatch `run_report_bundle / run_project / export_report_bundle` 以测编排，无真实 Qt）
+- 覆盖：`_as_verts` 空/单点/混合形状；`load_input` 顶层有/无 `artifact`（后者整个视为 artifact）；`load_params` 空/覆盖/合并；`_rel` 同目录/跨目录/跨盘符回退；`run` 对 `run_report_bundle` 的参数转发与 manifest 路径相对化；`--project` 走 `run_project`；`--all`/`-k` 组合；`-z` zip 与 `-d` dt 透传；`-p` params 加载；GUI 导出 payload 的 round-trip（`test_gui_export_payload_roundtrips`）；`main` 无效 kind 报错与退出码。
+
+**验证**
+- R67 16/16 + R68 15/15 + R69 8/8 + R70 14/14 + R71 12/12 + R72 13/13 + R73 15/15 + R74 23/23 全绿；`ruff check fv/report.py fv/gui/analysis.py fv/gui/main.py tests/test_r74_report_cli.py` 0；`py_compile` 通过。端到端冒烟：以 400 样本、3 个 probes、3×3 verts 网格的 artifact 运行 `python -m fv.report input.json -o out` 流式输出 manifest `{"out_dir":..., "reports": {"spectral": "P_spectral.html", "coherence": "P_coherence.html"}, "index": "index.html", "zip": "../bundle.zip", "count": 2}`，报告文件生成、zip 内容正确；全量回归 863 passed / 4 skipped / 2 deselected。
