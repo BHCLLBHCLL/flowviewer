@@ -13,6 +13,7 @@ headless-testable; ``reportview`` owns only the Qt widget. No PyQt import here
 from __future__ import annotations
 
 import copy
+import html
 import inspect
 import json
 import os
@@ -307,6 +308,70 @@ def run_report(kind: str, verts, artifact, out_dir: str, *, dt=None,
     if rel:
         return str(Path(out_dir) / rel)
     return str(Path(out_dir))
+
+
+def run_reports(verts, artifact, out_dir, *, kinds=None, params=None,
+                dt=None) -> dict:
+    """Run several report kinds at once; returns ``{kind: html_path}``.
+
+    ``kinds=None`` runs every registered report in registry order, otherwise
+    only the requested kinds (unknown kinds are dropped). ``params`` is an
+    optional ``{kind: params_dict}`` overlay merged over each kind's defaults
+    and normalised per kind; a kind with no entry uses its defaults. A ``None``
+    ``dt`` in the resulting snapshot falls back to the supplied ``dt``.
+    Reports that produce no output are omitted. The result preserves ``kinds``
+    order and is empty when ``artifact`` is ``None``.
+    """
+    if artifact is None:
+        return {}
+    if kinds is None:
+        kind_order = list(REPORTS.keys())
+    else:
+        kind_order = [k for k in kinds if k in REPORTS]
+    out: dict = {}
+    for kind in kind_order:
+        cfg = normalize_params(kind, (params or {}).get(kind, {}))
+        if cfg.get("dt") is None:
+            cfg["dt"] = dt
+        path = run_report(kind, verts, artifact, out_dir, **cfg)
+        if path:
+            out[kind] = path
+    return out
+
+
+def write_report_index(paths: dict, out_dir,
+                       title="flowviewer analysis bundle") -> Path:
+    """Write an ``index.html`` linking each generated report; returns its path.
+
+    Every report is a self-contained single-file HTML written beside the index,
+    so a plain ``<a>`` to the basename is enough to reopen it.
+    """
+    dest = Path(out_dir)
+    dest.mkdir(parents=True, exist_ok=True)
+    items = []
+    for kind, path in paths.items():
+        label = REPORTS[kind].title if kind in REPORTS else str(kind)
+        items.append(f'<li><a href="{html.escape(Path(path).name)}">'
+                     f"{html.escape(label)}</a></li>")
+    body = "".join(items)
+    doc = ("<!doctype html>\n<html><head><meta charset=\"utf-8\">"
+           f"<title>{html.escape(title)}</title></head><body>"
+           f"<h1>{html.escape(title)}</h1>"
+           f"<p>{len(paths)} report(s) generated.</p>"
+           f"<ul>{body}</ul></body></html>\n")
+    index = dest / "index.html"
+    index.write_text(doc, encoding="utf-8")
+    return index
+
+
+def run_report_bundle(verts, artifact, out_dir, *, kinds=None, params=None,
+                      dt=None) -> dict:
+    """Run a batch of reports and write an index page; returns ``{kind: path}``."""
+    paths = run_reports(verts, artifact, out_dir, kinds=kinds,
+                        params=params, dt=dt)
+    if paths:
+        write_report_index(paths, out_dir)
+    return paths
 
 
 def field_names(ts) -> list[str]:

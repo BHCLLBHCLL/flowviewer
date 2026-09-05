@@ -439,3 +439,19 @@ gate on push/PR.
   (merge, no overwrite; status shows the count imported) and _export_presets
   (dump every preset; status shows the written path). Pure logic stays
   headless-testable.
+- R71 - Batch report generation: lets every Analysis report kind be produced at
+  once and folded into a single index page, so the user no longer has to click
+  the seven report items one at a time. fv.gui.analysis adds run_reports(verts,
+  artifact, out_dir, *, kinds=None, params=None, dt=None) (runs several kinds in
+  registry order, dropping unknown kinds, merging a per-kind params overlay that
+  is normalised via normalize_params, filling a missing snapshot dt from the
+  supplied dt, omitting kinds that produce no output and returning {} early when
+  artifact is None), write_report_index(paths, out_dir, title=...) (writes an
+  index.html linking each generated report by its basename, HTML-escaping both
+  the report titles and the file names) and run_report_bundle(verts, artifact,
+  out_dir, *, kinds=None, params=None, dt=None) (a convenience that runs the
+  batch and writes the index page only when at least one report is produced).
+  main.py adds a "Run All Reports..." item under Analysis wired to
+  _run_all_reports, which ensures a data source, prepares verts, normalises the
+  current per-kind params, runs the bundle and opens the generated index in the
+  report pane. Pure logic stays headless-testable.

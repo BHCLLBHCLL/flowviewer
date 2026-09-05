@@ -534,6 +534,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
         ps.aboutToShow.connect(refill_presets)
         m.addSeparator()
+        add(m, "Run All Reports…", self._run_all_reports)
         add(m, "Report Options…", self._set_report_options)
         add(m, "Import Presets…", self._import_presets)
         add(m, "Export Presets…", self._export_presets)
@@ -804,6 +805,28 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self.status.showMessage("Presets export: no presets to export", 4000)
             return
         self.status.showMessage(f"Presets export: {out}", 6000)
+
+    def _run_all_reports(self) -> None:
+        """Run every Analysis report kind on the current source (R71 batch)."""
+        from .analysis import normalize_params, prepare_verts, report_menu, run_report_bundle
+        if self._analysis_artifact is None:
+            self._set_analysis_source()
+            if self._analysis_artifact is None:
+                return
+        verts = prepare_verts(self.dataset)
+        kinds = [k for k, _t in report_menu()]
+        params = {k: normalize_params(k, self._analysis_params.get(k, {}))
+                  for k in kinds}
+        paths = run_report_bundle(verts, self._analysis_artifact,
+                                  self._analysis_out_dir(), params=params,
+                                  dt=self._analysis_dt)
+        if not paths:
+            self.status.showMessage("Analysis: no reports produced", 4000)
+            return
+        index = Path(self._analysis_out_dir()) / "index.html"
+        self._open_report(str(index))
+        self.status.showMessage(
+            f"Analysis batch: {len(paths)} report(s) · {index.name}", 6000)
 
     def _analysis_out_dir(self) -> str:
         """A stable scratch directory for generated analysis reports."""

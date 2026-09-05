@@ -3127,3 +3127,19 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 
 **验证**
 - R67 16/16 + R68 15/15 + R69 8/8 + R70 14/14 = 53/53 全绿；`ruff check fv/gui/analysis.py fv/gui/main.py tests/test_r70_preset_share.py` 0；`py_compile` 通过；offscreen 下构建 `FlowViewer(enable_3d=False)`，注入内存 PresetStore 播种预置，monkeypatch `QFileDialog` 后调用 `_export_presets`（写盘读回校验两种 kind）与 `_import_presets`（合并新增同名保留，`smoke_d` 导入成功）不崩溃，冒烟通过。
+
+### 8.66 第六十九轮执行记录：R71 批量报告生成（run all reports + index page）（2026-09-05 落地）
+
+**缺口**：Analysis 菜单的 7 个报告项（光谱/相干/演化/控制台/空间 POD/空间 DMD/全字段）只能逐个点击运行，生成一个之后要再点下一个；一次分析往往要看多张图，缺乏"一次跑完并整理成索引页"的能力。R71 补齐批量报告生成。
+
+**S1 实现（纯逻辑与 Qt 分离）**
+- `analysis.py`（修改）新增 `run_reports(verts, artifact, out_dir, *, kinds=None, params=None, dt=None) -> dict`：按注册表顺序依次运行多个 kind；`kinds=None` 时跑全部注册 kind，否则仅跑指定 kind（未知 kind 丢弃）；`params` 为可选 `{kind: params_dict}` 覆盖层，逐 kind 经 `normalize_params` 归一化后合并（未出现的 kind 用默认值）；结果快照 `dt` 为 `None` 时回退到传入 `dt`；产生空输出的 kind 省略；`artifact is None` 时提前返回 `{}`；保留 `kinds` 顺序。
+- `analysis.py`（修改）新增 `write_report_index(paths, out_dir, title="flowviewer analysis bundle") -> Path`：在 `out_dir` 写 `index.html`，逐个报告以 basename 生成 `<a>` 链接，标题与文件名均 `html.escape`，返回索引路径。
+- `analysis.py`（修改）新增 `run_report_bundle(verts, artifact, out_dir, *, kinds=None, params=None, dt=None) -> dict`：先 `run_reports` 再仅当产出非空时 `write_report_index`，批量+索引一步到位。
+- `main.py`（修改）Analysis 菜单在 "Report Options…" 前新增 "Run All Reports…"，接入新增的 `_run_all_reports`（确保数据源、`prepare_verts`、按 kind 归一化当前参数、`run_report_bundle` 后打开 `index.html` 并更新状态栏）。
+
+**S2 测试**（`tests/test_r71_run_all.py`，12 项全过；纯 NumPy/pathlib/monkeypatch，无 PyQt）
+- 覆盖：None artifact 返回空；全部 kind 按注册表顺序；kind 过滤并保持顺序；参数覆盖逐 kind 归一化；dt 回退与保留；空路径省略；`write_report_index` 生成链接与 HTML 转义；`run_report_bundle` 写索引、None artifact 不写索引、空参数用默认值。
+
+**验证**
+- R67 16/16 + R68 15/15 + R69 8/8 + R70 14/14 + R71 12/12 = 65/65 全绿；`ruff check fv/gui/analysis.py fv/gui/main.py tests/test_r71_run_all.py` 0；`py_compile` 通过；offscreen 下构建 `FlowViewer(enable_3d=False)`，注入 `_analysis_artifact` 后调用 `_run_all_reports`，跑完 7 个报告并生成 `index.html`，状态栏显示 "Analysis batch: 7 report(s) · index.html" 不崩溃，冒烟通过。
