@@ -513,10 +513,26 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             m.addAction(act)
 
         # Analysis (R64): run the standalone report family from current data
-        from .analysis import report_menu
+        from .analysis import preset_menu, report_menu
         m = mb.addMenu("Analysis")
         for key, title in report_menu():
             add(m, title, lambda _=False, k=key: self.on_analysis_report(k))
+        ps = m.addMenu("Presets")
+
+        def refill_presets() -> None:
+            ps.clear()
+            items = preset_menu(self._preset_store)
+            if not items:
+                act = ps.addAction("(no saved presets)")
+                act.setEnabled(False)
+                return
+            for kind, name, title in items:
+                act = ps.addAction(f"{name}  —  {title}")
+                act.triggered.connect(
+                    lambda _=False, k=kind, n=name:
+                    self._run_selected_preset(k, n))
+
+        ps.aboutToShow.connect(refill_presets)
         m.addSeparator()
         add(m, "Report Options…", self._set_report_options)
         add(m, "Set Analysis Data Source…", self._set_analysis_source)
@@ -728,6 +744,25 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.status.showMessage(
             f"Analysis [{kind}]: {Path(path).name} · {param_summary(kind, params)}",
             6000)
+
+    def _run_selected_preset(self, kind: str, name: str) -> None:
+        """Run a saved preset by name on the current data source (R69)."""
+        from .analysis import prepare_verts, run_preset
+        if self._analysis_artifact is None:
+            self._set_analysis_source()
+            if self._analysis_artifact is None:
+                return
+        verts = prepare_verts(self.dataset)
+        path = run_preset(kind, name, verts, self._analysis_artifact,
+                          self._analysis_out_dir(), store=self._preset_store,
+                          dt=self._analysis_dt)
+        if not path:
+            self.status.showMessage(
+                f"Analysis preset [{kind} / {name}]: no report produced", 4000)
+            return
+        self._open_report(path)
+        self.status.showMessage(
+            f"Analysis preset [{kind} / {name}]: {Path(path).name}", 6000)
 
     def _analysis_out_dir(self) -> str:
         """A stable scratch directory for generated analysis reports."""

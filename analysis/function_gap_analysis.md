@@ -3094,3 +3094,19 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 
 **验证**
 - R67 16/16 + R68 15/15 = 31/31 全绿；`ruff check fv/gui/analysis.py fv/gui/paramdialog.py fv/gui/main.py tests/test_r68_presets.py` 0；`fv.gui`（analysis/paramdialog）无头可安全导入，offscreen 下 `ParamDialog`（含预置栏）+ `PresetStore` 交互（保存/刷新/加载回填/删除）冒烟通过。
+
+
+### 8.64 第六十七轮执行记录：R69 运行预置（run with preset）（2026-09-05 落地）
+
+**缺口**：R68 能保存命名预置，但 Analysis 菜单的 7 个报告项仍始终使用内存中的 `_analysis_params`，保存好的预置无法从菜单一键运行——用户须重新打开 Report Options 手改参数，才能用上一套调好的配置。
+
+**S1 实现（纯逻辑与 Qt 分离）**
+- `analysis.py`（修改）新增 `preset_menu(store, kind=None)`：列出可运行的预置，返回 `[(kind, name, title)]` 元组列表；`kind=None` 时按 `REPORTS` 注册顺序列出所有含预置的 kind，同一 kind 内按名称排序；无匹配返回空列表；未知 kind 抛 `ValueError`。
+- `analysis.py`（修改）新增 `run_preset(kind, name, verts, artifact, out_dir, store=None, *, dt=None)`：从 `store.load(kind, name)` 取快照并原样转发给 `run_report(kind, verts, artifact, out_dir, **params)`（按 kind 继承 `source`/`panels`/`field_name`）；快照内 `dt` 为 `None` 时回退到传入的 `dt`；预置缺失或 `artifact is None` 时返回 `None` 而不抛异常（`store=None` 用内存空 store）。
+- `main.py`（修改）Analysis 菜单新增 Presets 子菜单：`aboutToShow` 触发 `preset_menu(self._preset_store)` 动态重填；无预置时放一个禁用的 "(no saved presets)" 占位；每项标签为 `{name}  —  {title}`，点击调用新增的 `_run_selected_preset(kind, name)`。`_run_selected_preset` 与 `on_analysis_report` 同源：无数据源时先 `_set_analysis_source()`，再 `prepare_verts` 并以 `run_preset(..., store=..., dt=self._analysis_dt)` 生成报告，随后 `_open_report` 并在状态栏提示。
+
+**S2 测试**（`tests/test_r69_run_preset.py`，8 项全过；纯 NumPy/pathlib，无 PyQt）
+- 覆盖：`preset_menu` 空 store、全 kind 按注册顺序列出（名内排序、含 title）、按 kind 过滤、未知 kind 抛 `ValueError`；`run_preset` 缺失预置返回 `None`、快照原样转发给 `run_report`（monkeypatch 录制 kind/verts/artifact/out_dir/**kw）、dt 为 None 回退与保留、artifact 为 None（run_report 返回 None）时返回 `None`。
+
+**验证**
+- R67 16/16 + R68 15/15 + R69 8/8 = 39/39 全绿；`ruff check fv/gui/analysis.py fv/gui/main.py tests/test_r69_run_preset.py` 0；offscreen 下构建 `FlowViewer(filepath=None, enable_3d=False)`，注入内存 Prestore，触发 Analysis→Presets 子菜单 `aboutToShow` 刷新（空 store 占位 + 含预置条目），并调用 `_run_selected_preset` 不崩溃，冒烟通过。

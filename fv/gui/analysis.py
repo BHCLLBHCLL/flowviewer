@@ -458,3 +458,43 @@ class PresetStore:
         self._data = {}
         self._persist()
 
+
+def preset_menu(store: "PresetStore", kind: "Optional[str]" = None) -> list:
+    """Ordered ``(kind, name, title)`` triples for runnable presets.
+
+    When ``kind`` is given, only that report kind's presets appear; otherwise
+    every kind holding at least one preset is listed in registry order
+    (``REPORTS``) so the menu mirrors the report menu. Names are sorted within
+    each kind. Returns an empty list when nothing matches. Unknown ``kind``
+    raises ``ValueError``.
+    """
+    if kind is not None:
+        if kind not in REPORTS:
+            raise ValueError(f"unknown analysis report kind: {kind!r}")
+        return [(kind, name, REPORTS[kind].title) for name in store.names(kind)]
+    out: list = []
+    for k, rk in REPORTS.items():
+        for name in store.names(k):
+            out.append((k, name, rk.title))
+    return out
+
+
+def run_preset(kind: str, name: str, verts, artifact, out_dir: str,
+               store: Optional[PresetStore] = None, *, dt=None) -> Optional[str]:
+    """Run a stored preset and return the generated HTML path (or None).
+
+    Loads the ``(kind, name)`` snapshot from ``store`` and forwards it verbatim
+    to :func:`run_report` (so per-kind ``source``/``panels``/``field_name`` are
+    honoured). A ``None`` ``dt`` in the snapshot falls back to the supplied
+    ``dt``, mirroring the GUI's current-data sampling interval. Returns ``None``
+    — without raising — when ``store`` has no such preset or ``artifact`` is
+    ``None``.
+    """
+    if store is None:
+        store = PresetStore()
+    params = store.load(kind, name)
+    if params is None:
+        return None
+    if params.get("dt") is None:
+        params["dt"] = dt
+    return run_report(kind, verts, artifact, out_dir, **params)

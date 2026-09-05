@@ -405,3 +405,19 @@ gate on push/PR.
   Delete removes the chosen preset. main.py builds one shared _preset_store and
   passes it into the dialog, and the status line appends the preset count for
   the kind. Pure logic stays headless-testable.
+
+- R69 - Running presets: lets a saved preset be run directly from the Analysis
+  menu instead of re-editing Report Options each time. fv.gui.analysis adds
+  preset_menu(store, kind=None) (-> [(kind, name, title)], listing every kind
+  that holds presets in registry order with names sorted, empty when none, and
+  ValueError for an unknown kind) and run_preset(kind, name, verts, artifact,
+  out_dir, store=None, *, dt=None) which loads the (kind, name) snapshot and
+  forwards it verbatim to run_report(**params) (honoring per-kind source/panels/
+  field_name, falling back dt when the snapshot's is None, returning None for a
+  missing preset or None artifact). main.py adds a "Presets" submenu under
+  Analysis, refilled on aboutToShow from preset_menu(self._preset_store), with a
+  disabled "(no saved presets)" placeholder when empty, each item labelled
+  "{name}  —  {title}" and routed to the new _run_selected_preset handler (which
+  mirrors on_analysis_report: ensure a data source, prepare verts, run_preset with
+  the shared store and _analysis_dt, then open the report). Pure logic stays
+  headless-testable.
