@@ -2983,3 +2983,50 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
   控制台 12 canvas + `tabs()`/mousemove + 三种 `cv_{panel}_{map}` id；R62 空间报告 `field=True`
   下 field_maps 交互标记齐全；`xyz` 含 `None` 的探针不崩 build/render 且 (x,y) 仍修正；`_field_js`
   回填 token；`_probes_xy` 各回退分支；CLI 冒烟产出 `P_spectral.html`。
+
+
+### 8.59 第六十二轮执行记录：R64 GUI 集成分析报告（2026-09-05 落地）
+
+**目标**：R58-R63 的独立 HTML 报告生成器（光谱场图、相干场图、谱演化场图、场控制台、空间 POD/DMD/全场
+报告）此前只能通过 CLI main 逐个 `write_*` 生成，GUI 无从触发。R64 把这一族报告接进图形界面：新增
+`Analysis` 菜单按注册表列出全部报告，点击后调用纯逻辑 `run_report` 生成 HTML，再在可停靠的
+`ReportPanel` 内联展示（`QWebEngineView` 可用时内嵌渲染，否则回退到 "Open in browser"），从而在 GUI 内
+直接浏览 R54/R55/R58-R62 全部分析产物。
+
+**S1 实现（分层解耦：纯逻辑与 Qt 组件分离，保持无头可测）**
+- `fv/gui/analysis.py`（新增，纯 NumPy、无 PyQt 导入，可在无显示环境直接 import）：
+  - `ReportKind` frozen dataclass：`key` / `title` / `build` / `write`；`REPORTS` 注册表登记 7 个报告
+    键：`spectral`(R58) / `coherence`(R59) / `evolution`(R60) / `console`(R61) / `spatial_pod`(R54) /
+    `spatial_dmd`(R55) / `spatial_field`(R62)。
+  - `report_menu()` 返回有序 `(key, title)` 对供菜单构建。
+  - `prepare_verts(dataset)` 从 `FieldFile`/数据集对象抽取 `(N, 3)` 顶点数组；无顶点缓冲（未打开或纯点集）
+    回退空 `(0, 3)`，避免 GUI 崩坏。
+  - `run_report(kind, verts, artifact, out_dir, *, dt, cycles, step, frames, dmd, field, top, preview)`
+    分发器：未知 kind 抛 `ValueError`；`artifact is None` 返回 `None`（GUI 显示提示而非崩溃）；对
+    `spatial_dmd` 置 `dmd=True`、对 `spatial_field` 置 `field=True` + `source="pod"`；随后经 `_call`
+    仅转发目标 `write` 签名接受的 kwargs，返回生成的 HTML 路径。
+  - `_call()` 基于 `inspect.signature` 按参数名过滤 kwargs，使 spectral 族（含 `dt/cycles/step/frames/
+    preview`）与 spatial 族（含 `dt/cycles/step/frames/preview/top/dmd/field/source`）签名互不冲突。
+- `fv/gui/reportview.py`（新增，Qt 组件）：`ReportPanel(QWidget)` — 顶部工具栏含 "Open in browser" /
+  "Reload"，正文在 `PyQt5.QtWebEngineWidgets` 可导入时嵌入 `QWebEngineView` 加载 `file://` URI，否则退化为
+  提示 + 浏览器打开按钮；`supports_webview()` 探测内嵌引擎可用性；`_as_uri()` 把路径归一成绝对 `file://`
+  URI。模块以 `_QT` 守卫 PyQt 导入，无头 import 安全。
+- `fv/gui/main.py`（修改，接线）：`_build_menus()` 在 Toolbar 与 Help 之间新增 `Analysis` 菜单，遍历
+  `report_menu()` 生成 `add(title, lambda k=key: self.on_analysis_report(k))`；新增
+  `on_analysis_report(kind)`（校验 `self.dataset` 与 `self._analysis_artifact`，由数据集路径推导 `out_dir`，
+  调 `run_report`，记录结果，成功后 `_open_report(path)`）、`set_analysis_artifact(artifact, dt=None)` 与
+  `_open_report(path)`（把 `PaneFrame("Analysis Report", ReportPanel)` 插入右侧 splitter 并调用
+  `panel.open(path)`）。
+
+**S2 测试**（`tests/test_r64_gui_analysis.py`，13 项全过；纯 NumPy 无头，无 PyQt 组件实例化）
+- 覆盖：`REPORTS` 注册表完整且有序（`report_menu` 与 `REPORTS` 键一致、每个 `ReportKind` 的 `build/write`
+  可调用且有标题）；`prepare_verts` 从数据集抽取 `(9,3)`、无缓冲回退 `(0,3)`；`run_report` 未知 kind 抛
+  `ValueError`、无 artifact 返回 `None`；`_call` 丢弃未入签名 kwargs（`top` 不进 spectral writer 仍产出
+  `html`）；`run_report("spectral")` 产出 `P_spectral.html`（含 `<canvas>` + `mousemove`）；参数化覆盖
+  `coherence`/`evolution`/`console` 场图类与 `spatial_pod`/`spatial_dmd`/`spatial_field` 空间类均生成
+  `.html`。
+
+**验证**
+- R64 13/13 全过；R64+R63 联合回归 21/21 全绿；`ruff check fv/gui/ tests/test_r64_gui_analysis.py
+  tests/test_r63_field_interact.py` 0；`fv.gui.main` 导入冒烟通过；`support_webview()` 返回 True
+  （`PyQt5.QtWebEngineWidgets` 可导入）。

@@ -506,6 +506,12 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 lambda on, a=attr: self._toggle_toolbar(a, on))
             m.addAction(act)
 
+        # Analysis (R64): run the standalone report family from current data
+        from .analysis import report_menu
+        m = mb.addMenu("Analysis")
+        for key, title in report_menu():
+            add(m, title, lambda _=False, k=key: self.on_analysis_report(k))
+
         # Help
         m = mb.addMenu("Help")
         add(m, "About flowviewer", self._about)

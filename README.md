@@ -346,3 +346,13 @@ gate on push/PR.
   + summary.json (field_maps flag + field_source); CLI fv.spatialreport --field
   --source pod|dmd --cycles A:B --step --frames --preview --nperseg --dt --ref,
   pure NumPy, headless, no CGNS/vtk deps).
+- R64 - GUI integration of the analysis-report family: wires the standalone
+  R54/R55/R58-R62 HTML report generators into the GUI — an ``Analysis`` menu
+  lists the report kinds (fv.gui.analysis registers spectral/coherence/evolution/
+  console/spatial_pod/spatial_dmd/spatial_field as ReportKind; report_menu orders
+  them; prepare_verts extracts an (N,3) vertex array with an empty fallback;
+  run_report dispatches to write_* and returns the HTML path, forwarding only the
+  kwargs each writer accepts), and a dockable ReportPanel (fv.gui.reportview)
+  renders the result inline via QWebEngineView when PyQt5.QtWebEngineWidgets is
+  importable, falling back to an "Open in browser" button otherwise. Pure logic
+  stays headless-testable; only main.py wires the menu + on_analysis_report.
