@@ -535,6 +535,8 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         ps.aboutToShow.connect(refill_presets)
         m.addSeparator()
         add(m, "Report Options…", self._set_report_options)
+        add(m, "Import Presets…", self._import_presets)
+        add(m, "Export Presets…", self._export_presets)
         add(m, "Set Analysis Data Source…", self._set_analysis_source)
         add(m, "Clear Analysis Data Source",
             lambda _=False: self.set_analysis_artifact(None))
@@ -763,6 +765,45 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._open_report(path)
         self.status.showMessage(
             f"Analysis preset [{kind} / {name}]: {Path(path).name}", 6000)
+
+    def _import_presets(self) -> None:
+        """Import named presets from a JSON file, merging (no overwrite, R70)."""
+        from PyQt5.QtWidgets import QFileDialog
+
+        from .analysis import import_presets
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import Presets", str(Path.home()),
+            "Preset files (*.json);;All files (*)")
+        if not path:
+            return
+        try:
+            stats = import_presets(self._preset_store, path)
+        except Exception as exc:  # noqa: BLE001
+            self.status.showMessage(f"Presets import failed: {exc}", 6000)
+            return
+        if not stats:
+            self.status.showMessage("Presets import: nothing new imported", 4000)
+            return
+        total = sum(len(v) for v in stats.values())
+        self.status.showMessage(
+            f"Presets import: {total} preset(s) from {Path(path).name}", 6000)
+
+    def _export_presets(self) -> None:
+        """Export every named preset to a user-chosen JSON file (R70)."""
+        from PyQt5.QtWidgets import QFileDialog
+
+        from .analysis import export_presets
+        default = str(Path.home() / "flowviewer_presets.json")
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Presets", default,
+            "Preset files (*.json);;All files (*)")
+        if not path:
+            return
+        out = export_presets(self._preset_store, path)
+        if not out:
+            self.status.showMessage("Presets export: no presets to export", 4000)
+            return
+        self.status.showMessage(f"Presets export: {out}", 6000)
 
     def _analysis_out_dir(self) -> str:
         """A stable scratch directory for generated analysis reports."""

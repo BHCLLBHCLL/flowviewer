@@ -12,6 +12,7 @@ headless-testable; ``reportview`` owns only the Qt widget. No PyQt import here
 
 from __future__ import annotations
 
+import copy
 import inspect
 import json
 import os
@@ -458,6 +459,60 @@ class PresetStore:
         self._data = {}
         self._persist()
 
+    def dump(self, kinds=None) -> dict:
+        """A deep, JSON-serializable copy of the store (optionally ``kinds``)."""
+        if kinds is None:
+            kinds = self._data.keys()
+        return {k: copy.deepcopy(self._data[k]) for k in kinds if self._data.get(k)}
+
+    def export(self, dest, kinds=None) -> Optional[Path]:
+        """Write ``dump(kinds)`` to ``dest`` as JSON; returns the path or None."""
+        snapshot = self.dump(kinds)
+        if not snapshot:
+            return None
+        p = Path(dest)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2),
+                     encoding="utf-8")
+        return p
+
+    def import_(self, src, *, kinds=None, overwrite=False) -> dict:
+        """Load presets from a JSON file path or an already-parsed dict.
+
+        ``overwrite=False`` keeps an existing preset on a name conflict (the
+        store wins); ``overwrite=True`` replaces it. Unknown report kinds,
+        non-dict buckets and non-dict params are skipped. Returns a
+        ``{kind: [imported_names]}`` summary (only when anything was added).
+        """
+        if isinstance(src, (str, os.PathLike)):
+            data = json.loads(Path(src).read_text(encoding="utf-8"))
+        elif isinstance(src, dict):
+            data = src
+        else:
+            raise ValueError("preset source must be a JSON object or file path")
+        if not isinstance(data, dict):
+            raise ValueError("preset source must be a JSON object")
+        result: dict = {}
+        for kind, bucket in data.items():
+            if kinds is not None and kind not in kinds:
+                continue
+            if kind not in REPORTS or not isinstance(bucket, dict):
+                continue
+            imported: list = []
+            for name, params in bucket.items():
+                if not isinstance(params, dict):
+                    continue
+                if not overwrite and str(name) in (self._data.get(kind) or {}):
+                    continue
+                snapshot = normalize_params(kind, params)
+                self._data.setdefault(kind, {})[str(name)] = snapshot
+                imported.append(str(name))
+            if imported:
+                result[kind] = imported
+        if result:
+            self._persist()
+        return result
+
 
 def preset_menu(store: "PresetStore", kind: "Optional[str]" = None) -> list:
     """Ordered ``(kind, name, title)`` triples for runnable presets.
@@ -498,3 +553,15 @@ def run_preset(kind: str, name: str, verts, artifact, out_dir: str,
     if params.get("dt") is None:
         params["dt"] = dt
     return run_report(kind, verts, artifact, out_dir, **params)
+
+
+
+def export_presets(store: PresetStore, dest, kinds=None) -> Optional[Path]:
+    """Write the store's presets to ``dest`` (see :meth:`PresetStore.export`)."""
+    return store.export(dest, kinds=kinds)
+
+
+def import_presets(store: PresetStore, src, *, kinds=None,
+                   overwrite=False) -> dict:
+    """Import presets into ``store`` (see :meth:`PresetStore.import_`)."""
+    return store.import_(src, kinds=kinds, overwrite=overwrite)

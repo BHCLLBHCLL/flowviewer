@@ -421,3 +421,21 @@ gate on push/PR.
   mirrors on_analysis_report: ensure a data source, prepare verts, run_preset with
   the shared store and _analysis_dt, then open the report). Pure logic stays
   headless-testable.
+- R70 - Sharing presets: lets a saved preset set be exported to a JSON file or
+  imported from one, so tuned configs can be shared or backed up across machines
+  (closing the create -> save -> run -> share loop). fv.gui.analysis adds
+  PresetStore.dump(kinds=None) (a deep, JSON-serializable copy, optionally
+  filtered by report kind), PresetStore.export(dest, kinds=None) (writes the dump
+  to dest as UTF-8 pretty JSON, returning the Path or None when the store is
+  empty) and PresetStore.import_(src, *, kinds=None, overwrite=False) (loads from
+  a JSON file path or an already-parsed dict, normalizing every params dict via
+  normalize_params, keeping an existing preset on a name conflict when
+  overwrite=False / replacing it when True, skipping unknown kinds, non-dict
+  buckets and non-dict params, returning a {kind: [imported_names]} summary). Two
+  module-level helpers export_presets(store, dest, kinds=None) and
+  import_presets(store, src, *, kinds=None, overwrite=False) wrap the methods.
+  main.py adds "Import Presets..." and "Export Presets..." under Analysis
+  (QFileDialog to pick a source/destination) wired to _import_presets
+  (merge, no overwrite; status shows the count imported) and _export_presets
+  (dump every preset; status shows the written path). Pure logic stays
+  headless-testable.

@@ -3110,3 +3110,20 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 
 **验证**
 - R67 16/16 + R68 15/15 + R69 8/8 = 39/39 全绿；`ruff check fv/gui/analysis.py fv/gui/main.py tests/test_r69_run_preset.py` 0；offscreen 下构建 `FlowViewer(filepath=None, enable_3d=False)`，注入内存 Prestore，触发 Analysis→Presets 子菜单 `aboutToShow` 刷新（空 store 占位 + 含预置条目），并调用 `_run_selected_preset` 不崩溃，冒烟通过。
+
+### 8.65 第六十八轮执行记录：R70 预置分享（import / export presets）（2026-09-05 落地）
+
+**缺口**：R68 能把命名预置存到本地 JSON（`~/.flowviewer/analysis_presets.json`），R69 能从菜单一键运行，但预置无法导出成文件分享给他人，也无法从文件导入复用——跨机器备份与协作无从谈起。R70 补齐这一环，闭合"创建→保存→运行→分享"闭环。
+
+**S1 实现（纯逻辑与 Qt 分离）**
+- `analysis.py`（修改）`PresetStore` 新增 `dump(kinds=None)`：返回 store 的深拷贝 JSON 可序列化字典（`copy.deepcopy`），`kinds=None` 时取全部 kind，否则仅取指定 kind，空 bucket 跳过。
+- `analysis.py`（修改）`PresetStore` 新增 `export(dest, kinds=None)`：将 `dump(kinds)` 以 UTF-8 缩进 JSON 写入 `dest`（自动创建父目录），store 为空返回 `None`，否则返回写入的 `Path`。
+- `analysis.py`（修改）`PresetStore` 新增 `import_(src, *, kinds=None, overwrite=False)`：从 JSON 文件路径或已解析 dict 载入；对每个 params dict 用 `normalize_params` 归一化后写入；`overwrite=False` 时同名冲突保留既有（store 胜出），`overwrite=True` 时替换；跳过未知 kind、非 dict bucket、非 dict params；返回 `{kind: [imported_names]}` 汇总（仅当有新增时非空）；`src` 非法非 dict 抛 `ValueError`，JSON 解析失败透传异常。
+- `analysis.py`（修改）模块级新增 `export_presets(store, dest, kinds=None)` 与 `import_presets(store, src, *, kinds=None, overwrite=False)`，分别转发到对应的 store 方法。
+- `main.py`（修改）Analysis 菜单在 "Report Options…" 后新增 "Import Presets…" 和 "Export Presets…"（QFileDialog 选源/选目标），分别接入新增的 `_import_presets`（合并导入、不覆盖；状态栏显示导入条数与文件名）与 `_export_presets`（导出全部预置；状态栏显示写入路径；无预置时提示）。
+
+**S2 测试**（`tests/test_r70_preset_share.py`，14 项全过；纯 NumPy/pathlib/monkeypatch，无 PyQt）
+- 覆盖：`dump` 空 store、按 kind 过滤、深拷贝独立；`export` 写 JSON 并返回路径、空 store 返回 `None`、按 kind 过滤；`import_` 从文件、从 dict、同名无 `overwrite` 保留既有、`overwrite=True` 替换、跳过 malformed（未知 kind/非 dict bucket/非 dict params）、kind 过滤、非法 source（非 dict/非法 JSON 文件）抛错；`export_presets`/`import_presets` 模块级助手。
+
+**验证**
+- R67 16/16 + R68 15/15 + R69 8/8 + R70 14/14 = 53/53 全绿；`ruff check fv/gui/analysis.py fv/gui/main.py tests/test_r70_preset_share.py` 0；`py_compile` 通过；offscreen 下构建 `FlowViewer(enable_3d=False)`，注入内存 PresetStore 播种预置，monkeypatch `QFileDialog` 后调用 `_export_presets`（写盘读回校验两种 kind）与 `_import_presets`（合并新增同名保留，`smoke_d` 导入成功）不崩溃，冒烟通过。
