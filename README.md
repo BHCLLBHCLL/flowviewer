@@ -528,3 +528,16 @@ gate on push/PR.
   build_source when config["source"] is set, otherwise the JSON path is
   unchanged. A missing monitoring point exits 2; the produced artifact is fully
   compatible with every report kind.
+- R77 - GUI sequence data source: exposes the R76 raw-sequence source to the GUI
+  so a report family can be built straight from a CGNS result sequence without a
+  Time Series object (R65) or an exported JSON (R75). fv/report.py lifts the
+  probe parsing out of the CLI-only `_load_probes` into a shared public
+  parse_probe_points(probes, probes_file=None); fv/gui/analysis.py adds
+  sequence_source(paths, probes, field=None, *, budget_mb=64) which delegates to
+  fv.report.build_source so the GUI and the headless CLI stay in lock-step; a new
+  fv/gui/sequencedialog.py SequenceSourceDialog collects the sequence path,
+  monitoring-point lines (or a probes file), an optional field, and a per-cycle
+  memory budget; and main.py adds an Analysis menu "Set Sequence Data Source..."
+  wired to _set_sequence_source, which parses the points via parse_probe_points,
+  calls sequence_source, and stores the resulting verts/artifact as the Analysis
+  data source.

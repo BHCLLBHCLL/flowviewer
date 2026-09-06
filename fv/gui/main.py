@@ -562,6 +562,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         add(m, "Set Analysis Data Source…", self._set_analysis_source)
         add(m, "Clear Analysis Data Source",
             lambda _=False: self.set_analysis_artifact(None))
+        add(m, "Set Sequence Data Source…", self._set_sequence_source)
         add(m, "Export Analysis Data Source…", self._export_analysis_source)
         add(m, "Import Analysis Data Source…", self._import_analysis_source)
         add(m, "Export Report…", lambda _=False: self._export_report())
@@ -814,6 +815,44 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             f"Analysis source imported: {Path(path).name} · "
             f"{'mesh from dataset' if n_verts == 0 else f'{n_verts} verts imported'}",
             8000)
+
+    def _set_sequence_source(self) -> None:
+        """Build the Analysis data source straight from a CGNS result sequence (R77)."""
+        import numpy as np
+
+        from ..report import parse_probe_points
+        from .analysis import sequence_source
+        from .sequencedialog import SequenceSourceDialog
+        start = str(self.options.last_dir) if self.options.last_dir else str(Path.cwd())
+        dlg = SequenceSourceDialog(self, start_dir=start)
+        if not dlg.exec_():
+            return
+        raw = dlg.result()
+        if not raw["paths"]:
+            self.status.showMessage("Sequence source: no sequence given", 5000)
+            return
+        try:
+            probes = parse_probe_points(raw["probes"], raw["probes_file"])
+        except (OSError, ValueError) as exc:
+            self.status.showMessage(f"Sequence source: {exc}", 6000)
+            return
+        if not probes:
+            self.status.showMessage(
+                "Sequence source: needs monitoring points"
+                " (probe lines or probes file)", 6000)
+            return
+        try:
+            verts, artifact = sequence_source(
+                raw["paths"], probes,
+                field=raw["field"], budget_mb=raw["budget_mb"])
+        except ValueError as exc:
+            self.status.showMessage(f"Sequence source: {exc}", 6000)
+            return
+        self._analysis_verts = np.asarray(verts, dtype=np.float64) if verts.size else None
+        self.set_analysis_artifact(artifact)
+        self.status.showMessage(
+            f"Sequence data source: {raw['paths']} · "
+            f"{raw['field'] or 'first field'} · {len(probes)} probe(s)", 8000)
 
     def on_analysis_report(self, kind: str) -> None:
         """Run one Analysis-report kind on the current data source (R64/R65)."""

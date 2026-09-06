@@ -21,7 +21,7 @@ import shutil
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Sequence
 
 import numpy as np
 
@@ -273,6 +273,23 @@ def load_analysis_source(path: str) -> tuple[np.ndarray, dict]:
     from ..report import load_input
 
     return load_input(path)
+
+
+def sequence_source(paths: Any, probes: Sequence, field: Optional[str] = None,
+                    *, budget_mb: int = 64) -> tuple[np.ndarray, dict]:
+    """Build ``(verts, artifact)`` from a raw CGNS result sequence (R77).
+
+    GUI-side mirror of the R76 headless CLI path (``fv.report --source``):
+    ``paths`` is a sequence directory, its first file, or an explicit list; the
+    first cycle's mesh supplies ``verts`` and the selected ``field``'s per-probe
+    time history becomes the artifact. Delegating to :func:`fv.report.build_source`
+    keeps the GUI and the headless CLI in lock-step — the same parser, the same
+    nearest-node binding, and the same artifact shape the report writers expect.
+    ``probes`` is a list of ``(x, y, z)`` float tuples (already parsed).
+    """
+    from ..report import build_source
+
+    return build_source(paths, probes, field=field, budget_mb=budget_mb)
 
 
 def _call(fn: Callable[..., Any], verts: np.ndarray, artifact: dict,

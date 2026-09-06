@@ -3225,3 +3225,20 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 - `pytest tests/test_r76_report_source.py tests/test_r74_report_cli.py tests/test_r75_analysis_import.py -q` = 43/43 全绿（R76 14 + R74 23 + R75 6）；`ruff check fv/report.py tests/test_r76_report_source.py` 0；`py_compile` 通过。
 - `python -m fv.report --help` 展示 `--source/--probe/--probes-file/--field/--budget-mb`；缺监测点退出码 2。
 - 全量回归仍受既有 VTK 崩溃影响（`plane.py:cut_grid`，VTK 9.4.2+ 对 `vtkConvexPointSet`，需 vtk==9.3.1），用户选择暂不降级；R76 不触碰 render/plane.py。
+
+### 8.72 第七十五轮执行记录：R77 GUI 结果序列数据源（GUI sequence data source）（2026-09-06 落地）
+
+**缺口**：R76 给 `fv.report` CLI 补了 `--source`（原始结果序列 → `(verts, artifact)`），但 GUI 侧的数据源仍只有 Time Series（R65）与导入 JSON（R75）两态——无头有了"结果文件→报告"，GUI 却没有对应入口闭环。R77 把 R76 的 `build_source` 对称暴露到 GUI，新增 "Set Sequence Data Source…" 菜单，直接在界面里从 CGNS 结果序列建数据源，无需先建 Time Series 对象或预导出 JSON。
+
+**S1 实现（纯逻辑无 Qt 依赖 + 弹窗薄层）**
+- `report.py`（修改）把 CLI-only 的 `_load_probes` 解析逻辑抽成公开 `parse_probe_points(probes, probes_file=None) -> list`（解析 `x,y,z` 字符串与可选 `#` 注释文件，非法值抛 `ValueError`），`_load_probes` 改为调用它，CLI 行为不变；GUI 与 CLI 共用同一监测点解析。
+- `gui/analysis.py`（修改）新增 `sequence_source(paths, probes, field=None, *, budget_mb=64) -> (verts, artifact)`，委托 `fv.report.build_source`——与 R75 的 `load_analysis_source` 委托 `load_input` 同理，GUI 与无头 CLI 保持锁步（同一解析、同一最近节点绑定、同一 artifact 形状）。
+- `gui/sequencedialog.py`（新建）`SequenceSourceDialog`（PyQt QDialog）：序列路径（目录浏览）、监测点行（每行 `x,y,z`）、可选 probes 文件、可选 `field`、每周期内存预算 `budget_mb`；`result()` 只回原始字符串，真正的解析留在无头纯逻辑层（`parse_probe_points`），便于测试。
+- `gui/main.py`（修改）Analysis 菜单新增 "Set Sequence Data Source…" → `_set_sequence_source`：弹窗取结果 → 用 `parse_probe_points` 解析 → 调 `sequence_source` → 存 `_analysis_verts` / `set_analysis_artifact`；空路径/缺监测点/解析失败均给状态栏提示。
+
+**S2 测试**（`tests/test_r77_sequence_source.py`，8 项全过；monkeypatch `fv.report.build_source`，无真实 Qt/CGNS）
+- 覆盖：`parse_probe_points` 纯列表解析、文件行扩展、跳过 `#` 注释、非法值抛 `ValueError`、`_load_probes` 重构回归、`sequence_source` 委托 `build_source` 并透传 `field/budget_mb`、list 序列路径透传、CLI `--source` 集成经由共享解析器。
+
+**验证**
+- `pytest tests/test_r77_sequence_source.py tests/test_r76_report_source.py tests/test_r75_analysis_import.py tests/test_r74_report_cli.py tests/test_r73_analysis_projects.py tests/test_r72_report_bundle.py tests/test_r71_run_all.py tests/test_r70_preset_share.py -q` = 105/105 全绿；`ruff check` 0；`py_compile` 通过。
+- 全量回归仍受既有 VTK 崩溃影响（`plane.py:cut_grid`，VTK 9.4.2+ 对 `vtkConvexPointSet`），用户选择暂不降级；R77 不触碰 render/plane.py。

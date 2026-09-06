@@ -185,8 +185,16 @@ def build_source(paths: Any, probes: Sequence, field: Optional[str] = None,
     return verts, artifact
 
 
-def _load_probes(probes: list, probes_file: Optional[str]) -> list:
-    """Expand repeatable ``--probe`` points plus an optional ``--probes-file``."""
+def parse_probe_points(probes: Sequence[str],
+                       probes_file: Optional[str] = None) -> list:
+    """Expand repeatable probe points plus an optional probe-point file (R77).
+
+    Parses each entry of ``probes`` (a ``'x,y,z'`` string) and, when
+    ``probes_file`` is given, every non-comment line of that text file into a
+    list of ``(x, y, z)`` float tuples. Shared by the CLI (``--probe`` /
+    ``--probes-file``) and the GUI sequence source so both parse monitoring
+    points identically; invalid points raise :class:`ValueError`.
+    """
     out = [_parse_probe(p) for p in probes]
     if probes_file:
         with open(probes_file, "r", encoding="utf-8") as fh:
@@ -195,6 +203,11 @@ def _load_probes(probes: list, probes_file: Optional[str]) -> list:
                 if line and not line.startswith("#"):
                     out.append(_parse_probe(line))
     return out
+
+
+def _load_probes(probes: list, probes_file: Optional[str]) -> list:
+    """Expand repeatable ``--probe`` points plus an optional ``--probes-file``."""
+    return parse_probe_points(probes, probes_file)
 
 
 def run(config: dict) -> dict:
