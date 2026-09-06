@@ -10,12 +10,22 @@ Invoke via ``python -m fv.report``:
     python -m fv.report input.json -o reports --all -z reports.zip
     python -m fv.report input.json -o reports -k spectral -k coherence
     python -m fv.report input.json -o reports --project "my batch"
+    python -m fv.report out/*_step*.cgns -o reports --source \
+        --probe 0.5,0.5,0.5 --field Pressure --all
 
 The ``input.json`` layout is ``{"verts": [[x, y, z], ...], "artifact": {...}}``.
 When the top-level ``artifact`` key is absent the whole JSON object is treated
 as the artifact (``verts`` then defaults to an empty array), so a bare report
 workload can be pointed at a plain artifact file. ``--project`` overrides both
 ``--kind`` and ``--all`` and loads a named batch from ``ProjectStore``.
+
+R76 adds a fully headless source path: pass ``--source`` (plus repeatable
+``--probe x,y,z`` / ``--probes-file`` and an optional ``--field``) and the
+first positional argument is treated as a **raw CGNS result sequence** —
+directory, first file, or explicit list — instead of a JSON. ``vertices`` come
+from the first cycle's mesh and the artifact is the selected field's per-probe
+time history, so a result sequence goes straight to reports with no pre-built
+data-source JSON.
 
 The machine-readable manifest is printed to stdout as a single JSON object:
 
@@ -32,7 +42,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 import numpy as np
 
@@ -102,11 +112,102 @@ def _rel(path: str, base: Path) -> str:
     return Path(rel).as_posix()
 
 
+def _parse_probe(s: str) -> tuple:
+    """Parse a single ``'x,y,z'`` monitoring point into a float tuple."""
+    try:
+        return tuple(float(x) for x in s.split(","))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"bad probe point {s!r} (expect 'x,y,z')") from exc
+
+
+def _mesh_verts(mesh: Any) -> np.ndarray:
+    """Extract an ``(N, 3)`` vertex array from a streaming mesh dict."""
+    if mesh is None:
+        return np.empty((0, 3), dtype=np.float64)
+    verts = mesh.get("vertices")
+    if verts is None:
+        return np.empty((0, 3), dtype=np.float64)
+    return np.asarray(verts, dtype=np.float64).reshape((-1, 3))
+
+
+def build_source(paths: Any, probes: Sequence, field: Optional[str] = None,
+                 *, budget_mb: int = 64) -> tuple[np.ndarray, dict]:
+    """Build ``(verts, artifact)`` directly from a raw CGNS result sequence (R76).
+
+    Walks *paths* (a sequence directory, its first file, or an explicit list)
+    via :class:`fv.session.SessionTimeline`, binds each monitoring point to its
+    nearest mesh node, and records the chosen ``field`` (or the first field the
+    first cycle exposes) at every cycle — exactly the values the GUI's exported
+    analysis source carries. ``verts`` comes from the first cycle's mesh, so the
+    returned pair feeds the unchanged report pipeline below.
+
+    ``field`` selects a single field because the analysis-report writers consume
+    one artifact per run; run the CLI with a different ``--field`` to report on
+    another field.
+    """
+    from .session import SessionTimeline
+    from .trace import time_trace
+
+    def make_tl() -> SessionTimeline:
+        if isinstance(paths, (str, Path)):
+            return SessionTimeline.from_sequence(str(paths), budget_mb=budget_mb)
+        return SessionTimeline(list(paths), budget_mb=budget_mb)
+
+    tl = make_tl()
+    try:
+        _cyc, handle, mesh = next(iter(tl))
+    except StopIteration as exc:
+        raise ValueError("result sequence is empty") from exc
+    verts = _mesh_verts(mesh)
+
+    wants = list(handle.field_names()) if not field else [field]
+    if not wants:
+        raise ValueError("result sequence exposes no fields to trace")
+    tl = make_tl()
+
+    report = time_trace(tl, list(probes), [wants[0]])
+    trace_field = report.get("fields", {}).get(wants[0])
+    if trace_field is None:
+        raise ValueError(f"field {wants[0]!r} produced no trace")
+    artifact = {
+        "name": trace_field.get("name") or wants[0],
+        "cycles": list(trace_field.get("cycles", [])),
+        "probes": [
+            {
+                "query": list(p.get("query", [])),
+                "node": int(p["node"]),
+                "xyz": list(p["xyz"]) if p.get("xyz") is not None else None,
+                "values": list(p.get("values", [])),
+            }
+            for p in trace_field.get("probes", [])
+        ],
+    }
+    return verts, artifact
+
+
+def _load_probes(probes: list, probes_file: Optional[str]) -> list:
+    """Expand repeatable ``--probe`` points plus an optional ``--probes-file``."""
+    out = [_parse_probe(p) for p in probes]
+    if probes_file:
+        with open(probes_file, "r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    out.append(_parse_probe(line))
+    return out
+
+
 def run(config: dict) -> dict:
     """Execute a report run from a parsed config and return the manifest."""
     out_dir = Path(config.get("out_dir") or "reports")
     out_dir.mkdir(parents=True, exist_ok=True)
-    verts, artifact = load_input(config["input"])
+    if config.get("source"):
+        verts, artifact = build_source(
+            config["source"], config.get("probes") or [],
+            field=config.get("field"),
+            budget_mb=int(config.get("budget_mb") or 64))
+    else:
+        verts, artifact = load_input(config["input"])
     params = config.get("params") or {}
     kinds = config.get("kinds")
     project = config.get("project")
@@ -142,7 +243,8 @@ def main(argv: Optional[list] = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m fv.report",
         description="Generate flowviewer analysis reports headlessly.")
-    parser.add_argument("input", help="analysis input JSON (verts + artifact)")
+    parser.add_argument("input", help="analysis input JSON (verts + artifact), "
+                                       "or a raw CGNS result sequence with --source")
     parser.add_argument("-o", "--out-dir", default="reports",
                         help="output directory for generated reports")
     parser.add_argument("-k", "--kind", dest="kinds", action="append",
@@ -160,11 +262,40 @@ def main(argv: Optional[list] = None) -> int:
                         help="index / bundle title")
     parser.add_argument("-d", "--dt", type=float, default=None,
                         help="sample period fallback (seconds)")
+    parser.add_argument("--source", action="store_true",
+                        help="treat INPUT as a raw CGNS result sequence and "
+                             "build verts+artifact on the fly (R76)")
+    parser.add_argument("--probe", dest="probes", action="append", default=[],
+                        help="monitoring point 'x,y,z' to sample"
+                             " (repeatable; --source only)")
+    parser.add_argument("--probes-file", default=None,
+                        help="text file of 'x,y,z' per line (--source only)")
+    parser.add_argument("--field", default=None,
+                        help="field to trace into the artifact (--source only; "
+                             "default = first field on the first cycle)")
+    parser.add_argument("--budget-mb", type=int, default=64,
+                        help="per-cycle memory budget in MB for streaming"
+                             " (--source only)")
     args = parser.parse_args(argv)
 
     kinds = None if (args.all or not args.kinds) else args.kinds
+    probes = []
+    if args.source:
+        try:
+            probes = _load_probes(args.probes, args.probes_file)
+        except (OSError, ValueError) as exc:
+            print(f"fv.report: {exc}", file=sys.stderr)
+            return 2
+        if not probes:
+            print("error: --source needs monitoring points"
+                  " (--probe x,y,z or --probes-file)", file=sys.stderr)
+            return 2
     config = {
         "input": args.input,
+        "source": args.input if args.source else None,
+        "probes": probes,
+        "field": args.field,
+        "budget_mb": args.budget_mb,
         "out_dir": args.out_dir,
         "kinds": kinds,
         "params": load_params(args.params),

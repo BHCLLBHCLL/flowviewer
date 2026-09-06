@@ -3207,3 +3207,21 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 **验证**
 - R74 23/23 + R75 6/6 = 29/29 全绿（`pytest tests/test_r74_report_cli.py tests/test_r75_analysis_import.py -q`）；`ruff check fv/gui/analysis.py fv/gui/main.py tests/test_r75_analysis_import.py` 0；`py_compile` 通过。
 - 全量回归受既有 VTK 环境问题影响：`fv/render/plane.py:cut_grid`（`cutter.Update()`，line 390）触发 Windows access violation——README 已记载，VTK 9.4.2+ 对 `vtkConvexPointSet` 网格在 `vtkCutter` 崩溃，需 `pip install --user vtk==9.3.1`；此崩溃与 R75 无关（R75 不触碰 render/plane.py，仅 analysis.py/main.py + 新增测试）。
+
+### 8.71 第七十四轮执行记录：R76 原始结果序列直接作为报告输入（raw-sequence report input）（2026-09-06 落地）
+
+**缺口**：R74 的 `fv.report` CLI 只吃预构建的 `{verts, artifact}` JSON，R75 又补了 GUI 导入，但"结果文件→报告"仍要先产出一份数据源 JSON 才能跑。想从终端对一批 CGNS 结果文件直接出报告，得走两步（先生成数据源、再跑报告）。R76 让 CLI 跳过中间 JSON：`--source` 时第一个位置参数变成原始 CGNS 结果序列，直接采样出与 GUI 导出完全一致的 `(verts, artifact)` 后进入既有报告管线。
+
+**S1 实现（纯逻辑，无 Qt 依赖）**
+- `report.py`（修改）新增 `build_source(paths, probes, field=None, *, budget_mb=64) -> (verts, artifact)`：内部复用 `fv.session.SessionTimeline`（首帧 peek 取 `mesh["vertices"]` 与 `handle.field_names()`）与 `fv.trace.time_trace`（监测点 → 最近网格节点绑定 + 每周期逐 tile 取节点值），产出的单字段 artifact 与 GUI 导出同构（`{name, cycles, probes:[{query, node, xyz, values}]}`）；`field` 缺省用首帧首个字段，序列为空/无字段/目标字段无 trace 时抛 `ValueError`。`_mesh_verts` 处理带 `"vertices"` 的 mesh dict（首帧即取顶点，`(N, 3)`）。`_parse_probe` / `_load_probes` 解析 `--probe x,y,z`（可重复）与 `--probes-file`（`#` 注释行跳过）。
+- `run(config)`（修改）当 `config["source"]` 有值时调用 `build_source`，否则仍走 `load_input`（JSON 路径不变）。
+- `main`（修改）新增 `--source` / `--probe`（可重复）/ `--probes-file` / `--field` / `--budget-mb`；`--source` 下无监测点直接以退出码 2 报错。
+
+**S2 测试**（`tests/test_r76_report_source.py`，14 项全过；monkeypatch `fv.session.SessionTimeline` 与 `fv.trace.time_trace`，无真实 Qt/CGNS）
+- 覆盖：build_source 返回 verts+artifact、缺省首字段、按 `--field` 选字段、空序列/无字段/目标字段无 trace 均抛 `ValueError`、Path 路径、`_parse_probe`、`_load_probes` 合并文件、run 走 source 分支、无 source 走 JSON 分支、main 解析 `--source` 且缺监测点退出 2。
+- 真实集成冒烟：用 fake 流式 handle 走真实 `time_trace` + `build_source` 产出 `verts + artifact`（probe 值 [[110..150]] 正确），再喂给 `run_report_bundle(verts, artifact, out, kinds=["spectral"])` 生成真实 `Pressure_spectral.html`。
+
+**验证**
+- `pytest tests/test_r76_report_source.py tests/test_r74_report_cli.py tests/test_r75_analysis_import.py -q` = 43/43 全绿（R76 14 + R74 23 + R75 6）；`ruff check fv/report.py tests/test_r76_report_source.py` 0；`py_compile` 通过。
+- `python -m fv.report --help` 展示 `--source/--probe/--probes-file/--field/--budget-mb`；缺监测点退出码 2。
+- 全量回归仍受既有 VTK 崩溃影响（`plane.py:cut_grid`，VTK 9.4.2+ 对 `vtkConvexPointSet`，需 vtk==9.3.1），用户选择暂不降级；R76 不触碰 render/plane.py。

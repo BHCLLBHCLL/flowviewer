@@ -515,3 +515,16 @@ gate on push/PR.
   the imported vert count); reports now route their verts through
   _analysis_source_verts, which prefers imported verts and falls back to the
   dataset.
+- R76 - Raw-sequence report input: lets the ``fv.report`` CLI skip the pre-built
+  data-source JSON and build ``(verts, artifact)`` straight from a CGNS result
+  sequence, completing the headless "result files → reports" loop. With
+  ``--source`` the first positional argument becomes a raw sequence (directory,
+  first file, or explicit list) sampled at the repeatable ``--probe x,y,z`` /
+  ``--probes-file`` monitoring points for the ``--field`` (or the first field
+  the first cycle exposes); verts come from the first cycle's mesh. fv/report.py
+  adds build_source (which reuses fv.session.SessionTimeline + fv.trace.time_trace
+  to produce a single-field artifact identical to the GUI export) plus the
+  --source/--probe/--probes-file/--field/--budget-mb flags; run dispatches to
+  build_source when config["source"] is set, otherwise the JSON path is
+  unchanged. A missing monitoring point exits 2; the produced artifact is fully
+  compatible with every report kind.
