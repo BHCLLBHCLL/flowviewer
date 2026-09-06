@@ -3325,3 +3325,23 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 - `pytest`（R64–R81 报告家族共 18 个测试文件）= 216/216 全绿；`tests/test_r81_preset_cli.py` 单独 = 10/10；R81 测试前清理 `tests/pytest_tmp` 残留（此前两次运行留下的 `test_r68`/`test_r72` 脏目录导致 `FileExistsError`/`not p.exists()`，与改动无关，删除后 28/28 通过）。
 - `ruff`（`fv/report.py`、`tests/test_r81_preset_cli.py`）全部通过；`py_compile` 通过；`from fv import report` 导入正常。
 - 全量回归仍受既有 VTK 崩溃影响（`plane.py:cut_grid`，VTK 9.4.2+）；R81 不触碰 render/plane.py。
+
+### 8.77 第八十轮执行记录：R82 无头 HTTP 服务报告家族 bundle（headless HTTP service for report-family bundles）（2026-09-06 落地）
+
+**缺口**：R32 的 Web 服务（`fv/web/server.py` + `fv/automation.py`）只服务 R31 流式 CGNS 面（`/api/info`、`/api/open`、`/api/fields/{name}`、`/api/render`）；报告家族（R64–R81）产出自包含单文件 HTML + `index.html` + zip bundle（`fv/gui/analysis.py`），但没有任何 HTTP 方式浏览或共享——这是两条已完成家族线（流式 CGNS ↔ 报告家族）之间的衔接缺口，也落在规划文档 955 行「后续轮次建议」之「Web 呈现」方向。
+
+**S1 实现（纯 stdlib，无 GUI、无第三方依赖）**
+- 新增 `fv/web/report_server.py`：stdlib `ThreadingHTTPServer` 挂载一个报告 bundle 目录。
+  - 路由：`GET /` 或 `/index.html` -> bundle 索引页；`GET /api/list` -> JSON 报告列表（`{name, label}` + `title`）；`GET /api/bundle.zip` -> 现场打包整个目录为 zip 下载（`rglob` 所有文件，`Content-Disposition` 附件）；`GET /<report>.html` -> 单个自包含报告（`resolve()` + `bdir in (target, *target.parents)` 做路径穿越防护，非法返回 403）。
+  - `bundle_listings(bundle_dir)` 优先解析 `index.html` 中 `report_index_html` 风格的 `<li><a href="X">label</a></li>`（保序、保留人性化 label），缺失/不可解析时回退为排序后的 `*.html` 扫描（label = 去 `.html` 的 stem）。
+  - `bundle_title(index)` 读取 `<title>`；`_fallback_index_html` 在无 `index.html` 时现场生成同构索引页。
+  - `serve_bundle(bundle_dir, port=0, host="127.0.0.1", *, in_thread=False)` 对称于 `serve_session`：`in_thread=False` 返回 server，否则返回 `(server, thread)`。
+- `fv/web/__init__.py`（修改）导出 `serve_bundle`、`ReportBundleServer`，docstring 更新。
+
+**S2 测试**（`tests/test_r82_report_web.py`，12 项全过；构造 index_html 同构 bundle，不触真实 GUI/CGNS）
+- 覆盖：`bundle_listings` 解析索引的 href+label、无索引时扫描回退；`bundle_title` 读 `<title>`/默认；`serve_bundle` 的 `/` 与 `/index.html` 索引页、`/api/list` JSON、按 basename 单报告、未知路径 404、`/..%2Fsecret.txt` 穿越 403、`/api/bundle.zip` 下载（zip 内含 index.html + 两报告）、无索引 bundle 的 `/` 生成回退索引、非目录 `serve_bundle` 抛 `ValueError`、空目录 `/api/bundle.zip` 404。
+
+**验证**
+- `tests/test_r82_report_web.py` = 12/12；与 `tests/test_r32_web.py` 同行 = 12/12 R82 全绿。
+- `ruff`（`fv/web/report_server.py`、`fv/web/__init__.py`、`tests/test_r82_report_web.py`）全部通过；`py_compile` 通过；`import fv.web` 正常。
+- `test_r32_web.py::test_automation_session_chain` 因既有 VTK 9.4.2+ 环境问题失败（`fv/render/scene.py` 中 `vtkOpenGLRenderer` 已无 `AddActor2D`——`AttributeError`），与 R82 无关（R82 未触碰 render/automation/api）；R32 的流式数据路径 service 子项（info/fields/json/open）各自通过。

@@ -597,3 +597,17 @@ gate on push/PR.
   (tests/test_r81_preset_cli.py) cover empty/one-kind/all-kind list output, the
   preset-merge and preset-plus-params-override paths, repeatable --preset across
   distinct kinds, and the three error gates.
+
+- R82 - Headless HTTP service shares report-family bundles: R32 (fv/web/server.py)
+  only serves the R31 streaming CGNS surface (info/open/fields/render); the report
+  family (R64-R81) produces self-contained HTML bundles plus an index.html and a
+  zip in fv/gui/analysis.py but offers no way to browse or share them over HTTP.
+  R82 closes the gap in fv/web/report_server.py: serve_bundle mounts a bundle
+  directory (with or without an index.html) on a stdlib ThreadingHTTPServer — no
+  GUI, no third-party dependencies — serving the bundle index page (/ and
+  /index.html), a JSON report listing (/api/list), an on-demand archive download
+  (/api/bundle.zip), and every single report by basename with path-traversal
+  protection. fv.web re-exports serve_bundle / ReportBundleServer. Tests
+  (tests/test_r82_report_web.py) cover index/list/file serving, the traversal
+  403, the zip download, the generated fallback index for an index-less bundle,
+  and the empty-bundle 404.
