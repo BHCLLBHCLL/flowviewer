@@ -541,3 +541,17 @@ gate on push/PR.
   wired to _set_sequence_source, which parses the points via parse_probe_points,
   calls sequence_source, and stores the resulting verts/artifact as the Analysis
   data source.
+- R78 - Self-contained analysis projects: R73's named projects store
+  {kinds, params} but not the Analysis data source, so re-running a saved batch
+  meant manually re-establishing a Time Series, an imported JSON, or a sequence
+  source. R78 makes projects self-contained: a save also records a
+  JSON-serialisable data-source descriptor (sequence_desc for a raw sequence,
+  json_desc for an imported JSON), and resolve_source rebuilds (verts, artifact)
+  from that descriptor when the project is run — degrading gracefully to the live
+  source when the descriptor is absent (a Time Series), unknown, or unreadable.
+  fv/gui/analysis.py adds sequence_desc/json_desc/resolve_source and extends
+  ProjectStore.save(..., source=None) to persist the descriptor (deep-copied);
+  main.py tracks the active descriptor via _analysis_source_desc (cleared on a
+  Time Series source, set on an import or a sequence source) and rewrites
+  _run_selected_project to resolve the project's own source first, falling back
+  to the live source for legacy R73 projects.

@@ -292,6 +292,57 @@ def sequence_source(paths: Any, probes: Sequence, field: Optional[str] = None,
     return build_source(paths, probes, field=field, budget_mb=budget_mb)
 
 
+def sequence_desc(paths: Any, probes: Sequence, field: Optional[str] = None,
+                  *, budget_mb: int = 64) -> dict:
+    """A JSON-serialisable descriptor for a sequence data source (R78).
+
+    ``paths`` is a sequence directory, its first file, or an explicit list;
+    ``probes`` is a list of ``(x, y, z)`` float tuples; ``field`` and
+    ``budget_mb`` mirror :func:`sequence_source`. Probes are stored as
+    ``[x, y, z]`` lists (never raw tuples) so the descriptor round-trips
+    through JSON unchanged. Produced alongside :func:`sequence_source` so a
+    saved project can remember exactly how its analysis source was built.
+    """
+    single = isinstance(paths, (str, os.PathLike))
+    return {
+        "type": "sequence",
+        "paths": str(paths) if single else [str(p) for p in paths],
+        "probes": [[float(c) for c in p] for p in probes],
+        "field": field,
+        "budget_mb": int(budget_mb),
+    }
+
+
+def json_desc(path: str) -> dict:
+    """A JSON-serialisable descriptor for an imported-JSON data source (R78)."""
+    return {"type": "json", "path": str(path)}
+
+
+def resolve_source(desc: Any, *, current=None) -> tuple:
+    """Rebuild ``(verts, artifact)`` from a stored data-source descriptor (R78).
+
+    ``desc`` is a recipe produced by :func:`sequence_desc` or :func:`json_desc`
+    (or the ``None`` / ``{"type": "timeseries"}`` markers used when a source
+    cannot be rebuilt headlessly). ``current`` is the already-set
+    ``(verts, artifact)`` pair, or ``(None, None)``. A rebuildable recipe is
+    re-parsed and returned fresh; a ``None``, ``timeseries`` or unknown recipe
+    returns ``current`` unchanged, so a saved project degrades gracefully to
+    whatever source is live when it cannot re-materialise its own.
+    """
+    if not isinstance(desc, dict):
+        return (None, None) if current is None else current
+    stype = desc.get("type")
+    if stype == "json":
+        return load_analysis_source(desc["path"])
+    if stype == "sequence":
+        probes = [tuple(p) for p in (desc.get("probes") or [])]
+        return sequence_source(
+            desc.get("paths"), probes,
+            field=desc.get("field"),
+            budget_mb=int(desc.get("budget_mb") or 64))
+    return (None, None) if current is None else current
+
+
 def _call(fn: Callable[..., Any], verts: np.ndarray, artifact: dict,
           out_dir: str, **kw: Any) -> Any:
     """Invoke ``fn(verts, artifact, out_dir, **kw)`` keeping only accepted kw."""
@@ -744,9 +795,12 @@ class ProjectStore:
     Layout: ``{name: {"kinds": [kind, ...], "params": {kind: normalized_params}}}``.
     ``kinds`` keep the order given, dropping unknown report kinds; ``params`` is
     normalised per kind and pruned to the selected kinds, so only known, coerced
-    keys are stored. With ``path=None`` the store is in-memory only (ideal for
-    tests); otherwise every mutation is flushed to the JSON file so projects
-    survive restarts. All values are JSON-serializable by design.
+    keys are stored. A project may also carry an optional ``source`` descriptor
+    (see :func:`sequence_desc` / :func:`json_desc`) so it is self-contained and
+    can re-materialise its own analysis source when re-run. With ``path=None`` the
+    store is in-memory only (ideal for tests); otherwise every mutation is flushed
+    to the JSON file so projects survive restarts. All values are
+    JSON-serializable by design.
     """
 
     def __init__(self, path: Optional[os.PathLike] = None):
@@ -781,12 +835,15 @@ class ProjectStore:
         found = self._data.get(str(name))
         return copy.deepcopy(found) if isinstance(found, dict) else None
 
-    def save(self, name, kinds, params) -> dict:
+    def save(self, name, kinds, params, source=None) -> dict:
         """Store a batch project; returns the normalised ``{kinds, params}`` dict.
 
         Unknown report kinds are dropped; ``params`` is normalised per selected
-        kind and pruned to those kinds. Raises ``ValueError`` when no selectable
-        report kind remains.
+        kind and pruned to those kinds. ``source``, when given, is copied under
+        ``project["source"]`` (a JSON-serialisable data-source descriptor) so the
+        project can re-materialise its own analysis source on re-run; when omitted
+        the key is absent (``get(...)`` returns ``None`` for it). Raises
+        ``ValueError`` when no selectable report kind remains.
         """
         selected = [k for k in kinds if k in REPORTS]
         if not selected:
@@ -794,6 +851,8 @@ class ProjectStore:
         snap = {k: normalize_params(k, (params or {}).get(k, {}))
                 for k in selected}
         project = {"kinds": list(selected), "params": snap}
+        if source is not None:
+            project["source"] = copy.deepcopy(source)
         self._data[str(name)] = project
         self._persist()
         return copy.deepcopy(project)

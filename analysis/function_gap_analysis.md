@@ -3242,3 +3242,29 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 **验证**
 - `pytest tests/test_r77_sequence_source.py tests/test_r76_report_source.py tests/test_r75_analysis_import.py tests/test_r74_report_cli.py tests/test_r73_analysis_projects.py tests/test_r72_report_bundle.py tests/test_r71_run_all.py tests/test_r70_preset_share.py -q` = 105/105 全绿；`ruff check` 0；`py_compile` 通过。
 - 全量回归仍受既有 VTK 崩溃影响（`plane.py:cut_grid`，VTK 9.4.2+ 对 `vtkConvexPointSet`），用户选择暂不降级；R77 不触碰 render/plane.py。
+
+### 8.73 第七十六轮执行记录：R78 自包含分析项目（self-contained analysis projects）（2026-09-06 落地）
+
+**缺口**：R73 的命名项目布局是 `{name: {kinds, params}}`，只存报告种类与参数快照，**不存数据源**——运行一个已保存的项目时，数据源（Time Series R65 / 导入 JSON R75 / 结果序列 R77）必须在 GUI 里已手动建立，项目本身不可复现。R78 让项目携带一个可重建的 JSON 序列化数据源描述符，使项目自包含：保存时记录描述符，运行时优先用项目自带源重建 `(verts, artifact)`，描述符缺失（Time Series）、未知或不可读时优雅回退到 live source，兼容 R73 老项目。
+
+**S1 实现（纯逻辑无 Qt 依赖 + GUI 接线）**
+- `gui/analysis.py`（修改）新增数据源描述符三件套：
+  - `sequence_desc(paths, probes, field=None, *, budget_mb=64) -> dict`：把 Raw 序列源归一成 `{type:'sequence', paths, probes, field, budget_mb}`（paths 为单路径时存字符串，列表时存字符串列表）。
+  - `json_desc(path) -> dict`：把导入 JSON 归一成 `{type:'json', path}`。
+  - `resolve_source(desc, *, current=None) -> (verts, artifact)`：非 dict 或未知 `type` 回退 `current`；`type=='json'` 调 `load_analysis_source`；`type=='sequence'` 调 `sequence_source`。
+- `gui/analysis.py`（修改）`ProjectStore.save(name, kinds, params, source=None)` 新增可选 `source` 参数：传入时 `project["source"] = copy.deepcopy(source)`（deep-copy 保证项目数据不被外部改动污染），其余布局不变；老项目无 `source` 键自动兼容。
+- `gui/main.py`（修改）追踪活跃数据源描述符并让项目运行自包含：
+  - 新增实例属性 `self._analysis_source_desc`（初始 None）。
+  - `set_analysis_artifact` 在 artifact 为 None 时清空 `_analysis_verts` 与 `_analysis_source_desc`。
+  - `_set_analysis_source`（Time Series）末尾置 `_analysis_source_desc = None`——Timeseries 无法被重建，只能回退 live source。
+  - `_import_analysis_source` 设置 `_analysis_source_desc = json_desc(path)`。
+  - `_set_sequence_source` 设置 `_analysis_source_desc = sequence_desc(...)`。
+  - `_save_project` 传 `source=self._analysis_source_desc`。
+  - `_run_selected_project` 重写：优先 `resolve_source(project.get('source'), current=(self._analysis_verts, self._analysis_artifact))`，失败则回退 live source；仍无 artifact 时调 `_set_analysis_source()`；verts 缺失时补 `_analysis_source_verts()`；再交给 `run_project`。
+
+**S2 测试**（`tests/test_r78_self_contained_projects.py`，15 项全过；monkeypatch `sequence_source`/`load_analysis_source`/`run_report_bundle`，无真实 Qt/CGNS）
+- 覆盖：`sequence_desc` 单路径/列表路径、输出 JSON 可序列化、`json_desc`、`resolve_source` 对 None/无 current/未知 type/非 dict 回退、json 分支调 `load_analysis_source`、sequence 分支调 `sequence_source` 并透传 `field/budget_mb`、`ProjectStore.save` 带/不带 source、`get` 深拷贝 source、自包含项目运行先解析自带 json 源（monkeypatch `run_report_bundle`）并对无自带源回退 live source。
+
+**验证**
+- `pytest tests/test_r78_self_contained_projects.py tests/test_r77_sequence_source.py tests/test_r76_report_source.py tests/test_r74_report_cli.py tests/test_r73_analysis_projects.py -q` = 75/75 全绿；`ruff check fv/gui/analysis.py fv/gui/main.py tests/test_r78_self_contained_projects.py` 0；`py_compile` 通过。
+- 全量回归仍受既有 VTK 崩溃影响（`plane.py:cut_grid`，VTK 9.4.2+ 对 `vtkConvexPointSet`），用户选择暂不降级；R78 不触碰 render/plane.py。

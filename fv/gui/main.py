@@ -180,6 +180,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._analysis_panel = None         # R65: reused ReportPanel pane
         self._analysis_params = {}          # R67: per-kind report parameter snapshots
         self._analysis_bundle_paths = {}    # R72: last batch {kind: html_path}
+        self._analysis_source_desc = None   # R78: how the Analysis source was built
         from .analysis import PresetStore, default_preset_path  # R68: shared presets
         self._preset_store = PresetStore(path=default_preset_path())
         from .analysis import ProjectStore, project_store_path  # R73: named batch projects
@@ -690,6 +691,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         from .analysis import artifact_summary
         if artifact is None:
             self._analysis_verts = None
+            self._analysis_source_desc = None
         self._analysis_artifact = artifact
         self._analysis_dt = dt
         if artifact is None:
@@ -729,6 +731,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self.message_win.log(f"Analysis: {exc}", "WARN")
             return
         self._analysis_verts = None
+        self._analysis_source_desc = None   # a Time Series cannot be rebuilt
         self.set_analysis_artifact(artifact)
 
     def _set_report_options(self) -> None:
@@ -797,7 +800,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         import numpy as np
         from PyQt5.QtWidgets import QFileDialog
 
-        from .analysis import load_analysis_source
+        from .analysis import json_desc, load_analysis_source
         start = str(self.options.last_dir) if self.options.last_dir else str(Path.cwd())
         path, _ = QFileDialog.getOpenFileName(
             self, "Import Analysis Data Source", start, "JSON (*.json)")
@@ -809,6 +812,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self.status.showMessage(f"Import analysis source: {exc}", 6000)
             return
         self._analysis_verts = np.asarray(verts, dtype=np.float64) if verts.size else None
+        self._analysis_source_desc = json_desc(path)
         self.set_analysis_artifact(artifact)
         n_verts = self._analysis_verts.size if self._analysis_verts is not None else 0
         self.status.showMessage(
@@ -821,7 +825,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         import numpy as np
 
         from ..report import parse_probe_points
-        from .analysis import sequence_source
+        from .analysis import sequence_desc, sequence_source
         from .sequencedialog import SequenceSourceDialog
         start = str(self.options.last_dir) if self.options.last_dir else str(Path.cwd())
         dlg = SequenceSourceDialog(self, start_dir=start)
@@ -849,6 +853,8 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self.status.showMessage(f"Sequence source: {exc}", 6000)
             return
         self._analysis_verts = np.asarray(verts, dtype=np.float64) if verts.size else None
+        self._analysis_source_desc = sequence_desc(
+            raw["paths"], probes, field=raw["field"], budget_mb=raw["budget_mb"])
         self.set_analysis_artifact(artifact)
         self.status.showMessage(
             f"Sequence data source: {raw['paths']} · "
@@ -910,7 +916,8 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         params = {k: normalize_params(k, self._analysis_params.get(k, {}))
                   for k in kinds}
         try:
-            saved = self._project_store.save(name, kinds, params)
+            saved = self._project_store.save(
+                name, kinds, params, source=self._analysis_source_desc)
         except ValueError as exc:
             self.status.showMessage(f"Analysis project: {exc}", 4000)
             return
@@ -918,16 +925,37 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             f"Analysis project saved: {name} — {len(saved['kinds'])} report(s)", 6000)
 
     def _run_selected_project(self, name: str) -> None:
-        """Run a saved batch project by name on the current data source (R73)."""
-        from .analysis import run_project
-        if self._analysis_artifact is None:
+        """Run a saved batch project (R73), resolving its own source (R78).
+
+        A project saved with a rebuildable data-source recipe (sequence or
+        imported JSON) re-materialises its own ``(verts, artifact)`` when run, so
+        it is self-contained. Otherwise it falls back to the live Analysis data
+        source (a Time Series, or the current source), mirroring R73.
+        """
+        from .analysis import resolve_source, run_project
+        project = self._project_store.get(name)
+        if not project:
+            self.status.showMessage(
+                f"Analysis project [{name}]: unknown project", 4000)
+            return
+        try:
+            verts, artifact = resolve_source(
+                project.get("source"),
+                current=(self._analysis_verts, self._analysis_artifact))
+        except (ValueError, OSError) as exc:
+            self.status.showMessage(
+                f"Analysis project [{name}]: source unavailable ({exc})", 6000)
+            verts, artifact = (self._analysis_verts, self._analysis_artifact)
+        if artifact is None:
             self._set_analysis_source()
             if self._analysis_artifact is None:
                 return
-        verts = self._analysis_source_verts()
-        paths = run_project(self._project_store, name, verts,
-                            self._analysis_artifact, self._analysis_out_dir(),
-                            dt=self._analysis_dt)
+            verts = self._analysis_source_verts()
+            artifact = self._analysis_artifact
+        if verts is None:
+            verts = self._analysis_source_verts()
+        paths = run_project(self._project_store, name, verts, artifact,
+                            self._analysis_out_dir(), dt=self._analysis_dt)
         if not paths:
             self.status.showMessage(
                 f"Analysis project [{name}]: no report produced", 4000)
