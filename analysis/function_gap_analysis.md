@@ -3192,3 +3192,18 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 
 **验证**
 - R67 16/16 + R68 15/15 + R69 8/8 + R70 14/14 + R71 12/12 + R72 13/13 + R73 15/15 + R74 23/23 全绿；`ruff check fv/report.py fv/gui/analysis.py fv/gui/main.py tests/test_r74_report_cli.py` 0；`py_compile` 通过。端到端冒烟：以 400 样本、3 个 probes、3×3 verts 网格的 artifact 运行 `python -m fv.report input.json -o out` 流式输出 manifest `{"out_dir":..., "reports": {"spectral": "P_spectral.html", "coherence": "P_coherence.html"}, "index": "index.html", "zip": "../bundle.zip", "count": 2}`，报告文件生成、zip 内容正确；全量回归 863 passed / 4 skipped / 2 deselected。
+
+### 8.70 第七十三轮执行记录：R75 导入分析数据源（import analysis data source）（2026-09-06 落地）
+
+**缺口**：R74 能在 GUI 里把当前 verts+artifact 导出为 CLI 可用 JSON（`python -m fv.report`），也能从终端/CI 直接跑一套报告，但导出的 JSON 无法再读回 GUI——换台机器、或想检查/复跑某次已导出的负载，只能重新挑 trace。R75 补齐导入侧，闭合 R74 导出→CLI→GUI 的往返闭环。
+
+**S1 实现（纯逻辑与 Qt 分离）**
+- `analysis.py`（修改）新增 `load_analysis_source(path) -> (verts, artifact)`：直接委托给 `fv.report.load_input`，让 GUI 导入与无头 CLI 解析保持同一套代码（顶层有 `verts` 时强制为 `(N, 3)` 数组，无 `artifact` 键时整个对象视作 artifact，verts 默认空数组）；错误以 `ValueError` 抛出。导入/导出与 CLI 三方共用同一 payload 语义。
+- `main.py`（修改）Analysis 菜单在 "Export Analysis Data Source..." 后新增 "Import Analysis Data Source..."（`_import_analysis_source`）：`QFileDialog` 选择 `.json`，调用 `load_analysis_source`，把导入的 verts 存入 `self._analysis_verts`，再 `set_analysis_artifact(artifact)`；状态栏提示导入的文件名与顶点数（导入顶点为 0 时提示用 dataset）。报告路由统一走 `_analysis_source_verts()`（导入 verts 优先，否则回退 `prepare_verts(dataset)`），`_export_analysis_source` 与 `on_analysis_report`/`_run_selected_preset`/`_run_selected_project`/`_run_all_reports` 均改为走该路由；`set_analysis_artifact(None)` 与 `_set_analysis_source`（从时间序列设置）会清空 `_analysis_verts`。
+
+**S2 测试**（`tests/test_r75_analysis_import.py`，6 项全过；无真实 Qt，直接 import `load_analysis_source`）
+- 覆盖：round-trip（导出 payload 读回 verts+artifact）；bare artifact（顶层无 `artifact` 键，整个对象视作 artifact）；无 `verts`（默认空数组）；坏 JSON；非对象顶层；文件缺失，均抛 `ValueError`。
+
+**验证**
+- R74 23/23 + R75 6/6 = 29/29 全绿（`pytest tests/test_r74_report_cli.py tests/test_r75_analysis_import.py -q`）；`ruff check fv/gui/analysis.py fv/gui/main.py tests/test_r75_analysis_import.py` 0；`py_compile` 通过。
+- 全量回归受既有 VTK 环境问题影响：`fv/render/plane.py:cut_grid`（`cutter.Update()`，line 390）触发 Windows access violation——README 已记载，VTK 9.4.2+ 对 `vtkConvexPointSet` 网格在 `vtkCutter` 崩溃，需 `pip install --user vtk==9.3.1`；此崩溃与 R75 无关（R75 不触碰 render/plane.py，仅 analysis.py/main.py + 新增测试）。

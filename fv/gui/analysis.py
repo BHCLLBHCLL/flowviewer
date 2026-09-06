@@ -261,6 +261,20 @@ def prepare_verts(dataset) -> np.ndarray:
     return np.asarray(verts, dtype=np.float64).reshape((-1, 3))
 
 
+def load_analysis_source(path: str) -> tuple[np.ndarray, dict]:
+    """Load an exported analysis-source JSON into ``(verts, artifact)`` (R75).
+
+    The JSON is the exact payload that ``fv.report``'s CLI consumes on disk;
+    reusing its parser here keeps the GUI import and the headless CLI in
+    lock-step. ``path`` must be a JSON object; top-level ``verts`` is coerced
+    to an ``(N, 3)`` array and the ``artifact`` is the object itself when the
+    file has no ``artifact`` key.
+    """
+    from ..report import load_input
+
+    return load_input(path)
+
+
 def _call(fn: Callable[..., Any], verts: np.ndarray, artifact: dict,
           out_dir: str, **kw: Any) -> Any:
     """Invoke ``fn(verts, artifact, out_dir, **kw)`` keeping only accepted kw."""

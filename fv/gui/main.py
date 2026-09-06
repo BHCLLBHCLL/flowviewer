@@ -176,6 +176,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._ts_data = None
         self._analysis_artifact = None      # R65: data source for Analysis reports
         self._analysis_dt = None            # R65: optional sample period (s)
+        self._analysis_verts = None         # R75: imported source verts (None → dataset)
         self._analysis_panel = None         # R65: reused ReportPanel pane
         self._analysis_params = {}          # R67: per-kind report parameter snapshots
         self._analysis_bundle_paths = {}    # R72: last batch {kind: html_path}
@@ -562,6 +563,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         add(m, "Clear Analysis Data Source",
             lambda _=False: self.set_analysis_artifact(None))
         add(m, "Export Analysis Data Source…", self._export_analysis_source)
+        add(m, "Import Analysis Data Source…", self._import_analysis_source)
         add(m, "Export Report…", lambda _=False: self._export_report())
         add(m, "Export Bundle…", self._export_report_bundle)
         add(m, "Open Bundle…", self._open_report_bundle)
@@ -685,6 +687,8 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
     def set_analysis_artifact(self, artifact, dt=None) -> None:
         """Set the Analysis data source (an R38-style artifact) for the menu."""
         from .analysis import artifact_summary
+        if artifact is None:
+            self._analysis_verts = None
         self._analysis_artifact = artifact
         self._analysis_dt = dt
         if artifact is None:
@@ -723,6 +727,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         except ValueError as exc:
             self.message_win.log(f"Analysis: {exc}", "WARN")
             return
+        self._analysis_verts = None
         self.set_analysis_artifact(artifact)
 
     def _set_report_options(self) -> None:
@@ -750,6 +755,13 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             f"Analysis [{kind}] options: {param_summary(kind, params)} · presets: {n}",
             6000)
 
+    def _analysis_source_verts(self):
+        """Return the verts for the Analysis source: imported ones win, else the dataset."""
+        if self._analysis_verts is not None and self._analysis_verts.size:
+            return self._analysis_verts
+        from .analysis import prepare_verts
+        return prepare_verts(self.dataset)
+
     def _export_analysis_source(self) -> None:
         """Export the current Analysis data source as a CLI-ready input JSON (R74)."""
         import json
@@ -757,12 +769,11 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         import numpy as np
         from PyQt5.QtWidgets import QFileDialog
 
-        from .analysis import prepare_verts
         if self._analysis_artifact is None:
             self._set_analysis_source()
             if self._analysis_artifact is None:
                 return
-        verts = np.asarray(prepare_verts(self.dataset), dtype=np.float64)
+        verts = np.asarray(self._analysis_source_verts(), dtype=np.float64)
         start = str(self.options.last_dir) if self.options.last_dir else str(Path.cwd())
         path, _ = QFileDialog.getSaveFileName(
             self, "Export Analysis Data Source", start, "JSON (*.json)")
@@ -780,14 +791,38 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             f"Analysis source exported: {Path(path).name} → "
             f"python -m fv.report \"{path}\"", 8000)
 
+    def _import_analysis_source(self) -> None:
+        """Import a CLI-ready analysis-source JSON back into the GUI (R75)."""
+        import numpy as np
+        from PyQt5.QtWidgets import QFileDialog
+
+        from .analysis import load_analysis_source
+        start = str(self.options.last_dir) if self.options.last_dir else str(Path.cwd())
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import Analysis Data Source", start, "JSON (*.json)")
+        if not path:
+            return
+        try:
+            verts, artifact = load_analysis_source(path)
+        except ValueError as exc:
+            self.status.showMessage(f"Import analysis source: {exc}", 6000)
+            return
+        self._analysis_verts = np.asarray(verts, dtype=np.float64) if verts.size else None
+        self.set_analysis_artifact(artifact)
+        n_verts = self._analysis_verts.size if self._analysis_verts is not None else 0
+        self.status.showMessage(
+            f"Analysis source imported: {Path(path).name} · "
+            f"{'mesh from dataset' if n_verts == 0 else f'{n_verts} verts imported'}",
+            8000)
+
     def on_analysis_report(self, kind: str) -> None:
         """Run one Analysis-report kind on the current data source (R64/R65)."""
-        from .analysis import normalize_params, param_summary, prepare_verts, run_report
+        from .analysis import normalize_params, param_summary, run_report
         if self._analysis_artifact is None:
             self._set_analysis_source()
             if self._analysis_artifact is None:
                 return
-        verts = prepare_verts(self.dataset)
+        verts = self._analysis_source_verts()
         params = normalize_params(kind, self._analysis_params.get(kind, {}))
         if params.get("dt") is None:
             params["dt"] = self._analysis_dt
@@ -803,12 +838,12 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
     def _run_selected_preset(self, kind: str, name: str) -> None:
         """Run a saved preset by name on the current data source (R69)."""
-        from .analysis import prepare_verts, run_preset
+        from .analysis import run_preset
         if self._analysis_artifact is None:
             self._set_analysis_source()
             if self._analysis_artifact is None:
                 return
-        verts = prepare_verts(self.dataset)
+        verts = self._analysis_source_verts()
         path = run_preset(kind, name, verts, self._analysis_artifact,
                           self._analysis_out_dir(), store=self._preset_store,
                           dt=self._analysis_dt)
@@ -845,12 +880,12 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
     def _run_selected_project(self, name: str) -> None:
         """Run a saved batch project by name on the current data source (R73)."""
-        from .analysis import prepare_verts, run_project
+        from .analysis import run_project
         if self._analysis_artifact is None:
             self._set_analysis_source()
             if self._analysis_artifact is None:
                 return
-        verts = prepare_verts(self.dataset)
+        verts = self._analysis_source_verts()
         paths = run_project(self._project_store, name, verts,
                             self._analysis_artifact, self._analysis_out_dir(),
                             dt=self._analysis_dt)
@@ -921,12 +956,12 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
     def _run_all_reports(self) -> None:
         """Run every Analysis report kind on the current source (R71 batch)."""
-        from .analysis import normalize_params, prepare_verts, report_menu, run_report_bundle
+        from .analysis import normalize_params, report_menu, run_report_bundle
         if self._analysis_artifact is None:
             self._set_analysis_source()
             if self._analysis_artifact is None:
                 return
-        verts = prepare_verts(self.dataset)
+        verts = self._analysis_source_verts()
         kinds = [k for k, _t in report_menu()]
         params = {k: normalize_params(k, self._analysis_params.get(k, {}))
                   for k in kinds}

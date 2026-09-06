@@ -502,3 +502,16 @@ gate on push/PR.
   stays headless. main.py adds "Export Analysis Data Source..." under Analysis,
   dumping the current verts+artifact as a CLI-ready JSON so the same workload
   can be re-run from the terminal.
+- R75 - Import analysis data source: lets a CLI-ready analysis-source JSON (the
+  exact payload R74's CLI consumes) be re-opened in the GUI, so an exported
+  workload can be resumed or inspected without re-picking the trace.
+  fv.gui.analysis adds load_analysis_source(path) (delegating to
+  fv.report.load_input so the GUI import and the headless CLI parser stay in
+  lock-step; returns (verts, artifact), coercing top-level verts to an (N, 3)
+  array and treating the object itself as artifact when there is no "artifact"
+  key). main.py adds an Analysis menu "Import Analysis Data Source..." wired to
+  _import_analysis_source (pick a .json, load it, store the imported verts in
+  self._analysis_verts, set the artifact via set_analysis_artifact and report
+  the imported vert count); reports now route their verts through
+  _analysis_source_verts, which prefers imported verts and falls back to the
+  dataset.
