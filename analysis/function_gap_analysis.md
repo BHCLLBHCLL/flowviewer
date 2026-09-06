@@ -3268,3 +3268,22 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 **验证**
 - `pytest tests/test_r78_self_contained_projects.py tests/test_r77_sequence_source.py tests/test_r76_report_source.py tests/test_r74_report_cli.py tests/test_r73_analysis_projects.py -q` = 75/75 全绿；`ruff check fv/gui/analysis.py fv/gui/main.py tests/test_r78_self_contained_projects.py` 0；`py_compile` 通过。
 - 全量回归仍受既有 VTK 崩溃影响（`plane.py:cut_grid`，VTK 9.4.2+ 对 `vtkConvexPointSet`），用户选择暂不降级；R78 不触碰 render/plane.py。
+
+### 8.74 第七十七轮执行记录：R79 无头 CLI 尊重自包含项目数据源（headless CLI honours a self-contained project's source）（2026-09-06 落地）
+
+**缺口**：R78 让命名项目自包含（携带 JSON 可序列化数据源描述符），但只在 GUI 端重新物化；`fv.report --project` 仍要求单独的输入，且忽略项目自带描述符——同一个批次无法无头复现，形成 GUI-CLI 不对称。
+
+**S1 实现（纯逻辑无 Qt 依赖）**
+- `report.py`（修改）`run()` 重写为优先解析项目自带源、外部源惰性构建：
+  - 新增局部闭包 `build_external()`：仅当 `(verts, artifact)` 仍为 `(None, None)` 时，才从 `--source` 原始序列或 JSON `input` 构建；`verts/artifact` 已由项目源重建时直接返回，避免被一个已死的 `input` 镜像遮蔽（此前的 eager-loading 会在项目源权重大时依旧去读不存在的输入文件而报错）。
+  - `--project` 分支：`resolve_source((stored or {}).get('source'), current=(None, None))` 优先重建项目自带源；若仍为 `(None, None)`（描述符缺失/未知/时间序列 marker）则回退 `build_external()`，兼容 R73 老项目。
+  - 非项目分支：`build_external()`，无 artifact 时抛出明确错误。
+- `report.py`（修改）`main()` 把位置 `input` 改为 `nargs='?'`（自包含项目可省略），并新增 CLI 门禁：`--source` 无 INPUT 返回 2；无 INPUT 且无 `--project` 返回 2。
+- `report.py` docstring 新增 R79 说明与 `python -m fv.report --project "my batch" -o reports` 示例；导入新增 `resolve_source`。
+
+**S2 测试**（`tests/test_r79_selfcontained_cli.py`，11 项全过；monkeypatch `project_store_path`/`run_project`/`run_report_bundle`/`sequence_source`，无真实 Qt/CGNS）
+- 覆盖：自包含 JSON 源、自包含 sequence 源（monkeypatch `sequence_source`）、无自带源回退 input、自带源优先于 input、未知项目抛错、无输入无项目抛错、CLI 端到端（`--project` 单独复现，rc==0）、`--source` 缺 INPUT 返回 2、无 INPUT 无项目返回 2。
+
+**验证**
+- `pytest tests/test_r79_selfcontained_cli.py tests/test_r78_self_contained_projects.py tests/test_r74_report_cli.py -q` = 47/47 全绿；`from fv import report` 导入正常，`main([])` 返回 2；`ruff`/`py_compile` 通过。
+- 全量回归仍受既有 VTK 崩溃影响（`plane.py:cut_grid`，VTK 9.4.2+）；R79 不触碰 render/plane.py。

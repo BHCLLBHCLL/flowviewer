@@ -12,6 +12,7 @@ Invoke via ``python -m fv.report``:
     python -m fv.report input.json -o reports --project "my batch"
     python -m fv.report out/*_step*.cgns -o reports --source \
         --probe 0.5,0.5,0.5 --field Pressure --all
+    python -m fv.report --project "my batch" -o reports
 
 The ``input.json`` layout is ``{"verts": [[x, y, z], ...], "artifact": {...}}``.
 When the top-level ``artifact`` key is absent the whole JSON object is treated
@@ -26,6 +27,16 @@ directory, first file, or explicit list — instead of a JSON. ``vertices`` come
 from the first cycle's mesh and the artifact is the selected field's per-probe
 time history, so a result sequence goes straight to reports with no pre-built
 data-source JSON.
+
+R79 lets the headless CLI honour a self-contained project's own source: when
+``--project`` names a batch saved with a rebuildable data-source descriptor
+(R78), ``run`` re-materialises ``(verts, artifact)`` from that descriptor
+instead of requiring a separate input, so ``python -m fv.report --project "x"``
+alone re-runs the project exactly as the GUI does. Projects saved without a
+rebuildable descriptor (a Time Series) or a project with no stored recipe fall
+back to the external ``--source`` / JSON input; with neither, the run degrades
+to an empty manifest. The positional INPUT becomes optional (``nargs="?"``)
+only so a self-contained project can be re-run with no input file.
 
 The machine-readable manifest is printed to stdout as a single JSON object:
 
@@ -50,6 +61,7 @@ from .gui.analysis import (
     ProjectStore,
     export_report_bundle,
     project_store_path,
+    resolve_source,
     run_project,
     run_report_bundle,
 )
@@ -214,13 +226,6 @@ def run(config: dict) -> dict:
     """Execute a report run from a parsed config and return the manifest."""
     out_dir = Path(config.get("out_dir") or "reports")
     out_dir.mkdir(parents=True, exist_ok=True)
-    if config.get("source"):
-        verts, artifact = build_source(
-            config["source"], config.get("probes") or [],
-            field=config.get("field"),
-            budget_mb=int(config.get("budget_mb") or 64))
-    else:
-        verts, artifact = load_input(config["input"])
     params = config.get("params") or {}
     kinds = config.get("kinds")
     project = config.get("project")
@@ -228,12 +233,44 @@ def run(config: dict) -> dict:
     title = config.get("title") or "flowviewer analysis bundle"
     zip_path = config.get("zip")
 
+    verts, artifact = (None, None)
+
+    # Lazy external-source builder (R79): build the --source / JSON pair only
+    # when it is actually needed, so a self-contained project's own descriptor
+    # is not shadowed by a dead ``input`` that would raise while loading.
+    def build_external() -> tuple:
+        nonlocal verts, artifact
+        if verts is not None or artifact is not None:
+            return verts, artifact
+        if config.get("source"):
+            verts, artifact = build_source(
+                config["source"], config.get("probes") or [],
+                field=config.get("field"),
+                budget_mb=int(config.get("budget_mb") or 64))
+        elif config.get("input"):
+            verts, artifact = load_input(config["input"])
+        return verts, artifact
+
     if project:
         store = ProjectStore(path=project_store_path())
+        # R79: a saved project's self-contained source takes precedence so it
+        # re-runs headlessly with no separate input; fall back to the external
+        # (--source / JSON) pair for legacy R73 projects or when the stored
+        # descriptor is unknown, unreadable or flagged as a timeseries marker.
+        stored = store.get(project)
+        verts, artifact = resolve_source(
+            (stored or {}).get("source"), current=(None, None))
+        if verts is None and artifact is None:
+            verts, artifact = build_external()
         paths = run_project(store, project, verts, artifact, str(out_dir), dt=dt)
         if paths is None:
             raise ValueError(f"unknown analysis project: {project!r}")
     else:
+        verts, artifact = build_external()
+        if artifact is None:
+            raise ValueError(
+                "no analysis input: pass a JSON input or --source, "
+                "or use --project for a self-contained project")
         paths = run_report_bundle(verts, artifact, str(out_dir),
                                   kinds=kinds, params=params, dt=dt)
 
@@ -256,8 +293,10 @@ def main(argv: Optional[list] = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m fv.report",
         description="Generate flowviewer analysis reports headlessly.")
-    parser.add_argument("input", help="analysis input JSON (verts + artifact), "
-                                       "or a raw CGNS result sequence with --source")
+    parser.add_argument("input", nargs="?", default=None,
+                        help="analysis input JSON (verts + artifact), or a raw "
+                             "CGNS result sequence with --source; optional when "
+                             "--project names a self-contained project (R79)")
     parser.add_argument("-o", "--out-dir", default="reports",
                         help="output directory for generated reports")
     parser.add_argument("-k", "--kind", dest="kinds", action="append",
@@ -291,6 +330,14 @@ def main(argv: Optional[list] = None) -> int:
                              " (--source only)")
     args = parser.parse_args(argv)
 
+    if args.source and not args.input:
+        print("error: --source needs a raw CGNS result sequence as INPUT",
+              file=sys.stderr)
+        return 2
+    if not args.input and not args.project:
+        print("error: an input (JSON or --source sequence) is required unless "
+              "--project names a self-contained project", file=sys.stderr)
+        return 2
     kinds = None if (args.all or not args.kinds) else args.kinds
     probes = []
     if args.source:

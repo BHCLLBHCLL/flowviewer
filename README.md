@@ -555,3 +555,17 @@ gate on push/PR.
   Time Series source, set on an import or a sequence source) and rewrites
   _run_selected_project to resolve the project's own source first, falling back
   to the live source for legacy R73 projects.
+
+- R79 - Headless CLI honours a self-contained project's source: R78 made saved
+  projects self-contained, but only the GUI re-materialised the data-source
+  descriptor; fv.report --project still required a separate input and ignored the
+  stored descriptor, so the same batch could not be re-run headlessly. R79 closes
+  the loop in fv/report.py: run resolves the project's own source first via
+  resolve_source (falling back to the external --source / JSON pair for a legacy
+  R73 project, an absent/unknown descriptor, or a timeseries marker), loading it
+  lazily only when needed so a self-contained descriptor is never shadowed by a
+  dead input; and main lets the positional INPUT be omitted for a self-contained
+  project (with new gates that reject --source without an INPUT and an INPUT-less
+  run without --project). Usage example and tests (tests/test_r79_selfcontained_cli.py)
+  cover the self-contained JSON/sequence paths, source-wins-over-input precedence,
+  and the CLI error gates.
