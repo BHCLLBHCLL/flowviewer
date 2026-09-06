@@ -569,3 +569,17 @@ gate on push/PR.
   run without --project). Usage example and tests (tests/test_r79_selfcontained_cli.py)
   cover the self-contained JSON/sequence paths, source-wins-over-input precedence,
   and the CLI error gates.
+
+- R80 - Headless project-management lifecycle: a named project could only be
+  created in the GUI (ProjectStore), so creating / listing / deleting one could
+  not be scripted. R80 lets fv.report drive the whole lifecycle: --save-project
+  NAME records the current --source sequence or JSON input as a new
+  self-contained project (persisting the same sequence_desc / json_desc
+  data-source descriptor the GUI tracks), --list-projects prints every saved
+  project as JSON (with a self_contained flag), and --delete-project NAME
+  removes one. fv/report.py adds a shared _all_kinds() helper plus the three
+  action flags, handled before any report generation; invalid inputs (no input
+  and no source, --source without an INPUT, --source without monitoring points)
+  exit 2, and deleting an unknown project exits 1. Tests
+  (tests/test_r80_project_cli.py) cover the JSON/sequence save descriptors, the
+  list/delete output, the CLI error gates, and a save-then-run round trip.

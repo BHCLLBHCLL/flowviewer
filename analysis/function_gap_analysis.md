@@ -3287,3 +3287,22 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 **验证**
 - `pytest tests/test_r79_selfcontained_cli.py tests/test_r78_self_contained_projects.py tests/test_r74_report_cli.py -q` = 47/47 全绿；`from fv import report` 导入正常，`main([])` 返回 2；`ruff`/`py_compile` 通过。
 - 全量回归仍受既有 VTK 崩溃影响（`plane.py:cut_grid`，VTK 9.4.2+）；R79 不触碰 render/plane.py。
+
+### 8.75 第七十八轮执行记录：R80 无头 CLI 项目管理生命周期（headless CLI project-management lifecycle）（2026-09-06 落地）
+
+**缺口**：R73–R79 让项目只能 *运行*（CLI `--project`）而 *创建 / 列出 / 删除* 仍只能在 GUI（`ProjectStore`）中完成，项目生命周期无法脚本化，形成最后的 GUI-CLI 不对称。
+
+**S1 实现（纯逻辑无 Qt 依赖）**
+- `report.py`（修改）`main()` 在原有运行逻辑之前新增三个动作级参数并先行处理：
+  - `--save-project NAME`：把当前 `--source` 原始序列或 JSON `input` 记录为一个新的自包含项目——序列走 `sequence_desc(input, probes, field=..., budget_mb=...)`（probes 经 `_load_probes` 解析 `--probe`/`--probes-file`），JSON 走 `json_desc(input)`；随后 `store.save(name, kinds, load_params(params), source=desc)` 持久化与 GUI 相同的描述符。缺 INPUT 且缺 `--source`、`--source` 缺 INPUT、`--source` 无监控点均返回 2。
+  - `--list-projects`：遍历 `store.names()`，按 `{name, kinds, params, self_contained}` 输出 JSON，`self_contained` 由 `bool(project.get('source'))` 判定。
+  - `--delete-project NAME`：`store.delete` 失败（不存在）返回 1；成功输出 `{deleted: True, name}`。
+  - 新增共享助手 `_all_kinds()`（按注册顺序返回全部报告 kind），`--save-project` 在未指定 `-k`/`--all` 时用之。
+- `report.py` docstring 新增 R80 说明；导入新增 `REPORTS`、`json_desc`、`sequence_desc`。
+
+**S2 测试**（`tests/test_r80_project_cli.py`，10 项全过；monkeypatch `project_store_path`/`run_report_bundle`，无真实 Qt/CGNS）
+- 覆盖：JSON input 保存为自包含项目、`--source` 序列保存（含 probe/field 描述符）、空 store 列出空列表、`--list-projects` 正确标注 `self_contained`、`--delete` 成功/不存在（rc==1）、`--save-project` 缺 INPUT/缺源/缺监控点三种门禁（rc==2）、保存后无额外输入即可无头复现的端到端 roundtrip（rc==0）。
+
+**验证**
+- `pytest`（R64–R80 报告家族共 17 个测试文件）= 206/206 全绿；`tests/test_r80_project_cli.py` 单独 = 10/10，`tests/test_r79_selfcontained_cli.py tests/test_r80_project_cli.py` = 19/19；`py_compile` 通过；`from fv import report` 导入正常。
+- 全量回归仍受既有 VTK 崩溃影响（`plane.py:cut_grid`，VTK 9.4.2+）；R80 不触碰 render/plane.py。

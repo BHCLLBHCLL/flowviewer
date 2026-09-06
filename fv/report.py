@@ -44,6 +44,9 @@ The machine-readable manifest is printed to stdout as a single JSON object:
      "zip": rel_zip|null, "count": n}
 
 No PyQt is imported here; the module stays headless and CI-friendly.
+
+R80 adds headless project management alongside running: ``--list-projects`` prints every saved project as JSON, ``--save-project NAME`` records the current ``--source`` / JSON input as a new self-contained project (persisting the same ``sequence_desc`` / ``json_desc`` data-source descriptor the GUI tracks), and ``--delete-project NAME`` removes one -- so a project's whole lifecycle can be scripted without opening ``FlowViewer``.
+
 """
 
 from __future__ import annotations
@@ -58,12 +61,15 @@ from typing import Any, Optional, Sequence
 import numpy as np
 
 from .gui.analysis import (
+    REPORTS,
     ProjectStore,
     export_report_bundle,
+    json_desc,
     project_store_path,
     resolve_source,
     run_project,
     run_report_bundle,
+    sequence_desc,
 )
 
 
@@ -288,6 +294,11 @@ def run(config: dict) -> dict:
     }
 
 
+def _all_kinds() -> list:
+    """Every registered report kind, in registration order."""
+    return list(REPORTS.keys())
+
+
 def main(argv: Optional[list] = None) -> int:
     """Argument-parsing entry point; returns a process exit code."""
     parser = argparse.ArgumentParser(
@@ -328,7 +339,75 @@ def main(argv: Optional[list] = None) -> int:
     parser.add_argument("--budget-mb", type=int, default=64,
                         help="per-cycle memory budget in MB for streaming"
                              " (--source only)")
+    parser.add_argument("--list-projects", action="store_true",
+                        help="print the saved analysis projects as JSON (R80)")
+    parser.add_argument("--save-project", metavar="NAME",
+                        help="save INPUT / --source as a new self-contained "
+                             "analysis project (R80)")
+    parser.add_argument("--delete-project", metavar="NAME",
+                        help="delete a saved analysis project (R80)")
     args = parser.parse_args(argv)
+
+    # R80: project-management actions run instead of generating reports.
+    if args.list_projects:
+        store = ProjectStore(path=project_store_path())
+        projects = []
+        for name in store.names():
+            proj = store.get(name) or {}
+            projects.append({
+                "name": name,
+                "kinds": list(proj.get("kinds", [])),
+                "params": proj.get("params", {}),
+                "self_contained": bool(proj.get("source")),
+            })
+        print(json.dumps({"projects": projects}, indent=2))
+        return 0
+
+    if args.delete_project:
+        store = ProjectStore(path=project_store_path())
+        if not store.delete(args.delete_project):
+            print(f"fv.report: project not found: {args.delete_project!r}",
+                  file=sys.stderr)
+            return 1
+        print(json.dumps({"deleted": True, "name": args.delete_project},
+                         indent=2))
+        return 0
+
+    if args.save_project:
+        kinds = _all_kinds() if (args.all or not args.kinds) else args.kinds
+        if args.source and not args.input:
+            print("error: --source needs a raw CGNS result sequence as INPUT",
+                  file=sys.stderr)
+            return 2
+        probes = []
+        if args.source:
+            try:
+                probes = _load_probes(args.probes, args.probes_file)
+            except (OSError, ValueError) as exc:
+                print(f"fv.report: {exc}", file=sys.stderr)
+                return 2
+            if not probes:
+                print("error: --source needs monitoring points"
+                      " (--probe x,y,z or --probes-file)", file=sys.stderr)
+                return 2
+            desc = sequence_desc(args.input, probes, field=args.field,
+                                 budget_mb=args.budget_mb)
+        elif args.input:
+            desc = json_desc(args.input)
+        else:
+            print("error: --save-project needs a --source sequence or a JSON "
+                  "INPUT to record as the project's data source", file=sys.stderr)
+            return 2
+        try:
+            store = ProjectStore(path=project_store_path())
+            saved = store.save(args.save_project, kinds,
+                               load_params(args.params), source=desc)
+        except ValueError as exc:
+            print(f"fv.report: {exc}", file=sys.stderr)
+            return 2
+        print(json.dumps({"saved": True, "name": args.save_project, **saved},
+                         indent=2))
+        return 0
 
     if args.source and not args.input:
         print("error: --source needs a raw CGNS result sequence as INPUT",
