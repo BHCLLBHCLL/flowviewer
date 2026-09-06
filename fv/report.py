@@ -47,6 +47,14 @@ No PyQt is imported here; the module stays headless and CI-friendly.
 
 R80 adds headless project management alongside running: ``--list-projects`` prints every saved project as JSON, ``--save-project NAME`` records the current ``--source`` / JSON input as a new self-contained project (persisting the same ``sequence_desc`` / ``json_desc`` data-source descriptor the GUI tracks), and ``--delete-project NAME`` removes one -- so a project's whole lifecycle can be scripted without opening ``FlowViewer``.
 
+R81 lifts the last report-family asymmetry by letting the headless CLI recall
+named parameter presets. ``--preset KIND:NAME`` (repeatable) loads a saved
+per-kind preset snapshot from ``PresetStore`` and merges it over the raw
+``--params`` overlay, so a scripted run reproduces a GUI preset run; ``--list-
+presets [KIND]`` prints every stored preset (or one kind's presets) as JSON for
+discovery. A bad ``KIND:NAME``, an unknown report kind, or a missing preset exits
+2, mirroring the R80 management gates.
+
 """
 
 from __future__ import annotations
@@ -62,7 +70,9 @@ import numpy as np
 
 from .gui.analysis import (
     REPORTS,
+    PresetStore,
     ProjectStore,
+    default_preset_path,
     export_report_bundle,
     json_desc,
     project_store_path,
@@ -299,6 +309,30 @@ def _all_kinds() -> list:
     return list(REPORTS.keys())
 
 
+def _merge_preset_params(specs: Sequence[str], overlay: dict) -> dict:
+    """Merge ``--preset KIND:NAME`` snapshots over a raw params overlay (R81).
+
+    Each ``spec`` is ``"KIND:NAME"``; the named preset's normalised snapshot is
+    loaded from the per-user :class:`PresetStore` and becomes the base for that
+    kind, with any ``overlay[kind]`` raw values applied on top so ``--params``
+    can still tweak a preset. A malformed spec, an unknown report kind, or a
+    missing preset raises :class:`ValueError`.
+    """
+    out = dict(overlay)
+    store = PresetStore(path=default_preset_path())
+    for spec in specs:
+        kind, sep, name = spec.partition(":")
+        if not sep or not kind or not name:
+            raise ValueError(f"bad --preset {spec!r} (expect KIND:NAME)")
+        if kind not in REPORTS:
+            raise ValueError(f"unknown report kind: {kind!r}")
+        snapshot = store.load(kind, name)
+        if snapshot is None:
+            raise ValueError(f"unknown preset: {kind!r}:{name!r}")
+        out[kind] = {**snapshot, **(out.get(kind) or {})}
+    return out
+
+
 def main(argv: Optional[list] = None) -> int:
     """Argument-parsing entry point; returns a process exit code."""
     parser = argparse.ArgumentParser(
@@ -346,6 +380,14 @@ def main(argv: Optional[list] = None) -> int:
                              "analysis project (R80)")
     parser.add_argument("--delete-project", metavar="NAME",
                         help="delete a saved analysis project (R80)")
+    parser.add_argument("--preset", dest="presets", action="append", default=[],
+                        metavar="KIND:NAME",
+                        help="use a saved parameter preset for a report kind"
+                             " (repeatable; R81)")
+    parser.add_argument("--list-presets", metavar="KIND", nargs="?",
+                        const="", default=None,
+                        help="print the saved parameter presets as JSON, "
+                             "optionally for one KIND (R81)")
     args = parser.parse_args(argv)
 
     # R80: project-management actions run instead of generating reports.
@@ -361,6 +403,26 @@ def main(argv: Optional[list] = None) -> int:
                 "self_contained": bool(proj.get("source")),
             })
         print(json.dumps({"projects": projects}, indent=2))
+        return 0
+
+    # R81: preset discovery happens instead of generating reports.
+    if args.list_presets is not None:
+        store = PresetStore(path=default_preset_path())
+        if args.list_presets:
+            kind = args.list_presets
+            if kind not in REPORTS:
+                print(f"fv.report: unknown report kind: {kind!r}",
+                      file=sys.stderr)
+                return 2
+            entries = [(kind, n, store.load(kind, n))
+                       for n in store.names(kind)]
+        else:
+            entries = [(k, n, store.load(k, n))
+                       for k in REPORTS for n in store.names(k)]
+        presets = [{"kind": k, "name": n, "params": p}
+                   for k, n, p in entries]
+        print(json.dumps({"presets": presets, "count": len(presets)},
+                         indent=2))
         return 0
 
     if args.delete_project:
@@ -429,6 +491,13 @@ def main(argv: Optional[list] = None) -> int:
             print("error: --source needs monitoring points"
                   " (--probe x,y,z or --probes-file)", file=sys.stderr)
             return 2
+    base_params = load_params(args.params)
+    if args.presets:
+        try:
+            base_params = _merge_preset_params(args.presets, base_params)
+        except ValueError as exc:
+            print(f"fv.report: {exc}", file=sys.stderr)
+            return 2
     config = {
         "input": args.input,
         "source": args.input if args.source else None,
@@ -437,7 +506,7 @@ def main(argv: Optional[list] = None) -> int:
         "budget_mb": args.budget_mb,
         "out_dir": args.out_dir,
         "kinds": kinds,
-        "params": load_params(args.params),
+        "params": base_params,
         "project": args.project,
         "zip": args.zip,
         "title": args.title,

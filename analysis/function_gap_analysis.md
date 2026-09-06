@@ -3306,3 +3306,22 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 **验证**
 - `pytest`（R64–R80 报告家族共 17 个测试文件）= 206/206 全绿；`tests/test_r80_project_cli.py` 单独 = 10/10，`tests/test_r79_selfcontained_cli.py tests/test_r80_project_cli.py` = 19/19；`py_compile` 通过；`from fv import report` 导入正常。
 - 全量回归仍受既有 VTK 崩溃影响（`plane.py:cut_grid`，VTK 9.4.2+）；R80 不触碰 render/plane.py。
+
+### 8.76 第七十九轮执行记录：R81 无头 CLI 命名报告预设（headless CLI named-report presets）（2026-09-06 落地）
+
+**缺口**：GUI（R68–R70）可通过 `PresetStore` 保存并重跑某报告 kind 的命名参数预设，但无头 CLI（R74）自始只能叠加裸 `--params` JSON，从无法引用预设名——这是报告家族内最后一处 GUI-CLI 不对称。
+
+**S1 实现（纯逻辑无 Qt 依赖）**
+- `report.py`（修改）docstring 新增 R81 说明；导入新增 `PresetStore`、`default_preset_path`。
+- `main()` 在 R80 动作分支之后新增 `--list-presets [KIND]` 条件分支：从 `PresetStore(path=default_preset_path())` 读取预设，`KIND` 指定时仅列该 kind（未知 kind 返回 2），否则列全部；按 `{kind, name, params}` 输出 `{presets, count}` JSON。
+- argparse 新增两个参数：`--preset KIND:NAME`（`action="append"`，可重复）与 `--list-presets [KIND]`（`nargs="?"`，`const=""` 作为"出现但无值"的哨兵以区分"未出现"）。
+- 新增助手 `_merge_preset_params(specs, overlay)`：每个 `spec` 解析为 `(kind, name)`，坏格式 / 未知 kind / 缺失预设均抛 `ValueError`；命中时 `out[kind] = {**snapshot, **(overlay.get(kind) or {})}`，让预设快照成为该 kind 的基参数、`--params` 同 kind 值覆盖其上。
+- `main()` 运行路径的 config 构建处：`base = load_params(args.params)`，若 `args.presets` 非空则 `base = _merge_preset_params(args.presets, base)`（`ValueError` 时 stderr 打印并返回 2），再把 `base` 作 `config['params']` 传入 `run()`（`run_report_bundle` / `run_project` 消费逻辑不变）。
+
+**S2 测试**（`tests/test_r81_preset_cli.py`，10 项全过；monkeypatch `default_preset_path`/`run_report_bundle`，无真实 Qt/CGNS）
+- 覆盖：空 store `--list-presets` 输出空列表、跨 kind 全量列出（含归一化 `params`）、单 kind 过滤、`--list-presets` 未知 kind 返回 2、`--preset` 单 kind 合并进运行 `params`、`--preset` 与裸 `--params` 叠加时 overlay 覆盖而同 kind 其它键由预设保底、重复 `--preset` 为不同 kind 独立播种、缺失预设 / 未知 kind / 坏格式三种门禁（rc==2）。
+
+**验证**
+- `pytest`（R64–R81 报告家族共 18 个测试文件）= 216/216 全绿；`tests/test_r81_preset_cli.py` 单独 = 10/10；R81 测试前清理 `tests/pytest_tmp` 残留（此前两次运行留下的 `test_r68`/`test_r72` 脏目录导致 `FileExistsError`/`not p.exists()`，与改动无关，删除后 28/28 通过）。
+- `ruff`（`fv/report.py`、`tests/test_r81_preset_cli.py`）全部通过；`py_compile` 通过；`from fv import report` 导入正常。
+- 全量回归仍受既有 VTK 崩溃影响（`plane.py:cut_grid`，VTK 9.4.2+）；R81 不触碰 render/plane.py。

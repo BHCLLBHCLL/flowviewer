@@ -583,3 +583,17 @@ gate on push/PR.
   exit 2, and deleting an unknown project exits 1. Tests
   (tests/test_r80_project_cli.py) cover the JSON/sequence save descriptors, the
   list/delete output, the CLI error gates, and a save-then-run round trip.
+
+- R81 - Headless CLI recalls named parameter presets: the GUI (R68-R70) can save
+  and re-run a per-kind named preset through PresetStore, but the headless CLI
+  could only overlay raw --params JSON and never referenced a preset by name —
+  the last report-family GUI/CLI asymmetry. R81 closes it in fv/report.py:
+  --preset KIND:NAME (repeatable) loads that kind's normalised preset snapshot
+  from the per-user PresetStore and merges it under the raw --params overlay
+  (so --params can still tweak a preset) via a new _merge_preset_params helper,
+  while --list-presets [KIND] prints every stored preset (or one kind's) as
+  JSON for discovery. A malformed KIND:NAME, an unknown report kind, or a
+  missing preset exits 2, mirroring the R80 management gates. Tests
+  (tests/test_r81_preset_cli.py) cover empty/one-kind/all-kind list output, the
+  preset-merge and preset-plus-params-override paths, repeatable --preset across
+  distinct kinds, and the three error gates.
