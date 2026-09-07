@@ -3437,3 +3437,25 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 - `tests/test_r87_bundle_summary.py` = 8/8；`tests/test_r82_report_web` + `test_r85_gui_publish` + `test_r86_report_dashboard` = 16/16（R82/R85/R86 向后兼容确认）。
 - 报告族全量回归（`test_r72_report_bundle` + `test_r74_report_cli` + `test_r76_report_source` + `test_r78_self_contained_projects` + `test_r79_selfcontained_cli` + `test_r80_project_cli` + `test_r81_preset_cli` + `test_r82_report_web` + `test_r83_automation_bundle` + `test_r84_serve_cli` + `test_r85_gui_publish` + `test_r86_report_dashboard` + `test_r87_bundle_summary`）= 136/136（清理残留 `tests\pytest_tmp` 后全绿）。
 - `ruff`（`fv/web/report_server.py`、`fv/web/__init__.py`、`tests/test_r87_bundle_summary.py`）全部通过。
+
+### 8.83 第八十八轮执行记录：R88 Web 呈现——bundle 查询/排序/筛选层（web presentation: bundle query / sort / filter layer）（2026-09-08 落地）
+
+**缺口**：R86/R87 让 `/` 成为信息丰富的总览仪表盘并暴露 `/api/meta`/`/api/summary`，但这些端点只呈现**固定序**的完整目录——报告一多，用户无法在 bundle 内搜索或重排：想看「标题含 flow 的报告」「按大小倒序的最占空间几个」，只能手工翻列表或用外部脚本再过滤。落入规划文档 955 行「Web 呈现」方向下的交互层。R88 在这一层之上加**查询/排序/筛选层**（query/sort/filter）：`query_reports` 按大小写不敏感子串过滤（`q` 命中 name/label/title）、按文本或数值键排序（`sort`/`dir`），并把同样的查询参数接到 `dashboard_html` 与 `/api/meta` 路由，使 `/?q=&sort=&dir=` 得到一个可搜索、可重排的仪表盘。全程零第三方依赖、向后兼容 R86/R87 全部测试。
+
+**S1 实现（`fv/web/report_server.py`，R86/R87 深化）**
+- `_summary_from_rows(rows) -> dict`：从 `report_meta` 行列表聚合总览（count/total bytes/oldest/newest），抽出公共逻辑供 `bundle_summary` 与 `_route_meta` 复用。
+- `query_reports(rows, *, q=None, sort=None, dir="asc") -> list[dict]`：`q` 为对行 `name`/`label`/`title` 的大小写不敏感子串匹配；`sort` 支持 `name`/`label`/`title`（文本，大小写不敏感）与 `size`/`mtime`（数值）；`dir` 为 `"asc"`（默认）/`"desc"`；未知 `sort` 键抛 `ValueError`。无参时返回给定（索引）顺序，故仪表盘与 `/api/meta` 默认行为向后兼容。
+- `dashboard_html` 签名增 `*, q=None, sort=None, dir="asc"`：内部用 `query_reports` 过滤/排序，summary 区块跟踪**可见子集**；仍保留 `<li><a>` 锚点与 `<li class="meta">` caption。
+- 路由：`_route_dashboard`/`_route_meta` 消费查询参数（新增 `_param` helper 从 URL 提取首个 `q`/`sort`/`dir`），未知 sort 键返回 400 JSON 错误。
+- `_SORT_KEYS = ("name", "label", "title", "size", "mtime")`；`fv/web/__init__.py` 导出 `query_reports`。
+
+**S2 测试**（`tests/test_r88_bundle_query.py`，12 项全过）
+- `query_reports`：无参保索引序；`q` 过滤（大小写不敏感，命中 name/label/title）；空 `q` 为 no-op；文本键排序（name/label/title）与 dir=desc；数值键排序（size/mtime）与 dir=desc；未知 sort 键抛 `ValueError`。
+- `dashboard_html`：`q` 过滤仅渲染匹配报告且 summary 跟踪可见子集；`sort`/`dir` 重排报告锚点顺序；显式 `title` 仍驱动 `<h1>`。
+- HTTP 路由：`/?q=&sort=&dir=` 过滤/重排仪表盘；`/api/meta?q=&sort=` 过滤/重排且 summary 跟踪子集；无参调用保持 R86/R87 行为；未知 sort 键在 `/` 与 `/api/meta` 均返回 400 JSON。
+
+**验证**
+- `tests/test_r88_bundle_query.py` = 12/12；`tests/test_r82_report_web` + `test_r85_gui_publish` + `test_r86_report_dashboard` + `test_r87_bundle_summary` = 32/32（R82/R85/R86/R87 向后兼容确认）。
+- 报告族全量回归（`test_r72_report_bundle` + `test_r74_report_cli` + `test_r75_analysis_import` + `test_r76_report_source` + `test_r77_sequence_source` + `test_r82_report_web` + `test_r83_automation_bundle` + `test_r84_serve_cli` + `test_r85_gui_publish` + `test_r86_report_dashboard` + `test_r87_bundle_summary` + `test_r88_bundle_query`）= 118/118。
+- `ruff`（`fv/web/report_server.py`、`fv/web/__init__.py`、`tests/test_r88_bundle_query.py`）全部通过。
+- `test_r32_web.py::test_automation_session_chain` 仍为既有 VTK 9.4.2+ 环境问题失败（`vtkOpenGLRenderer` 无 `AddActor2D`），与 R88 无关（R88 未触碰 render/api）。

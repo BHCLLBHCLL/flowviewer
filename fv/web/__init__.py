@@ -13,7 +13,9 @@
 from .report import render_report
 from .report_server import (
     ReportBundleServer,
+    bundle_summary,
     dashboard_html,
+    query_reports,
     report_meta,
     serve_bundle,
 )
@@ -24,6 +26,7 @@ __all__ = [
     "WebViewerServer",
     "bundle_summary",
     "dashboard_html",
+    "query_reports",
     "render_report",
     "report_meta",
     "serve_bundle",

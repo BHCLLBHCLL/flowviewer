@@ -181,16 +181,8 @@ def report_meta(bundle_dir) -> list[dict]:
     return rows
 
 
-def bundle_summary(bundle_dir) -> dict:
-    """Aggregate overview of a bundle: count, total size, generated span.
-
-    Built on :func:`report_meta` so it honours the index order and degrades the
-    same way (missing / unreadable entries contribute 0 bytes and no mtime).
-    ``oldest`` / ``newest`` are formatted local mtimes (``YYYY-MM-DD HH:MM``) or
-    ``""`` when no report carries an mtime, so an empty or all-degenerate bundle
-    yields a clean zero overview instead of raising.
-    """
-    rows = report_meta(bundle_dir)
+def _summary_from_rows(rows: list[dict]) -> dict:
+    """Aggregate overview from a list of :func:`report_meta` rows."""
     total = 0
     times = []
     for row in rows:
@@ -205,7 +197,54 @@ def bundle_summary(bundle_dir) -> dict:
     }
 
 
-def dashboard_html(bundle_dir, title=None) -> str:
+def bundle_summary(bundle_dir) -> dict:
+    """Aggregate overview of a bundle: count, total size, generated span.
+
+    Built on :func:`report_meta` so it honours the index order and degrades the
+    same way (missing / unreadable entries contribute 0 bytes and no mtime).
+    ``oldest`` / ``newest`` are formatted local mtimes (``YYYY-MM-DD HH:MM``) or
+    ``""`` when no report carries an mtime, so an empty or all-degenerate bundle
+    yields a clean zero overview instead of raising.
+    """
+    return _summary_from_rows(report_meta(bundle_dir))
+
+
+_SORT_KEYS = ("name", "label", "title", "size", "mtime")
+
+
+def query_reports(rows, *, q=None, sort=None, dir="asc") -> list[dict]:
+    """Filter / sort a list of :func:`report_meta` rows (R88).
+
+    ``q`` is a case-insensitive substring match against a row's ``name``,
+    ``label`` or ``title``. ``sort`` orders by ``name``/``label``/``title``
+    (text, case-insensitive) or ``size``/``mtime`` (numeric); ``dir`` is
+    ``"asc"`` (default) or ``"desc"``. An unknown ``sort`` key raises
+    :class:`ValueError`. With no arguments the rows are returned in their given
+    (index) order, so the dashboard and ``/api/meta`` stay backward compatible.
+    """
+    result = list(rows)
+    if q:
+        needle = q.lower()
+        result = [
+            row for row in result
+            if needle in row["name"].lower()
+            or needle in row["label"].lower()
+            or needle in row["title"].lower()
+        ]
+    if sort:
+        if sort not in _SORT_KEYS:
+            raise ValueError(f"unknown sort key {sort!r}")
+        key = {"size": "size_bytes", "mtime": "mtime"}.get(sort, sort)
+
+        def _key(row):
+            value = row[key]
+            return value.lower() if isinstance(value, str) else value
+
+        result = sorted(result, key=_key, reverse=dir == "desc")
+    return result
+
+
+def dashboard_html(bundle_dir, title=None, *, q=None, sort=None, dir="asc") -> str:
     """A richer bundle overview page with per-report metadata (R86).
 
     Keeps the ``report_index_html`` ``<li><a href="X">label</a></li>`` anchors so
@@ -213,13 +252,16 @@ def dashboard_html(bundle_dir, title=None) -> str:
     caption after each report with its own ``<title>``, size and modified time —
     so a served bundle reads as a navigable dashboard instead of a bare link
     list. R87 renders a ``<p class="summary">`` block above the list (report
-    count, total size, generated span) built from :func:`bundle_summary`. ``title``
-    (fallback: the bundle's ``<title>``) drives the ``<h1>``.
+    count, total size, generated span) built from :func:`bundle_summary`. R88
+    lets ``q`` filter by title/label/name and ``sort``/``dir`` re-order the
+    reports, so ``/?q=&sort=&dir=`` gives a searchable, re-rankable dashboard
+    (the summary block tracks the visible subset). ``title`` (fallback: the
+    bundle's ``<title>``) drives the ``<h1>``.
     """
     bdir = Path(bundle_dir)
-    rows = report_meta(bdir)
     heading = title or bundle_title(bdir / "index.html")
-    summary = bundle_summary(bdir)
+    rows = query_reports(report_meta(bdir), q=q, sort=sort, dir=dir)
+    summary = _summary_from_rows(rows)
     summary_parts = [
         f'{summary["report_count"]} report(s)',
         f'{_fmt_size(summary["total_bytes"])} total',
@@ -305,10 +347,21 @@ class ReportBundleHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
+    def _param(self, key: str) -> Optional[str]:
+        """First value of a query string parameter, or ``None``."""
+        parsed = urllib.parse.urlsplit(self.path)
+        return urllib.parse.parse_qs(parsed.query).get(key, [None])[0]
+
     def _route_dashboard(self):
-        """Serve the metadata dashboard at ``/`` (R86)."""
+        """Serve the metadata dashboard at ``/`` (R86, queryable in R88)."""
         title = bundle_title(self.index)
-        payload = dashboard_html(self.bundle_dir, title).encode("utf-8")
+        try:
+            payload = dashboard_html(
+                self.bundle_dir, title, q=self._param("q"),
+                sort=self._param("sort"), dir=self._param("dir") or "asc",
+            ).encode("utf-8")
+        except ValueError as exc:
+            return _send_error(self, 400, str(exc))
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(payload)))
@@ -316,12 +369,19 @@ class ReportBundleHandler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def _route_meta(self):
+        try:
+            rows = query_reports(
+                report_meta(self.bundle_dir), q=self._param("q"),
+                sort=self._param("sort"), dir=self._param("dir") or "asc",
+            )
+        except ValueError as exc:
+            return _send_error(self, 400, str(exc))
         _send_json(self, {
             "ok": True,
             "bundle": str(Path(self.bundle_dir).resolve()),
             "title": bundle_title(self.index),
-            "reports": report_meta(self.bundle_dir),
-            "summary": bundle_summary(self.bundle_dir),
+            "reports": rows,
+            "summary": _summary_from_rows(rows),
         })
 
     def _route_summary(self):

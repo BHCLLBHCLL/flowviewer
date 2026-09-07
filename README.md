@@ -668,3 +668,17 @@ gate on push/PR.
   missing-report degradation, the dashboard summary block (and its
   bundle_listings-parsability), plus the /api/summary and extended /api/meta
   routes.
+- R88 - Web presentation: bundle query / sort / filter layer: R86/R87 made the
+  served / a rich overview but always in a fixed, full index order — a growing
+  bundle could not be searched or re-ranked. R88 deepens fv/web/report_server.py:
+  query_reports() filters a report_meta row list by a case-insensitive substring
+  (q matching name / label / title) and re-orders it by sort/dir (text keys
+  name/label/title, numeric keys size/mtime; unknown sort key raises ValueError;
+  no args returns the index order), dashboard_html() gains keyword q/sort/dir
+  and its summary block tracks the visible subset, and both /?q=&sort=&dir= and
+  /api/meta?q=&sort=&dir= route through it (invalid sort key returns a 400 JSON
+  error). fv.web re-exports query_reports. Tests
+  (tests/test_r88_bundle_query.py) cover the pure helper (filter, text/numeric
+  sort, unknown-key ValueError, index-order default), the queryable dashboard
+  (and its bundle_listings-parsability), plus the / and /api/meta query-string
+  routes and the 400 path.
