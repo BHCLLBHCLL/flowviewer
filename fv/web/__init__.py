@@ -22,6 +22,7 @@ from .server import WebViewerServer, serve_session
 __all__ = [
     "ReportBundleServer",
     "WebViewerServer",
+    "bundle_summary",
     "dashboard_html",
     "render_report",
     "report_meta",

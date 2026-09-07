@@ -15,15 +15,20 @@ Endpoints:
   size + mtime; ``/index.html`` stays the untouched bundle index file)
 * ``GET /index.html``           -> bundle index page (generated if absent)
 * ``GET /api/list``             -> JSON report listing (name + human label)
-* ``GET /api/meta``             -> JSON per-report metadata (label/title/size/
-  mtime)
+* ``GET /api/meta``             -> JSON per-report metadata + aggregate summary
+  (label/title/size/mtime)
+* ``GET /api/summary``          -> JSON bundle overview (count / total size /
+  generated span)
 * ``GET /api/bundle.zip``       -> download the whole bundle as an archive
 * ``GET /<report>.html``        -> a single report (path-traversal safe)
 
 R86 deepens the web presentation: ``/`` is no longer a bare ``<ul>`` of links but
 a live dashboard built from ``report_meta`` (report's own ``<title>`` plus
 ``os.stat`` size / mtime), and ``/api/meta`` exposes that same metadata as JSON.
-No third-party dependencies are added.
+R87 adds a bundle overview: ``bundle_summary`` aggregates the per-report metadata
+into a count / total size / generated span, the dashboard renders it as a summary
+block, and ``/api/meta`` (plus the new ``/api/summary``) exposes it machine-
+readably. No third-party dependencies are added.
 """
 
 from __future__ import annotations
@@ -176,6 +181,30 @@ def report_meta(bundle_dir) -> list[dict]:
     return rows
 
 
+def bundle_summary(bundle_dir) -> dict:
+    """Aggregate overview of a bundle: count, total size, generated span.
+
+    Built on :func:`report_meta` so it honours the index order and degrades the
+    same way (missing / unreadable entries contribute 0 bytes and no mtime).
+    ``oldest`` / ``newest`` are formatted local mtimes (``YYYY-MM-DD HH:MM``) or
+    ``""`` when no report carries an mtime, so an empty or all-degenerate bundle
+    yields a clean zero overview instead of raising.
+    """
+    rows = report_meta(bundle_dir)
+    total = 0
+    times = []
+    for row in rows:
+        total += row["size_bytes"]
+        if row["mtime"]:
+            times.append(row["mtime"])
+    return {
+        "report_count": len(rows),
+        "total_bytes": total,
+        "oldest": _fmt_mtime(min(times)) if times else "",
+        "newest": _fmt_mtime(max(times)) if times else "",
+    }
+
+
 def dashboard_html(bundle_dir, title=None) -> str:
     """A richer bundle overview page with per-report metadata (R86).
 
@@ -183,11 +212,21 @@ def dashboard_html(bundle_dir, title=None) -> str:
     :func:`bundle_listings` still parses the page, and adds a ``<li class="meta">``
     caption after each report with its own ``<title>``, size and modified time —
     so a served bundle reads as a navigable dashboard instead of a bare link
-    list. ``title`` (fallback: the bundle's ``<title>``) drives the ``<h1>``.
+    list. R87 renders a ``<p class="summary">`` block above the list (report
+    count, total size, generated span) built from :func:`bundle_summary`. ``title``
+    (fallback: the bundle's ``<title>``) drives the ``<h1>``.
     """
     bdir = Path(bundle_dir)
     rows = report_meta(bdir)
     heading = title or bundle_title(bdir / "index.html")
+    summary = bundle_summary(bdir)
+    summary_parts = [
+        f'{summary["report_count"]} report(s)',
+        f'{_fmt_size(summary["total_bytes"])} total',
+    ]
+    if summary["oldest"]:
+        summary_parts.append(
+            f'generated {summary["oldest"]} – {summary["newest"]}')
     items = []
     for row in rows:
         items.append(
@@ -201,7 +240,7 @@ def dashboard_html(bundle_dir, title=None) -> str:
     return ("<!doctype html>\n<html><head><meta charset=\"utf-8\">"
             f"<title>{html.escape(heading)}</title></head><body>"
             f"<h1>{html.escape(heading)}</h1>"
-            f"<p>{len(rows)} report(s) generated.</p>"
+            f'<p class="summary">{html.escape(" · ".join(summary_parts))}</p>'
             f"<ul>\n{body}</ul></body></html>\n")
 
 
@@ -245,6 +284,8 @@ class ReportBundleHandler(BaseHTTPRequestHandler):
             return self._route_list()
         if route == "/api/meta":
             return self._route_meta()
+        if route == "/api/summary":
+            return self._route_summary()
         if route == "/api/bundle.zip":
             return self._route_zip()
         return self._route_file(route)
@@ -280,6 +321,16 @@ class ReportBundleHandler(BaseHTTPRequestHandler):
             "bundle": str(Path(self.bundle_dir).resolve()),
             "title": bundle_title(self.index),
             "reports": report_meta(self.bundle_dir),
+            "summary": bundle_summary(self.bundle_dir),
+        })
+
+    def _route_summary(self):
+        """Serve the bundle overview as JSON (R87)."""
+        _send_json(self, {
+            "ok": True,
+            "bundle": str(Path(self.bundle_dir).resolve()),
+            "title": bundle_title(self.index),
+            "summary": bundle_summary(self.bundle_dir),
         })
 
     def _route_list(self):

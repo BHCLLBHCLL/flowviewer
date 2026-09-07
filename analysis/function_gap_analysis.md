@@ -3417,3 +3417,23 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 - 报告族全量回归（`test_r72_report_bundle` + `test_r74_report_cli` + `test_r82_report_web` + `test_r83_automation_bundle` + `test_r84_serve_cli` + `test_r85_gui_publish` + `test_r86_report_dashboard`）= 70/70（清理残留 `tests\pytest_tmp` 后全绿，该残留为环境 `mkdir` 冲突，非 R86 缺陷）。
 - `ruff`（`fv/web/report_server.py`、`fv/web/__init__.py`、`tests/test_r86_report_dashboard.py`）全部通过。
 - `test_r32_web.py::test_automation_session_chain` 仍为既有 VTK 9.4.2+ 环境问题失败（`vtkOpenGLRenderer` 无 `AddActor2D`），与 R86 无关（R86 未触碰 render/api）。
+
+### 8.82 第八十七轮执行记录：R87 Web 呈现——bundle 总览汇总 + 专用 /api/summary 端点（web presentation: bundle overview summary + dedicated /api/summary endpoint）（2026-09-08 落地）
+
+**缺口**：R86 让 `/` 成为每个报告都有自身元数据（`<title>`/size/mtime）的仪表盘、并暴露 `/api/meta`，但始终停留在**单报告**粒度——没有 bundle 级汇总：用户无法一眼看出「这个 bundle 共几个报告、总多大、跨哪个时间段生成」，下游脚本也只能逐条求和、自己取 min/max。落入规划文档 955 行「Web 呈现」方向下的聚合层。R87 在 R86 之上加一层聚合总览：`bundle_summary` 聚合 count/total size/generated span，仪表盘渲染 summary 区块，`/api/meta` 增 summary 字段并新增专用 `/api/summary` 端点，全程零第三方依赖、向后兼容 R86 全部测试。
+
+**S1 实现（`fv/web/report_server.py`，R86 深化）**
+- `bundle_summary(bundle_dir) -> dict`：基于 `report_meta`（保索引序、降级语义一致——缺失/不可读报告贡献 0 字节且无 mtime），聚合返回 `{"report_count", "total_bytes", "oldest", "newest"}`。`oldest`/`newest` 为本地 `YYYY-MM-DD HH:MM` 格式化 mtime，无任何报告携带 mtime 时返回 `""`，故空或全退化 bundle 得到干净的零总览而不抛错。
+- `dashboard_html` 更新：列表上方渲染 `<p class="summary">` 区块（`N report(s) · X total · generated M1 – M2`）；**保留** `report_index_html` 的 `<li><a>` 锚点与 `<li class="meta">` caption，使 `bundle_listings` 与 R86 测试仍兼容。
+- 路由：新增 `/api/summary` → `_route_summary`（`{ok, bundle, title, summary}` JSON）；`/api/meta` 响应中追加 `"summary": bundle_summary(...)`。
+- `fv/web/__init__.py` 导出 `bundle_summary`。
+
+**S2 测试**（`tests/test_r87_bundle_summary.py`，8 项全过）
+- `bundle_summary`：聚合 count/sum bytes/oldest–newest 跨度（用确定性 mtime 断言格式）；空 bundle 返回全零（count 0 / bytes 0 / oldest/newest ""）；索引点到缺失报告时仅有效报告计入字节与 mtime（降级不抛错）。
+- `dashboard_html`：输出含 `<p class="summary">` 区块（count/total/时间跨度）；输出仍被 `bundle_listings` 解析（锚点兼容）。
+- HTTP 路由：`/api/summary` 返回 bundle 总览 JSON；`/api/meta` 响应含 `summary` 字段；空 bundle 的 `/api/summary` 返回零总览不报错。
+
+**验证**
+- `tests/test_r87_bundle_summary.py` = 8/8；`tests/test_r82_report_web` + `test_r85_gui_publish` + `test_r86_report_dashboard` = 16/16（R82/R85/R86 向后兼容确认）。
+- 报告族全量回归（`test_r72_report_bundle` + `test_r74_report_cli` + `test_r76_report_source` + `test_r78_self_contained_projects` + `test_r79_selfcontained_cli` + `test_r80_project_cli` + `test_r81_preset_cli` + `test_r82_report_web` + `test_r83_automation_bundle` + `test_r84_serve_cli` + `test_r85_gui_publish` + `test_r86_report_dashboard` + `test_r87_bundle_summary`）= 136/136（清理残留 `tests\pytest_tmp` 后全绿）。
+- `ruff`（`fv/web/report_server.py`、`fv/web/__init__.py`、`tests/test_r87_bundle_summary.py`）全部通过。

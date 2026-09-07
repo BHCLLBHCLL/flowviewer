@@ -655,3 +655,16 @@ gate on push/PR.
   cover meta ordering and the scan fallback, missing-report degradation, the
   dashboard HTML (and its bundle_listings-parsability), and the / dashboard vs
   /index.html vs /api/meta routes with and without an index.
+- R87 - Web presentation: bundle overview summary + /api/summary: R86 gave each
+  report its own metadata but exposed no bundle-level aggregate. R87 deepens
+  fv/web/report_server.py: bundle_summary() aggregates the per-report metadata
+  into a report count / total size / generated span (oldest–newest mtimes),
+  dashboard_html() renders that summary as a <p class="summary"> block above the
+  list (keeping the <li class="meta"> captions and <li><a> anchors), /api/meta
+  now carries the same "summary" field, and a new /api/summary JSON endpoint
+  serves the overview alone. Empty / all-degenerate bundles degrade to a clean
+  zero overview. fv.web re-exports bundle_summary. Tests
+  (tests/test_r87_bundle_summary.py) cover the aggregate, empty-degradation,
+  missing-report degradation, the dashboard summary block (and its
+  bundle_listings-parsability), plus the /api/summary and extended /api/meta
+  routes.
