@@ -55,6 +55,14 @@ presets [KIND]`` prints every stored preset (or one kind's presets) as JSON for
 discovery. A bad ``KIND:NAME``, an unknown report kind, or a missing preset exits
 2, mirroring the R80 management gates.
 
+R84 turns a run into a one-shot share. ``--serve`` renders the bundle and, once
+the reports exist, starts an R82 ``ReportBundleServer`` (``fv.web.report_server``)
+on the output directory before the process blocks serving it; the manifest is
+printed first and augmented with a ``serve`` object carrying the bound port and
+``url``. ``--serve-port`` / ``--serve-host`` control the bind (default port 0,
+host 127.0.0.1), so ``python -m fv.report in.json -o reports --serve`` both
+generates and publishes in one command. Ctrl-C stops the server.
+
 """
 
 from __future__ import annotations
@@ -304,6 +312,27 @@ def run(config: dict) -> dict:
     }
 
 
+def _serve_info(out_dir: str, port: int = 0, host: str = "127.0.0.1"):
+    """Start an R82 bundle server on *out_dir*; return ``(info, server)`` (R84).
+
+    *out_dir* is a bundle directory of self-contained single-file HTML reports
+    (produced by :func:`run`). The (not-yet-blocked) ``ThreadingHTTPServer`` is
+    returned along with a small ``info`` dict describing it: ``bundle``, ``host``,
+    ``port`` and the browseable ``url``. A missing / non-directory *out_dir*
+    raises :class:`ValueError` (same gate as ``serve_bundle``). The caller owns
+    the server and must ``serve_forever`` / ``server_close`` it.
+    """
+    from .web.report_server import serve_bundle
+    server = serve_bundle(out_dir, port=port, host=host, in_thread=False)
+    info = {
+        "bundle": str(Path(out_dir).resolve()),
+        "host": host,
+        "port": server.port,
+        "url": f"http://{host}:{server.port}/",
+    }
+    return info, server
+
+
 def _all_kinds() -> list:
     """Every registered report kind, in registration order."""
     return list(REPORTS.keys())
@@ -388,6 +417,13 @@ def main(argv: Optional[list] = None) -> int:
                         const="", default=None,
                         help="print the saved parameter presets as JSON, "
                              "optionally for one KIND (R81)")
+    parser.add_argument("--serve", action="store_true",
+                        help="publish the generated bundle over HTTP and serve "
+                             "it until interrupt (R84)")
+    parser.add_argument("--serve-port", type=int, default=0,
+                        help="port to bind the bundle server on (R84)")
+    parser.add_argument("--serve-host", default="127.0.0.1",
+                        help="host to bind the bundle server on (R84)")
     args = parser.parse_args(argv)
 
     # R80: project-management actions run instead of generating reports.
@@ -517,6 +553,23 @@ def main(argv: Optional[list] = None) -> int:
     except (ValueError, OSError) as exc:
         print(f"fv.report: {exc}", file=sys.stderr)
         return 1
+    if args.serve:
+        try:
+            info, server = _serve_info(manifest["out_dir"],
+                                       port=args.serve_port,
+                                       host=args.serve_host)
+        except ValueError as exc:
+            print(f"fv.report: {exc}", file=sys.stderr)
+            return 1
+        manifest["serve"] = info
+        print(json.dumps(manifest, indent=2))
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            server.server_close()
+        return 0
     print(json.dumps(manifest, indent=2))
     return 0
 

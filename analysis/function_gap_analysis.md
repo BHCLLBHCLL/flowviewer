@@ -3362,3 +3362,19 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 - `tests/test_r83_automation_bundle.py` = 5/5；`tests/test_r82_report_web.py` = 12/12（同行）；`tests/test_r32_web.py -k "not chain"` = 7/7（流式 service 子项全绿）。
 - `ruff`（`fv/automation.py`、`tests/test_r83_automation_bundle.py`）全部通过。
 - `test_r32_web.py::test_automation_session_chain` 仍为既有 VTK 9.4.2+ 环境问题失败（`vtkOpenGLRenderer` 无 `AddActor2D`），与 R83 无关（R83 未触碰 render/api）。
+
+### 8.79 第八十二轮执行记录：R84 无头 CLI `--serve` 一键生成并发布报告 bundle（headless CLI --serve one-shot generate + publish）（2026-09-07 落地）
+
+**缺口**：R82 的 `serve_bundle`（`fv/web/report_server.py`）让报告 bundle 可经 HTTP 浏览，R83 把它提升到 `AutomationSession`（协作门面），但无头 CLI `fv.report` 的 `run()` 产出 bundle 后仍无 HTTP 发布入口——脚本化运行只能生成文件，无法「生成即分享」。落在规划文档 955 行「协作自动化」方向的最后一个未覆盖点（CLI 层面）：报告 bundle 的一键 CLI 分享。
+
+**S1 实现（纯 stdlib，无 GUI、无第三方依赖）**
+- 模块级 `_serve_info(out_dir, port=0, host="127.0.0.1") -> (info, server)`：调用 R82 `serve_bundle(in_thread=False)` 启动（暂不阻塞）的 `ReportBundleServer`，返回 `(info, server)`；`info` 含 `bundle`（绝对路径）、`host`、`port`（实际绑定端口）、`url`。调用方负责 `serve_forever()` / `server_close()`。非目录 `out_dir` 抛 `ValueError`（复用 `serve_bundle` 门槛）。
+- `main()` 新增 `--serve` / `--serve-port` / `--serve-host` 三参数：`run(config)` 产出 manifest 后，若 `--serve` 则调 `_serve_info(manifest["out_dir"], ...)`，manifest 附加 `serve` 对象，**先打印 JSON 再阻塞** `serve_forever()`；`KeyboardInterrupt` 停止并 `server_close()`；`_serve_info` 失败则向 stderr 报错退出 1。
+
+**S2 测试**（`tests/test_r84_serve_cli.py`，5 项全过；monkeypatch 真实 `run`，构造同构 bundle，不触真实报告生成）
+- 覆盖：`_serve_info` 返回真实 HTTP 服务（`/api/list` 返回 title + 2 报告）；host/port 正确反映到 info dict；非目录 `out_dir` 抛 `ValueError`；`main([... "--serve"])` 返回 0 且 stdout JSON 携带 `serve` 对象；`_serve_info` 抛 `ValueError` 时退出 1 并向 stderr 报错。真机测试用 `_start_serving`（daemon 线程跑 `serve_forever`）避免 `shutdown()` 在未启动循环时阻塞。
+
+**验证**
+- `tests/test_r84_serve_cli.py` = 5/5；`tests/test_r74_report_cli.py` + `test_r82_report_web.py` + `test_r83_automation_bundle.py` = 40/40（R82/R83 同行）；`tests/test_r32_web.py -k "not chain"` = 7/7（流式 service 子项全绿）。
+- `ruff`（`fv/report.py`、`tests/test_r84_serve_cli.py`）全部通过。
+- `test_r32_web.py::test_automation_session_chain` 仍为既有 VTK 9.4.2+ 环境问题失败（`vtkOpenGLRenderer` 无 `AddActor2D`），与 R84 无关（R84 未触碰 render/api）。

@@ -621,3 +621,14 @@ gate on push/PR.
   bundle server. Tests (tests/test_r83_automation_bundle.py) cover bundle
   publishing /api/list and report serving, the no-stream path, the non-directory
   ValueError, the close() lifecycle, and the unchanged R32 serve() guard.
+- R84 - headless CLI --serve (one-shot generate + publish): R82 served a report
+  bundle over HTTP and R83 raised it onto AutomationSession, but the fv.report
+  CLI's run() still had no HTTP entry once it produced a bundle. R84 adds
+  --serve (plus --serve-port / --serve-host) so python -m fv.report in.json -o
+  reports --serve renders the bundle and then blocks serving it; the manifest is
+  printed first and augmented with a serve object carrying the bound port and
+  url. fv/report.py gains _serve_info(out_dir, port, host) -> (info, server),
+  and main() starts the R82 ReportBundleServer before blocking on
+  serve_forever, stopping on Ctrl-C. Tests (tests/test_r84_serve_cli.py) cover
+  the live /api/list serve, host/port reflection, the non-directory ValueError,
+  and the main() --serve manifest augmentation plus its exit-1 failure path.
