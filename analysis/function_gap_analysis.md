@@ -3378,3 +3378,19 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 - `tests/test_r84_serve_cli.py` = 5/5；`tests/test_r74_report_cli.py` + `test_r82_report_web.py` + `test_r83_automation_bundle.py` = 40/40（R82/R83 同行）；`tests/test_r32_web.py -k "not chain"` = 7/7（流式 service 子项全绿）。
 - `ruff`（`fv/report.py`、`tests/test_r84_serve_cli.py`）全部通过。
 - `test_r32_web.py::test_automation_session_chain` 仍为既有 VTK 9.4.2+ 环境问题失败（`vtkOpenGLRenderer` 无 `AddActor2D`），与 R84 无关（R84 未触碰 render/api）。
+
+### 8.80 第八十五轮执行记录：R85 GUI 通过 HTTP 发布当前分析报告 bundle（GUI publishes the current analysis report bundle over HTTP）（2026-09-07 落地）
+
+**缺口**：R82（独立 `serve_bundle` 服务）、R83（`AutomationSession` 协作门面）、R84（无头 CLI `--serve`）三处均把报告 bundle 经 HTTP 发布，唯独 GUI（`fv.gui.main`）在自己生成 bundle 之后没有分享入口——Analysis 菜单只有 zip 层「Export Bundle… / Open Bundle…」，缺少「Serve Bundle」动作，用户只能打开本地文件，无法把 bundle URL 分享给他人。落在规划文档 955 行「协作自动化」方向的**GUI 收官点**。R85 让 GUI 复用 R82 server，在后台线程运行并展示 URL。
+
+**S1 实现（纯逻辑 helper + GUI 接线，复用 R82 server）**
+- 纯逻辑 `analysis.serve_report_bundle(bundle_dir, port=0, host="127.0.0.1") -> (info, server, thread)`（`fv/gui/analysis.py`）：调用 R82 `serve_bundle(in_thread=True)` 在后台 daemon 线程启动 `ReportBundleServer`，返回 `(info, server, thread)`；`info` 含 `bundle`（绝对路径）、`host`、`port`、`url`。调用方通过 `server.shutdown()` + `server.server_close()` 停止。非目录抛 `ValueError`（复用 `serve_bundle` 门槛）。无 GUI、无第三方依赖。
+- GUI 接线（`fv/gui/main.py`）：`__init__` 增 `_bundle_server`/`_bundle_thread`/`_bundle_info` 三状态字段；Analysis 菜单在「Open Bundle…」后新增「Publish Bundle over HTTP…」（调 `_publish_report_bundle`）与「Stop Publishing…」（调 `_stop_report_bundle`）。`_publish_report_bundle` 无 bundle 时提示先跑报告、已发布时提示当前 URL，正常则调 `serve_report_bundle(self._analysis_out_dir())` 启动后台服务，状态栏 + `QMessageBox` 展示 URL；`_stop_report_bundle` `shutdown()` + `server_close()` 并清空状态；`closeEvent` 退出时若仍在发布则一并回收。
+
+**S2 测试**（`tests/test_r85_gui_publish.py`，4 项全过；只测纯逻辑 `serve_report_bundle`，PyQt 菜单接线 out of scope（headless），沿用 R72 bundle 构建约定 + R84 `_start_serving`/`_stop` 真机模式）
+- 覆盖：`serve_report_bundle` 返回真实 HTTP 服务（`/api/list` 返回 title + 2 报告，单报告 `text/html`）；host/port 正确反映到 info dict；非目录 bundle_dir 抛 `ValueError`；`shutdown`+`server_close` 后 thread 回收、端口不再可应答。
+
+**验证**
+- `tests/test_r85_gui_publish.py` = 4/4；`tests/test_r74_report_cli.py` + `test_r82_report_web.py` + `test_r83_automation_bundle.py` + `test_r84_serve_cli.py` + `test_r72_report_bundle.py` = 62/62（R74/R82/R83/R84 同行回归）；`tests/test_r32_web.py -k "not chain"` = 7/7（流式 service 子项全绿）。
+- `ruff`（`fv/gui/analysis.py`、`fv/gui/main.py`、`tests/test_r85_gui_publish.py`）全部通过。
+- `test_r32_web.py::test_automation_session_chain` 仍为既有 VTK 9.4.2+ 环境问题失败（`vtkOpenGLRenderer` 无 `AddActor2D`），与 R85 无关（R85 未触碰 render/api）。

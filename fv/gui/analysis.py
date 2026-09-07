@@ -523,6 +523,31 @@ def open_report_bundle(zip_path, out_dir) -> Optional[Path]:
     return index if index.is_file() else None
 
 
+def serve_report_bundle(bundle_dir, port: int = 0, host: str = "127.0.0.1"):
+    """Serve a report bundle over HTTP; return ``(info, server, thread)`` (R85).
+
+    Reuses the R82 ``fv.web.report_server.serve_bundle`` with ``in_thread=True``
+    so the HTTP server runs on a background daemon thread and the caller (the GUI
+    "Publish Bundle…" action) stays responsive. The returned ``info`` describes
+    the published bundle -- ``bundle`` (absolute path), ``host``, ``port`` and the
+    browseable ``url`` -- while ``server`` / ``thread`` let the caller stop it
+    later via ``server.shutdown()`` + ``server.server_close()``. A missing /
+    non-directory *bundle_dir* raises :class:`ValueError` (the ``serve_bundle``
+    gate). Pure logic: no GUI, no third-party dependency; only the bundle needs
+    to already exist (produced by :func:`run_report_bundle`).
+    """
+    from ..web.report_server import serve_bundle
+    server, thread = serve_bundle(bundle_dir, port=port, host=host,
+                                  in_thread=True)
+    info = {
+        "bundle": str(Path(bundle_dir).resolve()),
+        "host": host,
+        "port": server.port,
+        "url": f"http://{host}:{server.port}/",
+    }
+    return info, server, thread
+
+
 def field_names(ts) -> list[str]:
     """Monitoring-point / series names available on a ``TimeSeriesObject``."""
     if ts is None:

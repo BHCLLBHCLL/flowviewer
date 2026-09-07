@@ -181,6 +181,9 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._analysis_params = {}          # R67: per-kind report parameter snapshots
         self._analysis_bundle_paths = {}    # R72: last batch {kind: html_path}
         self._analysis_source_desc = None   # R78: how the Analysis source was built
+        self._bundle_server = None          # R85: active bundle HTTP server (or None)
+        self._bundle_thread = None          # R85: its background serve_forever thread
+        self._bundle_info = None            # R85: published bundle info (url/host/port)
         from .analysis import PresetStore, default_preset_path  # R68: shared presets
         self._preset_store = PresetStore(path=default_preset_path())
         from .analysis import ProjectStore, project_store_path  # R73: named batch projects
@@ -569,6 +572,8 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         add(m, "Export Report…", lambda _=False: self._export_report())
         add(m, "Export Bundle…", self._export_report_bundle)
         add(m, "Open Bundle…", self._open_report_bundle)
+        add(m, "Publish Bundle over HTTP…", self._publish_report_bundle)
+        add(m, "Stop Publishing…", self._stop_report_bundle)
 
         # Help
         m = mb.addMenu("Help")
@@ -1105,6 +1110,53 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             return
         self._open_report(str(out))
         self.status.showMessage(f"Analysis bundle open: {Path(path).name}", 6000)
+
+    # R85: publish / stop the analysis bundle over HTTP
+    def _publish_report_bundle(self) -> None:
+        """Publish the latest analysis bundle over HTTP (R85)."""
+        from PyQt5.QtWidgets import QMessageBox
+
+        from .analysis import serve_report_bundle
+        if not self._analysis_bundle_paths:
+            self.status.showMessage(
+                "Analysis: run reports first (Run All Reports…)", 4000)
+            return
+        if self._bundle_server is not None:
+            self.status.showMessage(
+                f"Analysis bundle already serving at {self._bundle_info['url']}",
+                4000)
+            return
+        try:
+            info, server, thread = serve_report_bundle(self._analysis_out_dir())
+        except ValueError as exc:
+            self.status.showMessage(
+                f"Analysis bundle publish failed: {exc}", 6000)
+            return
+        self._bundle_server = server
+        self._bundle_thread = thread
+        self._bundle_info = info
+        self.status.showMessage(
+            f"Analysis bundle publishing at {info['url']}", 6000)
+        QMessageBox.information(
+            self, "Analysis bundle published",
+            "The current analysis bundle is being served over HTTP.\n\n"
+            f"URL: {info['url']}\n\n"
+            "Use Analysis → Stop Publishing… to shut it down.")
+
+    def _stop_report_bundle(self) -> None:
+        """Stop the active bundle HTTP server, if any (R85)."""
+        if self._bundle_server is None:
+            self.status.showMessage(
+                "Analysis: no bundle is being published", 4000)
+            return
+        try:
+            self._bundle_server.shutdown()
+        finally:
+            self._bundle_server.server_close()
+        self._bundle_server = None
+        self._bundle_thread = None
+        self._bundle_info = None
+        self.status.showMessage("Analysis bundle publishing stopped", 6000)
 
     # ── actions ───────────────────────────────────────────────────────────
 
@@ -2788,6 +2840,18 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
     # ── showEvent delayed interactor init ─────────────────────────────────
 
     def closeEvent(self, event) -> None:  # noqa: N802
+        if self._bundle_server is not None:  # R85: stop a bundle publish on exit
+            try:
+                self._bundle_server.shutdown()
+            except Exception:
+                pass
+            try:
+                self._bundle_server.server_close()
+            except Exception:
+                pass
+            self._bundle_server = None
+            self._bundle_thread = None
+            self._bundle_info = None
         try:
             if getattr(self, "options", None) is not None:
                 self.options.save_window(self)

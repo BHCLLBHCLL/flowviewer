@@ -632,3 +632,14 @@ gate on push/PR.
   serve_forever, stopping on Ctrl-C. Tests (tests/test_r84_serve_cli.py) cover
   the live /api/list serve, host/port reflection, the non-directory ValueError,
   and the main() --serve manifest augmentation plus its exit-1 failure path.
+- R85 - GUI publishes the current analysis report bundle over HTTP: R82 gave the
+  report family a headless HTTP server and R83/R84 raised it onto
+  AutomationSession / the fv.report CLI, but the GUI itself could not share the
+  bundle it had just generated. R85 adds analysis.serve_report_bundle
+  (fv/gui/analysis.py) that starts the R82 server on a background daemon thread
+  and returns (info, server, thread) so the Analysis menu's "Publish Bundle over
+  HTTP…" action can show the URL and a "Stop Publishing…" action (plus closeEvent
+  cleanup) can shut it down. fv/gui/main.py tracks _bundle_server / _bundle_thread
+  / _bundle_info for the active publish lifecycle. Tests (tests/test_r85_gui_publish.py)
+  cover the live serve /api/list, host/port reflection, the non-directory
+  ValueError, and the clean shutdown/recycle path.
