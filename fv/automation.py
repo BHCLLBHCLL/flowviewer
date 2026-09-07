@@ -10,7 +10,10 @@ collaborator (another process, a batch script, or an HTTP client) can:
 * ``render(png, w, h)`` — coarse-scene snapshot (honestly False when headless);
 * ``export_report(html, live=...)`` — bake a self-contained HTML report;
 * ``serve(port=0)`` — publish the handle over the R32 HTTP RPC in a background
-  thread so other processes can collaborate over localhost.
+  thread so other processes can collaborate over localhost;
+* ``serve_bundle(bundle_dir, port=0)`` — publish a report-family bundle (R82)
+  over a background ``ThreadingHTTPServer`` so a collaborator can browse it; the
+  two servers coexist and both are torn down on :meth:`AutomationSession.close`.
 
 ``query`` returns ``(lo, np.ndarray)`` — the *same* contract as
 ``StreamCgnsHandle.read_window``, so existing streaming tests remain valid.
@@ -34,6 +37,8 @@ class AutomationSession:
         self.path: Optional[str] = None
         self._server = None
         self._thread: Optional[threading.Thread] = None
+        self._bundle_server = None   # R83 report-bundle server (serve_bundle)
+        self._bundle_thread: Optional[threading.Thread] = None
 
     # -- lifecycle ----------------------------------------------------------
     def open(self, path: str, *, stream: bool = True,
@@ -52,16 +57,23 @@ class AutomationSession:
         return self
 
     def close(self) -> None:
-        if self._server is not None:
-            try:
-                self._server.shutdown()
-            except Exception:  # pragma: no cover
-                pass
-            self._server.server_close()
-            self._server = None
-        if self._thread is not None:
-            self._thread.join(timeout=1.0)
-            self._thread = None
+        for attr in ("_server", "_bundle_server"):
+            server = getattr(self, attr)
+            if server is not None:
+                try:
+                    server.shutdown()
+                except Exception:  # pragma: no cover
+                    pass
+                try:
+                    server.server_close()
+                except Exception:  # pragma: no cover
+                    pass
+                setattr(self, attr, None)
+        for attr in ("_thread", "_bundle_thread"):
+            thread = getattr(self, attr)
+            if thread is not None:
+                thread.join(timeout=1.0)
+                setattr(self, attr, None)
         self.handle = None
         self.ff = None
         self.mesh = None
@@ -116,3 +128,19 @@ class AutomationSession:
             self.handle, port=port, host=host,
             budget_bytes=int(self.budget_mb) * 1024 * 1024, in_thread=True)
         return self._server.port
+
+    def serve_bundle(self, bundle_dir, port: int = 0,
+                     host: str = "127.0.0.1") -> int:
+        """Publish a report-family bundle (R82) in a background thread (R83).
+
+        Complements :meth:`serve` (the R32 streaming-CGNS RPC) with the R82
+        report-bundle share surface, so one automation session exposes both the
+        live windowed data *and* the rendered reports a collaborator needs.
+        ``bundle_dir`` is a directory of self-contained single-file HTML reports
+        (with or without ``index.html``); the server is tracked and torn down by
+        :meth:`AutomationSession.close`. Returns the bound port.
+        """
+        from .web.report_server import serve_bundle
+        self._bundle_server, self._bundle_thread = serve_bundle(
+            str(bundle_dir), port=port, host=host, in_thread=True)
+        return self._bundle_server.port

@@ -3345,3 +3345,20 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 - `tests/test_r82_report_web.py` = 12/12；与 `tests/test_r32_web.py` 同行 = 12/12 R82 全绿。
 - `ruff`（`fv/web/report_server.py`、`fv/web/__init__.py`、`tests/test_r82_report_web.py`）全部通过；`py_compile` 通过；`import fv.web` 正常。
 - `test_r32_web.py::test_automation_session_chain` 因既有 VTK 9.4.2+ 环境问题失败（`fv/render/scene.py` 中 `vtkOpenGLRenderer` 已无 `AddActor2D`——`AttributeError`），与 R82 无关（R82 未触碰 render/automation/api）；R32 的流式数据路径 service 子项（info/fields/json/open）各自通过。
+
+### 8.78 第八十一轮执行记录：R83 AutomationSession 发布报告 bundle（AutomationSession publishes a report-family bundle）（2026-09-07 落地）
+
+**缺口**：R32 的 `AutomationSession`（`fv/automation.py`）是协作自动化门面，但 `serve()` 只发布 R31 流式 CGNS 面（R32 HTTP RPC）；R82 新增的 `serve_bundle`（`fv/web/report_server.py`）是独立入口，与自动化会话无接口——两条已完成的协作面（流式数据 ↔ 报告 bundle）在一处会话内无法同时暴露，落在规划文档 955 行「后续轮次建议」之「协作自动化」方向的空缺：报告 bundle 的自动化共享。
+
+**S1 实现（纯 stdlib，无 GUI、无第三方依赖、无需打开流）**
+- 扩展 `fv/automation.py` 的 `AutomationSession`：
+  - 新增 `serve_bundle(bundle_dir, port=0, host="127.0.0.1") -> int`：复用 R82 `serve_bundle`（`in_thread=True`）启动后台 `ReportBundleServer`，返回实际绑定端口；不要求 `open(stream=True)` 已调用（bundle 与流式句柄相互独立），从而同一会话既能 `serve()` 实时窗口数据又能浏览报告 bundle。
+  - `__init__` 新增 `_bundle_server` / `_bundle_thread` 状态；`close()` 改为统一遍历关闭 `_server` / `_bundle_server` 与 `_thread` / `_bundle_thread`，使 `close()` 同时回收流式与 bundle 两个后台线程。
+
+**S2 测试**（`tests/test_r83_automation_bundle.py`，5 项全过；构造 index_html 同构 bundle，不触真实 GUI/CGNS）
+- 覆盖：`serve_bundle` 返回可用端口并服务 `/api/list`（title + 报告序）+ 单报告 `text/html`；无流（未 `open`）也能发布 bundle；非目录 bundle 抛 `ValueError`；`close()` 清空 `_bundle_server` / `_bundle_thread` 且关闭前端口可应答；R32 `serve()` 无流时抛 `RuntimeError` 的契约不变。
+
+**验证**
+- `tests/test_r83_automation_bundle.py` = 5/5；`tests/test_r82_report_web.py` = 12/12（同行）；`tests/test_r32_web.py -k "not chain"` = 7/7（流式 service 子项全绿）。
+- `ruff`（`fv/automation.py`、`tests/test_r83_automation_bundle.py`）全部通过。
+- `test_r32_web.py::test_automation_session_chain` 仍为既有 VTK 9.4.2+ 环境问题失败（`vtkOpenGLRenderer` 无 `AddActor2D`），与 R83 无关（R83 未触碰 render/api）。

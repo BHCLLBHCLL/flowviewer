@@ -611,3 +611,13 @@ gate on push/PR.
   (tests/test_r82_report_web.py) cover index/list/file serving, the traversal
   403, the zip download, the generated fallback index for an index-less bundle,
   and the empty-bundle 404.
+- R83 - AutomationSession publishes a report bundle (unified collaboration
+  surface): R32's AutomationSession.streaming serve() shares only live windowed
+  data; R82's serve_bundle was a standalone entry with no automation-facing
+  hook. R83 raises it onto the session in fv/automation.py as
+  AutomationSession.serve_bundle(bundle_dir, port=0, host="127.0.0.1") -> int,
+  which starts an R82 ReportBundleServer in a background thread (no stream open
+  required) and tracks it so close() tears down both the streaming and the
+  bundle server. Tests (tests/test_r83_automation_bundle.py) cover bundle
+  publishing /api/list and report serving, the no-stream path, the non-directory
+  ValueError, the close() lifecycle, and the unchanged R32 serve() guard.
