@@ -643,3 +643,15 @@ gate on push/PR.
   / _bundle_info for the active publish lifecycle. Tests (tests/test_r85_gui_publish.py)
   cover the live serve /api/list, host/port reflection, the non-directory
   ValueError, and the clean shutdown/recycle path.
+- R86 - Web presentation: bundle metadata dashboard + /api/meta: R82 served a
+  bundle as a bare link list and R83/R84/R85 only mounted or published it — the
+  served index page carried no report metadata. R86 deepens fv/web/report_server.py:
+  report_meta() augments every report with its own <title>, byte size and mtime,
+  dashboard_html() renders / as a live dashboard (per-report label + title + size
+  + modified time) while keeping the report_index_html <li><a> anchors so
+  bundle_listings still parses it, and a new /api/meta JSON endpoint exposes the
+  same metadata machine-readably (/index.html stays the untouched bundle index).
+  fv.web re-exports dashboard_html / report_meta. Tests (tests/test_r86_report_dashboard.py)
+  cover meta ordering and the scan fallback, missing-report degradation, the
+  dashboard HTML (and its bundle_listings-parsability), and the / dashboard vs
+  /index.html vs /api/meta routes with and without an index.

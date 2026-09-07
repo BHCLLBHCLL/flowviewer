@@ -1,4 +1,4 @@
-"""R82: headless HTTP service for report-family bundles (R64-R81).
+"""R82/R86: headless HTTP service for report-family bundles (R64-R81).
 
 ``run_report_bundle`` / ``write_report_index`` / ``export_report_bundle``
 (``fv.gui.analysis``) produce a bundle directory of self-contained single-file
@@ -11,10 +11,19 @@ any browser, in the R30 headless close-out spirit.
 
 Endpoints:
 
-* ``GET /`` or ``/index.html``   -> bundle index page (generated if absent)
-* ``GET /api/list``              -> JSON report listing (name + human label)
-* ``GET /api/bundle.zip``        -> download the whole bundle as an archive
-* ``GET /<report>.html``         -> a single report (path-traversal safe)
+* ``GET /``                     -> metadata dashboard (report label + title +
+  size + mtime; ``/index.html`` stays the untouched bundle index file)
+* ``GET /index.html``           -> bundle index page (generated if absent)
+* ``GET /api/list``             -> JSON report listing (name + human label)
+* ``GET /api/meta``             -> JSON per-report metadata (label/title/size/
+  mtime)
+* ``GET /api/bundle.zip``       -> download the whole bundle as an archive
+* ``GET /<report>.html``        -> a single report (path-traversal safe)
+
+R86 deepens the web presentation: ``/`` is no longer a bare ``<ul>`` of links but
+a live dashboard built from ``report_meta`` (report's own ``<title>`` plus
+``os.stat`` size / mtime), and ``/api/meta`` exposes that same metadata as JSON.
+No third-party dependencies are added.
 """
 
 from __future__ import annotations
@@ -28,6 +37,7 @@ import tempfile
 import threading
 import urllib.parse
 import zipfile
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Optional
@@ -118,6 +128,83 @@ def _fallback_index_html(listings: list[dict], title: str) -> str:
             f"<ul>{items}</ul></body></html>\n")
 
 
+def _fmt_size(nbytes: int) -> str:
+    """Human-readable byte size (e.g. ``1.2 kB``) for a dashboard caption."""
+    n = float(nbytes)
+    if n < 1024.0:
+        return f"{int(n)} B"
+    for unit in ("kB", "MB", "GB"):
+        n /= 1024.0
+        if n < 1024.0 or unit == "GB":
+            return f"{n:.1f} {unit}"
+    return f"{n:.1f} GB"
+
+
+def _fmt_mtime(timestamp: float) -> str:
+    """Human-readable local mtime (``YYYY-MM-DD HH:MM``), or ``""``."""
+    if not timestamp:
+        return ""
+    return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M")
+
+
+def report_meta(bundle_dir) -> list[dict]:
+    """Per-report metadata ``[{name, label, title, size_bytes, mtime}]``.
+
+    Builds on :func:`bundle_listings` so the index order and human labels
+    survive, then augments every report with its own ``<title>`` plus the
+    ``os.stat`` size / mtime. A report that the index names but that is missing
+    or unreadable degrades to ``size 0`` / ``mtime 0.0`` / ``title ""`` without
+    raising, so a stale index never breaks a dashboard or ``/api/meta``.
+    """
+    bdir = Path(bundle_dir)
+    rows = []
+    for item in bundle_listings(bdir):
+        target = (bdir / item["name"]).resolve()
+        stat = None
+        try:
+            stat = target.stat()
+        except OSError:
+            stat = None
+        title = bundle_title(target) if stat is not None else ""
+        rows.append({
+            "name": item["name"],
+            "label": item["label"],
+            "title": title,
+            "size_bytes": int(stat.st_size) if stat else 0,
+            "mtime": float(stat.st_mtime) if stat else 0.0,
+        })
+    return rows
+
+
+def dashboard_html(bundle_dir, title=None) -> str:
+    """A richer bundle overview page with per-report metadata (R86).
+
+    Keeps the ``report_index_html`` ``<li><a href="X">label</a></li>`` anchors so
+    :func:`bundle_listings` still parses the page, and adds a ``<li class="meta">``
+    caption after each report with its own ``<title>``, size and modified time —
+    so a served bundle reads as a navigable dashboard instead of a bare link
+    list. ``title`` (fallback: the bundle's ``<title>``) drives the ``<h1>``.
+    """
+    bdir = Path(bundle_dir)
+    rows = report_meta(bdir)
+    heading = title or bundle_title(bdir / "index.html")
+    items = []
+    for row in rows:
+        items.append(
+            f'<li><a href="{html.escape(row["name"])}">'
+            f"{html.escape(row['label'])}</a></li>\n")
+        caption_parts = [part for part in (row["title"], _fmt_size(
+            row["size_bytes"]), _fmt_mtime(row["mtime"])) if part]
+        items.append(f'<li class="meta">{html.escape(" · ".join(caption_parts))}'
+                     f"</li>\n")
+    body = "".join(items)
+    return ("<!doctype html>\n<html><head><meta charset=\"utf-8\">"
+            f"<title>{html.escape(heading)}</title></head><body>"
+            f"<h1>{html.escape(heading)}</h1>"
+            f"<p>{len(rows)} report(s) generated.</p>"
+            f"<ul>\n{body}</ul></body></html>\n")
+
+
 def _content_type(path: Path) -> str:
     suffix = path.suffix.lower()
     if suffix in _HTML_SUFFIXES:
@@ -150,10 +237,14 @@ class ReportBundleHandler(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802 (http.server convention)
         parsed = urllib.parse.urlsplit(self.path)
         route = parsed.path
-        if route in ("/", "/index.html"):
+        if route == "/":
+            return self._route_dashboard()
+        if route == "/index.html":
             return self._route_index()
         if route == "/api/list":
             return self._route_list()
+        if route == "/api/meta":
+            return self._route_meta()
         if route == "/api/bundle.zip":
             return self._route_zip()
         return self._route_file(route)
@@ -172,6 +263,24 @@ class ReportBundleHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)
+
+    def _route_dashboard(self):
+        """Serve the metadata dashboard at ``/`` (R86)."""
+        title = bundle_title(self.index)
+        payload = dashboard_html(self.bundle_dir, title).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def _route_meta(self):
+        _send_json(self, {
+            "ok": True,
+            "bundle": str(Path(self.bundle_dir).resolve()),
+            "title": bundle_title(self.index),
+            "reports": report_meta(self.bundle_dir),
+        })
 
     def _route_list(self):
         _send_json(self, {

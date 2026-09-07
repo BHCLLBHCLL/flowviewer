@@ -3394,3 +3394,26 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 - `tests/test_r85_gui_publish.py` = 4/4；`tests/test_r74_report_cli.py` + `test_r82_report_web.py` + `test_r83_automation_bundle.py` + `test_r84_serve_cli.py` + `test_r72_report_bundle.py` = 62/62（R74/R82/R83/R84 同行回归）；`tests/test_r32_web.py -k "not chain"` = 7/7（流式 service 子项全绿）。
 - `ruff`（`fv/gui/analysis.py`、`fv/gui/main.py`、`tests/test_r85_gui_publish.py`）全部通过。
 - `test_r32_web.py::test_automation_session_chain` 仍为既有 VTK 9.4.2+ 环境问题失败（`vtkOpenGLRenderer` 无 `AddActor2D`），与 R85 无关（R85 未触碰 render/api）。
+
+### 8.81 第八十六轮执行记录：R86 Web 呈现——bundle 元数据仪表盘 + 元数据 API（web presentation: bundle metadata dashboard + metadata API）（2026-09-08 落地）
+
+**缺口**：R82 让报告 bundle 可经 HTTP 浏览，但 `/` 仅是一个裸 `<ul>` 链接列表——服务端索引页不含任何报告元数据（无 `<title>`、大小、修改时间），用户看到的是「一堆名字」，无法判断每个报告是什么、占比多大、何时生成；也没有机器可读的元数据出口，下游脚本只能靠 `/api/list` 拿 name/label，拿不到 size/mtime/title。R83/R84/R85 只把 R82 挂载或发布上去了，均未深化 Web 呈现本身。落入规划文档 955 行「Web 呈现」方向。R86 让 `/` 成为信息丰富的仪表盘、新增 `/api/meta` JSON 端点，全程零第三方依赖、向后兼容 R82 全部 12 项测试。
+
+**S1 实现（`fv/web/report_server.py`，R82 深化）**
+- `_fmt_size(nbytes) -> str`：人性化字节大小（`B`/`kB`/`MB`/`GB`）。
+- `_fmt_mtime(timestamp) -> str`：`os.stat` mtime 转本地 `YYYY-MM-DD HH:MM`，0 值返回 `""`。
+- `report_meta(bundle_dir) -> list[dict]`：基于 `bundle_listings`（保索引序与人类 label），每报告补充自身 `<title>`（`bundle_title`）与 `os.stat` 的 `size_bytes`/`mtime`；索引指向缺失/不可读报告时降级为 `size 0`/`mtime 0.0`/`title ""` 而不抛错，陈旧索引不会破坏仪表盘或 `/api/meta`。
+- `dashboard_html(bundle_dir, title=None) -> str`：信息更丰富的 bundle 总览页——每报告一个 `<li><a href="X">label</a></li>`（**保留** `report_index_html` 锚点，使 `bundle_listings` 仍可解析）后跟随 `<li class="meta">` 内联它的 `<title>` + 大小 + 修改时间；`<h1>`/`<title>` 由 bundle 标题（或显式 `title`）驱动。
+- 路由：`/` → `_route_dashboard`（仪表盘）；`/index.html` → `_route_index`（原始索引文件，不变）；新增 `/api/meta` → `_route_meta`（`{ok, bundle, title, reports}` JSON）。
+- `_route_dashboard`/`_route_meta` 两个处理函数；`fv/web/__init__.py` 导出 `dashboard_html`、`report_meta`。
+
+**S2 测试**（`tests/test_r86_report_dashboard.py`，8 项全过）
+- `report_meta`：用索引序与 label 读取元数据（标题/size/mtime）；无索引时回退扫描；索引点到缺失报告时降级（size 0 / mtime 0.0 / title "" 不抛错）。
+- `dashboard_html`：输出含元数据（每报告后跟 `class="meta"` 的 caption）；输出仍被 `bundle_listings` 解析（锚点兼容）。
+- HTTP 路由：`/` 返回仪表盘（含 `class="meta"`）、`/index.html` 返回原始索引（无 `class="meta"`）、`/api/meta` 带/无索引均返回一致 JSON。
+
+**验证**
+- `tests/test_r86_report_dashboard.py` = 8/8；`tests/test_r82_report_web.py` + `test_r85_gui_publish.py` = 16/16（R82/R85 向后兼容确认）；`tests/test_r32_web.py -k "not chain"` = 7/7。
+- 报告族全量回归（`test_r72_report_bundle` + `test_r74_report_cli` + `test_r82_report_web` + `test_r83_automation_bundle` + `test_r84_serve_cli` + `test_r85_gui_publish` + `test_r86_report_dashboard`）= 70/70（清理残留 `tests\pytest_tmp` 后全绿，该残留为环境 `mkdir` 冲突，非 R86 缺陷）。
+- `ruff`（`fv/web/report_server.py`、`fv/web/__init__.py`、`tests/test_r86_report_dashboard.py`）全部通过。
+- `test_r32_web.py::test_automation_session_chain` 仍为既有 VTK 9.4.2+ 环境问题失败（`vtkOpenGLRenderer` 无 `AddActor2D`），与 R86 无关（R86 未触碰 render/api）。
