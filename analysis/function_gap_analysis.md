@@ -3503,3 +3503,27 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 - 报告族全量回归（`test_r80_project_cli` + `test_r81_preset_cli` + `test_r82_report_web` + `test_r83_automation_bundle` + `test_r84_serve_cli` + `test_r85_gui_publish` + `test_r86_report_dashboard` + `test_r87_bundle_summary` + `test_r88_bundle_query` + `test_r89_bundle_pagination` + `test_r90_dashboard_controls`）= 98/98。
 - `ruff`（`fv/web/report_server.py`、`tests/test_r90_dashboard_controls.py`）全部通过。
 - `test_r32_web.py::test_automation_session_chain` 仍为既有 VTK 9.4.2+ 环境问题失败（`vtkOpenGLRenderer` 无 `AddActor2D`），与 R90 无关（R90 未触碰 render/api）。
+
+### 8.86 第九十一轮执行记录：R91 Web 呈现——单报告详情视图 + 详情 JSON API（single-report detail view + detail JSON API）（2026-09-08 落地）
+
+**缺口**：R86-R90 让 `/` 成为可搜索、可重排、可逐页浏览且带控件的仪表盘，但点击任一报告只会 serve 到原始 `.html` 文件——没有一个在上下文中的详情页承载该报告的元数据、返回仪表盘的链接、以及当前排序下的上一份/下一份导航，也没有机器可读的单报告端点。R91 落入规划文档 955 行「Web 呈现」方向的详情层。R91 提供 `/report/<name>` 详情页与 `/api/report?name=…` 详情 JSON API，全程零第三方依赖、无 JS，向后兼容 R86-R90 全部测试。
+
+**S1 实现（`fv/web/report_server.py`，R86-R90 深化）**
+- `report_detail(bundle_dir, name) -> Optional[dict]`：单个报告的元数据行（复用 `report_meta`），额外补充它在索引序清单中的 0 基 `index`；`name` 解析后逃逸出 bundle（`(bdir / name).resolve()` 不在 bundle 下）返回 `None`，未知名称也返回 `None` 而非抛错。
+- `_detail_nav(rows, name) -> tuple[Optional[str], Optional[str]]`：返回 `name` 在给定有序行列表中的 `(上一份, 下一份)` 邻居名；`name` 不在列表中返回 `(None, None)`。
+- `_dashboard_href(q, sort, dir)` / `_detail_href(name, q, sort, dir)`：生成保留 `q`/`sort`/`dir` 的仪表盘与详情页 URL（详情页对 `name` 做 `urllib.parse.quote`）。
+- `report_detail_html(bundle_dir, name, *, q=None, sort=None, dir="asc") -> Optional[str]`：仪表盘上下文的单报告详情页——以 `label`（缺省降级为 `name`）为 `<h1>`，crumb 链接回仪表盘并保留 `q`/`sort`/`dir` + 匹配数（`<p class="crumbs">`），元数据 caption（`<title>`、大小、修改时间，`<p class="report-meta">`），`open report` 链接（`<p class="report-open">`），以及当前 `q`/`sort`/`dir` 排序下的上一份/下一份导航（`<a class="detail-prev">` / `<a class="detail-next">`）；`name` 未知或逃逸返回 `None` 以便调用方 404。
+- 路由：`/api/report?name=…` → `_route_report_api`（JSON，缺 `name` 返回 400 `"missing name"`，未知返回 404）；`/report/<name>` → `_route_report_detail`（HTML 详情页，保留 `q`/`sort`/`dir`，未知返回 404）。
+- `fv/web/__init__.py` 导出 `report_detail`、`report_detail_html`。
+
+**S2 测试**（`tests/test_r91_report_detail.py`，16 项全过）
+- `report_detail`：返回匹配行并带 0 基 `index`、未知返回 `None`、路径逃逸（`../index.html`）返回 `None`。
+- `_detail_nav`：中间/首/尾/未知四种情形的 (prev, next)。
+- `report_detail_html`：heading/crumbs/meta/open 链接齐全、未知返回 `None`、索引序与按名升序下导航方向相反、backlink 保留查询串。
+- HTTP 路由：`/api/report` 成功 JSON / 缺 name 400 / 未知 404；`/report/<name>` 成功详情页（含 `dashboard`）与 404、`?sort=name&dir=asc` 保留排序驱动导航。
+
+**验证**
+- `tests/test_r91_report_detail.py` = 16/16。
+- 报告族全量回归（`test_r72_report_bundle` + `test_r74_report_cli` + `test_r76_report_source` + `test_r82_report_web` + `test_r83_automation_bundle` + `test_r84_serve_cli` + `test_r86_report_dashboard` + `test_r87_bundle_summary` + `test_r88_bundle_query` + `test_r89_bundle_pagination` + `test_r90_dashboard_controls` + `test_r91_report_detail`）= 140/140（清理残留 `tests\pytest_tmp` 后全绿；首轮仅 `test_r72_report_bundle.py::test_open_report_bundle_roundtrip_extracts_index_and_reports` 因 `src.mkdir()` 撞到旧残留目录报 `FileExistsError`，为环境留存目录冲突，非 R91 缺陷）。
+- `ruff`（`fv/web/report_server.py`、`fv/web/__init__.py`、`tests/test_r91_report_detail.py`）全部通过。
+- `test_r32_web.py::test_automation_session_chain` 仍为既有 VTK 9.4.2+ 环境问题失败（`vtkOpenGLRenderer` 无 `AddActor2D`），与 R91 无关（R91 未触碰 render/api）。

@@ -712,3 +712,21 @@ gate on push/PR.
   sort keys/page sizes listed, hostile-q escaping), the control-bearing dashboard
   (form always embedded, applies the query, coexists with the pager, stays
   bundle_listings-parsable), and the live /?q=&sort=&dir=&limit= interaction.
+- R91 - Web presentation: single-report detail view + detail JSON API: R86-R90
+  made / an interactive, paged dashboard, but clicking a report just served the
+  raw .html file — there was no in-context detail page carrying that report's
+  metadata, a back-to-dashboard link, or previous/next navigation inside the
+  current ordering, and no machine-readable single-report endpoint. R91 deepens
+  fv/web/report_server.py: report_detail() returns one metadata row (plus its
+  0-based index in the index-order listing) or None when the name is unknown or
+  escapes the bundle; _detail_nav() yields the (prev, next) neighbours within an
+  ordered list; report_detail_html() renders the detail page (label <h1>, crumb
+  trail with a back-to-dashboard link preserving q/sort/dir and the match count,
+  a metadata caption of title/size/mtime, an "open report" link, and previous/
+  next navigation within the current q/sort/dir ordering — None on unknown or
+  escape so the caller can 404). Routes: /api/report?name=… -> _route_report_api
+  (JSON; 400 on a missing name, 404 on unknown), /report/<name> ->
+  _route_report_detail (HTML detail page preserving q/sort/dir; 404 on unknown).
+  fv.web re-exports report_detail / report_detail_html. Tests
+  (tests/test_r91_report_detail.py) cover the pure detail row / nav / html and
+  the live /api/report and /report/<name> routes.

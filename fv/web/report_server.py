@@ -20,7 +20,11 @@ Endpoints:
 * ``GET /api/summary``          -> JSON bundle overview (count / total size /
   generated span)
 * ``GET /api/bundle.zip``       -> download the whole bundle as an archive
+* ``GET /api/report?name=<n>``  -> JSON single-report metadata (name / label /
+  title / size / mtime / index)
 * ``GET /<report>.html``        -> a single report (path-traversal safe)
+* ``GET /report/<name>``        -> dashboard-context detail page for one report
+  (back link, metadata, open link, prev/next navigation) (R91)
 
 R86 deepens the web presentation: ``/`` is no longer a bare ``<ul>`` of links but
 a live dashboard built from ``report_meta`` (report's own ``<title>`` plus
@@ -35,8 +39,14 @@ bundle is browsable in pages -- ``/`` renders a pager (previous / next, preservi
 alongside the page. R90 makes ``/`` interactive without JavaScript: ``dashboard_html``
 emits a dependency-free ``GET`` form (``<form class="dashboard-controls">``) whose
 ``q`` / ``sort`` / ``dir`` / ``limit`` controls drive the query, so a browser user
-can search / re-rank / page through a bundle without hand-editing the URL. No
-third-party dependencies are added.
+can search / re-rank / page through a bundle without hand-editing the URL. R91
+closes two Web-呈现 gaps: clicking a report lands on the raw file with no bundle
+context, and there is no machine way to fetch a single report's metadata
+(``/api/meta`` always returns the whole list). It adds ``/report/<name>``, a
+dashboard-context detail page (back link that preserves ``q``/``sort``/``dir``,
+the report's metadata, an "open report" link and previous / next report
+navigation within the current query ordering), plus ``/api/report?name=``, a
+JSON single-report metadata endpoint. No third-party dependencies are added.
 """
 
 from __future__ import annotations
@@ -413,6 +423,96 @@ def dashboard_html(bundle_dir, title=None, *, q=None, sort=None, dir="asc",
             f"{controls}{pagination}<ul>\n{body}</ul></body></html>\n")
 
 
+def report_detail(bundle_dir, name) -> Optional[dict]:
+    """Single-report metadata row for *name*, or ``None`` if absent (R91).
+
+    *name* must resolve inside the bundle (a path that escapes it returns
+    ``None``, so ``/api/report?name=../../x`` is refused). Returns the matching
+    :func:`report_meta` row plus its 0-based ``index`` in the index-order
+    listing; an unknown name returns ``None`` instead of raising.
+    """
+    bdir = Path(bundle_dir)
+    target = (bdir / name).resolve()
+    if bdir not in (target, *target.parents):
+        return None
+    for i, row in enumerate(report_meta(bdir)):
+        if row["name"] == name:
+            entry = dict(row)
+            entry["index"] = i
+            return entry
+    return None
+
+
+def _detail_nav(rows, name) -> tuple[Optional[str], Optional[str]]:
+    """``(prev_name, next_name)`` neighbours of *name* in an ordered row list."""
+    names = [row["name"] for row in rows]
+    try:
+        i = names.index(name)
+    except ValueError:
+        return None, None
+    prev = names[i - 1] if i > 0 else None
+    nxt = names[i + 1] if i < len(names) - 1 else None
+    return prev, nxt
+
+
+def _dashboard_href(q: Optional[str], sort: Optional[str], dir: str) -> str:
+    """Dashboard ``/`` URL that preserves ``q``/``sort``/``dir`` (R91)."""
+    return "/" + _pager_href(0, None, q, sort, dir)
+
+
+def _detail_href(name: str, q: Optional[str], sort: Optional[str], dir: str) -> str:
+    """Detail ``/report/<name>`` URL that preserves ``q``/``sort``/``dir`` (R91)."""
+    return ("/report/" + urllib.parse.quote(name, safe="")
+            + _pager_href(0, None, q, sort, dir))
+
+
+def report_detail_html(bundle_dir, name, *, q=None, sort=None, dir="asc"
+                       ) -> Optional[str]:
+    """A dashboard-context detail page for a single report (R91).
+
+    Renders the report's ``label`` (or ``name``) as the ``<h1>``, a crumb trail
+    with a back-to-dashboard link (which preserves ``q``/``sort``/``dir``), a
+    metadata caption (own ``<title>``, size, modified time), an "open report"
+    link to the raw file, and previous / next report navigation within the
+    current ``q``/``sort``/``dir`` ordering. Returns ``None`` when *name* is
+    unknown or escapes the bundle, so the caller can 404.
+    """
+    bdir = Path(bundle_dir)
+    entry = report_detail(bdir, name)
+    if entry is None:
+        return None
+    heading = entry["label"] or entry["name"]
+    matched = query_reports(report_meta(bdir), q=q, sort=sort, dir=dir)
+    prev, nxt = _detail_nav(matched, name)
+    dash = _dashboard_href(q, sort, dir)
+    crumbs = (f'<p class="crumbs"><a href="{html.escape(dash)}">dashboard</a>'
+              f" · {len(matched)} match(es)</p>\n")
+    caption = " · ".join(part for part in (
+        entry["title"], _fmt_size(entry["size_bytes"]),
+        _fmt_mtime(entry["mtime"])) if part)
+    meta = (f'<p class="report-meta">{html.escape(caption or "no metadata")}'
+            f"</p>\n")
+    open_link = (f'<p class="report-open"><a href="{html.escape(entry["name"])}">'
+                 "open report</a></p>\n")
+    nav_parts = []
+    if prev:
+        nav_parts.append(f'<a class="detail-prev" href='
+                         f'"{html.escape(_detail_href(prev, q, sort, dir))}">'
+                         f'previous</a>')
+    if nxt:
+        nav_parts.append(f'<a class="detail-next" href='
+                         f'"{html.escape(_detail_href(nxt, q, sort, dir))}">'
+                         f'next</a>')
+    nav = ""
+    if nav_parts:
+        nav = f'<p class="detail-nav">{" · ".join(nav_parts)}</p>\n'
+    return ("<!doctype html>\n<html><head><meta charset=\"utf-8\">"
+            f"<title>{html.escape(heading)}</title></head><body>"
+            f"<h1>{html.escape(heading)}</h1>{crumbs}{meta}{open_link}{nav}"
+            f'<p class="detail-path">{html.escape(entry["name"])}</p>'
+            "</body></html>\n")
+
+
 def _content_type(path: Path) -> str:
     suffix = path.suffix.lower()
     if suffix in _HTML_SUFFIXES:
@@ -457,6 +557,10 @@ class ReportBundleHandler(BaseHTTPRequestHandler):
             return self._route_summary()
         if route == "/api/bundle.zip":
             return self._route_zip()
+        if route == "/api/report":
+            return self._route_report_api()
+        if route.startswith("/report/"):
+            return self._route_report_detail(route)
         return self._route_file(route)
 
     # -- endpoint bodies ----------------------------------------------------
@@ -538,6 +642,37 @@ class ReportBundleHandler(BaseHTTPRequestHandler):
             "title": bundle_title(self.index),
             "summary": bundle_summary(self.bundle_dir),
         })
+
+    def _route_report_api(self):
+        """Serve a single report's metadata as JSON (R91)."""
+        name = self._param("name")
+        if not name:
+            return _send_error(self, 400, "missing name")
+        entry = report_detail(self.bundle_dir, name)
+        if entry is None:
+            return _send_error(self, 404, f"unknown report: {name}")
+        _send_json(self, {
+            "ok": True,
+            "bundle": str(Path(self.bundle_dir).resolve()),
+            "title": bundle_title(self.index),
+            "report": entry,
+        })
+
+    def _route_report_detail(self, route: str):
+        """Serve the dashboard-context detail page for one report (R91)."""
+        name = urllib.parse.unquote(route[len("/report/"):])
+        body = report_detail_html(
+            self.bundle_dir, name, q=self._param("q"),
+            sort=self._param("sort"), dir=self._param("dir") or "asc",
+        )
+        if body is None:
+            return _send_error(self, 404, f"unknown report: {name}")
+        payload = body.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
 
     def _route_list(self):
         _send_json(self, {
