@@ -115,7 +115,7 @@ def test_detail_html_heading_meta_and_open_link(bundle):
     assert 'class="report-meta"' in body
     assert "Gamma Report Field Map" in body
     assert 'class="report-open"' in body
-    assert 'href="gamma_report.html"' in body
+    assert 'href="/gamma_report.html"' in body
 
 
 def test_detail_html_unknown_returns_none(bundle):

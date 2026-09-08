@@ -3527,3 +3527,23 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 - 报告族全量回归（`test_r72_report_bundle` + `test_r74_report_cli` + `test_r76_report_source` + `test_r82_report_web` + `test_r83_automation_bundle` + `test_r84_serve_cli` + `test_r86_report_dashboard` + `test_r87_bundle_summary` + `test_r88_bundle_query` + `test_r89_bundle_pagination` + `test_r90_dashboard_controls` + `test_r91_report_detail`）= 140/140（清理残留 `tests\pytest_tmp` 后全绿；首轮仅 `test_r72_report_bundle.py::test_open_report_bundle_roundtrip_extracts_index_and_reports` 因 `src.mkdir()` 撞到旧残留目录报 `FileExistsError`，为环境留存目录冲突，非 R91 缺陷）。
 - `ruff`（`fv/web/report_server.py`、`fv/web/__init__.py`、`tests/test_r91_report_detail.py`）全部通过。
 - `test_r32_web.py::test_automation_session_chain` 仍为既有 VTK 9.4.2+ 环境问题失败（`vtkOpenGLRenderer` 无 `AddActor2D`），与 R91 无关（R91 未触碰 render/api）。
+
+### 8.87 第九十二轮执行记录：R92 Web 呈现——详情页内嵌报告内容预览（report content preview embedded in the detail page）（2026-09-08 落地）
+
+**缺口**：R91 的 `/report/<name>` 详情页承载了元数据、返回仪表盘链接与上一份/下一份导航，但正文从未在上下文中呈现——页面只是用一个相对路径的 `open report` 链接指向原始 `.html` 文件（该相对链接在 `/report/` 下会解析回本页自身，形成自环），用户无法边翻页边阅读报告。R92 亦落入「Web 呈现」方向：把报告正文直接内嵌进详情页（零第三方依赖、无 JS），并补齐机器可读的内容取用函数，向后兼容 R86-R91 全部测试。
+
+**S1 实现（`fv/web/report_server.py`，R91 深化）**
+- `report_content(bundle_dir, name) -> Optional[str]`：与 `report_detail`（元数据）相对的内容函数——返回指定报告的原始 HTML 文本；`name` 解析后逃逸出 bundle 返回 `None`，指向不存在或不可读/非 UTF-8 的文件也返回 `None`（而非抛错），供机器端内容取用。
+- `report_detail_html`：在原有 heading/crumbs/meta/open 链接/导航基础上，R92 追加正文预览——当 `report_content` 可读时内嵌 `<iframe class="report-frame" src="/<urlencoded name>" title="<label> report"></iframe>`（`src` 使用对原始报告的绝对路径，故在 `/report/` 上下文下正确解析到 `/<report>.html` 路由）；`open report` 链接的 `href` 由相对路径改为绝对路径并加 `target="_blank"`（原先相对链接会解析回本页自环；现在真正指向原始报告文件）；报告不可读时跳过该预览 iframe。
+- `fv/web/__init__.py` 导出 `report_content`（连同既有 `report_detail`、`report_detail_html`）。
+
+**S2 测试**（`tests/test_r92_report_detail_preview.py`，10 项全过）
+- `report_content`：返回报告原始文本、未知名称返回 `None`、路径逃逸（`../index.html`）返回 `None`、索引列出但文件缺失（ghost）返回 `None`。
+- `report_detail_html`：内嵌 `class="report-frame"` 且 `src="/<name>"` 为绝对路径、`open report` 链接为绝对路径、保留当前排序下的前/后导航、报告不可读时跳过 iframe。
+- HTTP 路由：`/report/<name>` 详情页内嵌 report-frame；`/<report>.html` 仍 serve 到报告正文（可支撑 iframe `src`）。
+
+**验证**
+- `tests/test_r92_report_detail_preview.py` = 10/10；`tests/test_r91_report_detail.py` = 16/16（其中 `test_detail_html_heading_meta_and_open_link` 的 open-link `<a href>` 断言由旧的相对 `gamma_report.html` 更新为绝对 `/gamma_report.html`，以反映 R92 修正）。
+- 报告族全量回归（`test_r72_report_bundle` + `test_r74_report_cli` + `test_r76_report_source` + `test_r82_report_web` + `test_r83_automation_bundle` + `test_r84_serve_cli` + `test_r86_report_dashboard` + `test_r87_bundle_summary` + `test_r88_bundle_query` + `test_r89_bundle_pagination` + `test_r90_dashboard_controls` + `test_r91_report_detail` + `test_r92_report_detail_preview`）= 150/150（清理残留 `tests\pytest_tmp` 后全绿）。
+- `ruff`（`fv/web/report_server.py`、`fv/web/__init__.py`、`tests/test_r91_report_detail.py`、`tests/test_r92_report_detail_preview.py`）全部通过。
+- `test_r32_web.py::test_automation_session_chain` 仍为既有 VTK 9.4.2+ 环境问题失败（`vtkOpenGLRenderer` 无 `AddActor2D`），与 R92 无关（R92 未触碰 render/api）。

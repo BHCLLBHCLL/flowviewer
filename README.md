@@ -730,3 +730,18 @@ gate on push/PR.
   fv.web re-exports report_detail / report_detail_html. Tests
   (tests/test_r91_report_detail.py) cover the pure detail row / nav / html and
   the live /api/report and /report/<name> routes.
+- R92 - Web presentation: report content preview embedded in the detail page:
+  R91's /report/<name> only noted the raw file via a relative "open report"
+  link, so the report body was never visible in context and that link resolved
+  back to the page itself. R92 deepens fv/web/report_server.py: report_content()
+  returns a report's raw HTML text (path-safe, None on unknown / escape /
+  unreadable) as the machine counterpart to report_detail(); report_detail_html()
+  embeds the report inline (an <iframe class="report-frame"> referencing the raw
+  report at its absolute path) so a user pages through a bundle with previous /
+  next and reads each report without clicking out, the "open report" link now
+  targets the absolute raw path, and the preview is skipped when the report is
+  unreadable. fv.web re-exports report_content. Tests
+  (tests/test_r92_report_detail_preview.py) cover the pure content helper, the
+  embedded preview (and its absence for an unreadable report), the navigation
+  preserved alongside it, and the live /report/<name> and /<report>.html routes
+  backing the iframe.

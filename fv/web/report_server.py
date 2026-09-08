@@ -24,7 +24,8 @@ Endpoints:
   title / size / mtime / index)
 * ``GET /<report>.html``        -> a single report (path-traversal safe)
 * ``GET /report/<name>``        -> dashboard-context detail page for one report
-  (back link, metadata, open link, prev/next navigation) (R91)
+  (back link, metadata, open link, embedded report preview, prev/next
+  navigation) (R91/R92)
 
 R86 deepens the web presentation: ``/`` is no longer a bare ``<ul>`` of links but
 a live dashboard built from ``report_meta`` (report's own ``<title>`` plus
@@ -46,7 +47,16 @@ context, and there is no machine way to fetch a single report's metadata
 dashboard-context detail page (back link that preserves ``q``/``sort``/``dir``,
 the report's metadata, an "open report" link and previous / next report
 navigation within the current query ordering), plus ``/api/report?name=``, a
-JSON single-report metadata endpoint. No third-party dependencies are added.
+JSON single-report metadata endpoint. R92 closes the last Web-呈现 gap in the
+detail view: the detail page only linked to the raw file, so the report body
+was never visible in context. It embeds the report content inline via an
+``<iframe class="report-frame">`` referencing the raw report at its absolute
+path, so a browser user pages through a bundle with previous / next and reads
+each report without clicking out (the "open report" link now targets the
+absolute raw path instead of a relative one that resolved back to the page
+itself). It also adds ``report_content()``, a pure path-safe helper returning
+the report's raw HTML text, as the machine counterpart to ``report_detail()``.
+No third-party dependencies are added.
 """
 
 from __future__ import annotations
@@ -443,6 +453,28 @@ def report_detail(bundle_dir, name) -> Optional[dict]:
     return None
 
 
+def report_content(bundle_dir, name) -> Optional[str]:
+    """Raw HTML text of a report, or ``None`` if absent / unreadable (R92).
+
+    The machine counterpart to :func:`report_detail`'s metadata: *name* must
+    resolve inside the bundle (a path that escapes it returns ``None``) and
+    point at a readable file; otherwise ``None`` is returned instead of
+    raising, so a stale index entry never breaks a caller. The text is read as
+    UTF-8 -- a report that cannot be decoded degrades to ``None`` just like a
+    missing one.
+    """
+    bdir = Path(bundle_dir)
+    target = (bdir / name).resolve()
+    if bdir not in (target, *target.parents):
+        return None
+    if not target.is_file():
+        return None
+    try:
+        return target.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
 def _detail_nav(rows, name) -> tuple[Optional[str], Optional[str]]:
     """``(prev_name, next_name)`` neighbours of *name* in an ordered row list."""
     names = [row["name"] for row in rows]
@@ -468,14 +500,19 @@ def _detail_href(name: str, q: Optional[str], sort: Optional[str], dir: str) -> 
 
 def report_detail_html(bundle_dir, name, *, q=None, sort=None, dir="asc"
                        ) -> Optional[str]:
-    """A dashboard-context detail page for a single report (R91).
+    """A dashboard-context detail page for a single report (R91/R92).
 
     Renders the report's ``label`` (or ``name``) as the ``<h1>``, a crumb trail
     with a back-to-dashboard link (which preserves ``q``/``sort``/``dir``), a
     metadata caption (own ``<title>``, size, modified time), an "open report"
     link to the raw file, and previous / next report navigation within the
-    current ``q``/``sort``/``dir`` ordering. Returns ``None`` when *name* is
-    unknown or escapes the bundle, so the caller can 404.
+    current ``q``/``sort``/``dir`` ordering. R92 embeds the report body inline
+    (an ``<iframe class="report-frame">`` referencing the raw report at its
+    absolute path) so a user reads each report in context, and the "open
+    report" link now targets that absolute raw path instead of a relative one
+    that resolved back to the page itself; the preview is skipped when the
+    report is unreadable. Returns ``None`` when *name* is unknown or escapes the
+    bundle, so the caller can 404.
     """
     bdir = Path(bundle_dir)
     entry = report_detail(bdir, name)
@@ -492,7 +529,8 @@ def report_detail_html(bundle_dir, name, *, q=None, sort=None, dir="asc"
         _fmt_mtime(entry["mtime"])) if part)
     meta = (f'<p class="report-meta">{html.escape(caption or "no metadata")}'
             f"</p>\n")
-    open_link = (f'<p class="report-open"><a href="{html.escape(entry["name"])}">'
+    raw = "/" + urllib.parse.quote(name, safe="")
+    open_link = (f'<p class="report-open"><a href="{raw}" target="_blank">'
                  "open report</a></p>\n")
     nav_parts = []
     if prev:
@@ -506,9 +544,16 @@ def report_detail_html(bundle_dir, name, *, q=None, sort=None, dir="asc"
     nav = ""
     if nav_parts:
         nav = f'<p class="detail-nav">{" · ".join(nav_parts)}</p>\n'
+    preview = ""
+    if report_content(bdir, name) is not None:
+        preview = ('<div class="report-preview">\n'
+                   f'<iframe class="report-frame" src="{raw}" title="'
+                   f"{html.escape(heading)} report\" height=\"600\"></iframe>\n"
+                   "</div>\n")
     return ("<!doctype html>\n<html><head><meta charset=\"utf-8\">"
             f"<title>{html.escape(heading)}</title></head><body>"
             f"<h1>{html.escape(heading)}</h1>{crumbs}{meta}{open_link}{nav}"
+            f"{preview}"
             f'<p class="detail-path">{html.escape(entry["name"])}</p>'
             "</body></html>\n")
 

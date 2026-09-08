@@ -6,7 +6,8 @@
 * :mod:`fv.web.report_server` - host a report-family bundle (R64-R81) over
   HTTP for browsing / sharing (R82); deepen the presentation with a metadata
   dashboard at ``/`` and an ``/api/meta`` JSON surface (R86), a single-report
-  detail page at ``/report/<name>`` and an ``/api/report`` JSON endpoint (R91).
+  detail page at ``/report/<name>`` (with an embedded report preview) and an
+  ``/api/report`` JSON endpoint (R91/R92).
 * :mod:`fv.automation`        - headless AutomationSession + serve HTTP-RPC
   bridge.
 """
@@ -17,6 +18,7 @@ from .report_server import (
     bundle_summary,
     dashboard_html,
     query_reports,
+    report_content,
     report_detail,
     report_detail_html,
     report_meta,
@@ -32,6 +34,7 @@ __all__ = [
     "dashboard_html",
     "query_reports",
     "render_report",
+    "report_content",
     "report_detail",
     "report_detail_html",
     "report_meta",
