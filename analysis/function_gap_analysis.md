@@ -3481,3 +3481,25 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 - 报告族全量回归（`test_r80_project_cli` + `test_r81_preset_cli` + `test_r82_report_web` + `test_r83_automation_bundle` + `test_r84_serve_cli` + `test_r85_gui_publish` + `test_r86_report_dashboard` + `test_r87_bundle_summary` + `test_r88_bundle_query` + `test_r89_bundle_pagination`）= 87/87。
 - `ruff`（`fv/web/report_server.py`、`fv/web/__init__.py`、`tests/test_r89_bundle_pagination.py`）全部通过。
 - `test_r32_web.py::test_automation_session_chain` 仍为既有 VTK 9.4.2+ 环境问题失败（`vtkOpenGLRenderer` 无 `AddActor2D`），与 R89 无关（R89 未触碰 render/api）。
+
+### 8.85 第九十轮执行记录：R90 Web 呈现——交互式仪表盘控件（interactive dashboard controls）（2026-09-08 落地）
+
+**缺口**：R86-R89 让 `/` 成为可搜索、可重排、可逐页浏览的仪表盘，但这些能力（`q`/`sort`/`dir`/`limit`）只能通过手工编辑 URL 触发——浏览器用户没有搜索框、下拉框或按钮，自然无从发现或使用。落入规划文档 955 行「Web 呈现」方向下的交互层。R90 让 `/` **无需 JavaScript** 就能交互：`dashboard_html` 渲染一个零依赖的 `GET` 表单（`<form class="dashboard-controls">`），其 `q`（搜索框）/`sort`/`dir`/`limit`（下拉框）控件反映当前查询并在提交时驱动同一条 `report_server` 路由。全程零第三方依赖、无 JS、向后兼容 R86-R89 全部测试。
+
+**S1 实现（`fv/web/report_server.py`，R86-R89 深化）**
+- `_SORT_LABELS = (("name","Name"), ("label","Label"), ("title","Title"), ("size","Size"), ("mtime","Modified"))`：下拉框可排序键（索引序之后）。
+- `_PAGE_SIZES = ("", "10", "25", "50", "100")`：页码大小选项，空串代表 All（不分页）。
+- `_option(selected, value, text) -> str`：渲染单个 `<option>` 并以 `selected` 标记当前值（`selected=None` 且 `value=""` → 默认选索引序/All）。
+- `_controls_html(q, sort, dir, limit) -> str`：渲染零依赖 `GET` 表单（`method="get" action="/"`），含 `q` 搜索输入框（`type="search"`，回填当前/空值）、`sort`/`dir`/`limit` 三个 `<select>` 与一个 apply 按钮；每个控件反映当前 `dashboard_html` 参数，`q` 用 `html.escape` 转义以抵御恶意输入。
+- `dashboard_html` 在 summary 区块之后、pagination 之前插入 `controls`；默认（无查询）时表单回填索引序/升序/All，行为向后兼容。
+
+**S2 测试**（`tests/test_r90_dashboard_controls.py`，11 项全过）
+- `_controls_html`：默认回填（索引序/asc/All）、反映当前查询（`q`/`sort`/`dir`/`limit` 预选）、列出全部 sort 键与 page sizes、转义恶意 `q`。
+- `dashboard_html`：总是渲染控件表单、apply 后反映查询、有 `limit` 时控件与 pager 共存、控件不被 `bundle_listings` 误认为报告锚点（仍解析出正确报告列表）。
+- HTTP 路由：`/` 携带控件表单、表单参数（`q`/`sort`/`dir`/`limit`）驱动查询、URL 中恶意 `q` 在表单值中转义。
+
+**验证**
+- `tests/test_r90_dashboard_controls.py` = 11/11。
+- 报告族全量回归（`test_r80_project_cli` + `test_r81_preset_cli` + `test_r82_report_web` + `test_r83_automation_bundle` + `test_r84_serve_cli` + `test_r85_gui_publish` + `test_r86_report_dashboard` + `test_r87_bundle_summary` + `test_r88_bundle_query` + `test_r89_bundle_pagination` + `test_r90_dashboard_controls`）= 98/98。
+- `ruff`（`fv/web/report_server.py`、`tests/test_r90_dashboard_controls.py`）全部通过。
+- `test_r32_web.py::test_automation_session_chain` 仍为既有 VTK 9.4.2+ 环境问题失败（`vtkOpenGLRenderer` 无 `AddActor2D`），与 R90 无关（R90 未触碰 render/api）。

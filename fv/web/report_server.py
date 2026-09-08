@@ -32,7 +32,11 @@ readably. R88 makes both ``/`` and ``/api/meta`` queryable/re-rankable via
 ``q`` / ``sort`` / ``dir``. R89 adds ``limit`` / ``offset`` windowing so a large
 bundle is browsable in pages -- ``/`` renders a pager (previous / next, preserving
 ``q``/``sort``/``dir``) and ``/api/meta`` returns ``total`` / ``offset`` / ``limit``
-alongside the page. No third-party dependencies are added.
+alongside the page. R90 makes ``/`` interactive without JavaScript: ``dashboard_html``
+emits a dependency-free ``GET`` form (``<form class="dashboard-controls">``) whose
+``q`` / ``sort`` / ``dir`` / ``limit`` controls drive the query, so a browser user
+can search / re-rank / page through a bundle without hand-editing the URL. No
+third-party dependencies are added.
 """
 
 from __future__ import annotations
@@ -285,6 +289,54 @@ def _pager_href(offset: int, limit: Optional[int], q: Optional[str],
     return "?" + "&".join(parts)
 
 
+# ``<select>`` choices for the interactive dashboard controls (R90), in the
+# order they should appear (index order first, then the sortable keys).
+_SORT_LABELS = (
+    ("name", "Name"),
+    ("label", "Label"),
+    ("title", "Title"),
+    ("size", "Size"),
+    ("mtime", "Modified"),
+)
+_PAGE_SIZES = ("", "10", "25", "50", "100")
+
+
+def _option(selected: Optional[str], value: str, text: str) -> str:
+    """Render a single ``<option>`` (``selected`` marks the current value)."""
+    is_selected = (selected is None and value == "") or selected == value
+    sel = ' selected' if is_selected else ""
+    return (f'<option value="{html.escape(value, quote=True)}"'
+            f"{sel}>{html.escape(text)}</option>")
+
+
+def _controls_html(q: Optional[str], sort: Optional[str], dir: str,
+                   limit: Optional[int]) -> str:
+    """A dependency-free ``GET`` form driving the dashboard query (R90).
+
+    Lets a browser user type a ``q`` substring, pick a ``sort`` key / ``dir``
+    direction and a ``limit`` page size, then submit -- so ``/`` becomes a
+    searchable / re-rankable / paged view without hand-editing the URL. Every
+    control reflects the current ``dashboard_html`` argument, and the form
+    defaults to the index order / ascending / all pages when no query is set.
+    """
+    q_esc = html.escape(q or "", quote=True)
+    sort_opts = _option(sort, "", "Index order") + "".join(
+        _option(sort, key, label) for key, label in _SORT_LABELS)
+    dir_opts = _option(dir, "asc", "Ascending") + _option(dir, "desc", "Descending")
+    limit_cur = "" if limit is None else str(limit)
+    limit_opts = "".join(
+        _option(limit_cur, size, "All" if not size else size)
+        for size in _PAGE_SIZES)
+    return ('<form class="dashboard-controls" method="get" action="/">\n'
+            f'<input type="search" name="q" value="{q_esc}" '
+            'placeholder="filter by name / label / title">\n'
+            f'<select name="sort">{sort_opts}</select>\n'
+            f'<select name="dir">{dir_opts}</select>\n'
+            f'<select name="limit">{limit_opts}</select>\n'
+            '<button type="submit">apply</button>\n'
+            '</form>\n')
+
+
 def dashboard_html(bundle_dir, title=None, *, q=None, sort=None, dir="asc",
                    limit=None, offset=0) -> str:
     """A richer bundle overview page with per-report metadata (R86).
@@ -302,8 +354,12 @@ def dashboard_html(bundle_dir, title=None, *, q=None, sort=None, dir="asc",
     ``<p class="pagination">`` ranges line plus previous / next links (which
     preserve ``q``/``sort``/``dir``) appears, so a large bundle is browsable in
     pages. The summary block always reflects the *whole* match (``q``/``sort``
-    applied), not just the page. ``title`` (fallback: the bundle's ``<title>``)
-    drives the ``<h1>``.
+    applied), not just the page. R90 adds a dependency-free ``GET`` form
+    (``<form class="dashboard-controls">``) letting a browser user type a ``q``
+    substring, pick a ``sort`` key / ``dir`` direction and a ``limit`` page
+    size, so ``/`` is a searchable / re-rankable / paged view without hand-
+    editing the URL. ``title`` (fallback: the bundle's ``<title>``) drives the
+    ``<h1>``.
     """
     bdir = Path(bundle_dir)
     heading = title or bundle_title(bdir / "index.html")
@@ -349,11 +405,12 @@ def dashboard_html(bundle_dir, title=None, *, q=None, sort=None, dir="asc",
                 f'<a class="pager-next" href='
                 f'"{_pager_href(nxt, limit, q, sort, dir)}">next</a>')
         pagination = f'<p class="pagination">{" · ".join(pager_parts)}</p>\n'
+    controls = _controls_html(q, sort, dir, limit)
     return ("<!doctype html>\n<html><head><meta charset=\"utf-8\">"
             f"<title>{html.escape(heading)}</title></head><body>"
             f"<h1>{html.escape(heading)}</h1>"
             f'<p class="summary">{html.escape(" · ".join(summary_parts))}</p>'
-            f"{pagination}<ul>\n{body}</ul></body></html>\n")
+            f"{controls}{pagination}<ul>\n{body}</ul></body></html>\n")
 
 
 def _content_type(path: Path) -> str:

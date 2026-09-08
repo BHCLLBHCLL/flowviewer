@@ -698,3 +698,17 @@ gate on push/PR.
   rejection, q-composition), the paginated dashboard (range/links/href-preserving
   q/sort/dir, no-pager-when-no-limit, bundle_listings-parsability), plus the
   / and /api/meta paginated routes and the invalid-pagination 400 path.
+- R90 - Web presentation: interactive dashboard controls: R86-R89 made /
+  searchable, re-rankable and paged, but those abilities (q/sort/dir/limit) were
+  only reachable by hand-editing the URL — a browser user had no search box,
+  dropdowns or button, so they were undiscoverable. R90 makes / interactive with
+  no JavaScript: dashboard_html() emits a dependency-free GET form
+  (<form class="dashboard-controls">) whose q (search input) / sort / dir / limit
+  (three <select>s) controls reflect the current query (via _option) and, on
+  submit, drive the same report_server routes; a hostile q is HTML-escaped in
+  the echoed value. fv/web/report_server.py adds _SORT_LABELS, _PAGE_SIZES,
+  _option and _controls_html. Tests (tests/test_r90_dashboard_controls.py) cover
+  the pure form builder (defaults index/asc/All, current-query reflection, all
+  sort keys/page sizes listed, hostile-q escaping), the control-bearing dashboard
+  (form always embedded, applies the query, coexists with the pager, stays
+  bundle_listings-parsable), and the live /?q=&sort=&dir=&limit= interaction.
