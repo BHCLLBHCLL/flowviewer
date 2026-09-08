@@ -3547,3 +3547,27 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 - 报告族全量回归（`test_r72_report_bundle` + `test_r74_report_cli` + `test_r76_report_source` + `test_r82_report_web` + `test_r83_automation_bundle` + `test_r84_serve_cli` + `test_r86_report_dashboard` + `test_r87_bundle_summary` + `test_r88_bundle_query` + `test_r89_bundle_pagination` + `test_r90_dashboard_controls` + `test_r91_report_detail` + `test_r92_report_detail_preview`）= 150/150（清理残留 `tests\pytest_tmp` 后全绿）。
 - `ruff`（`fv/web/report_server.py`、`fv/web/__init__.py`、`tests/test_r91_report_detail.py`、`tests/test_r92_report_detail_preview.py`）全部通过。
 - `test_r32_web.py::test_automation_session_chain` 仍为既有 VTK 9.4.2+ 环境问题失败（`vtkOpenGLRenderer` 无 `AddActor2D`），与 R92 无关（R92 未触碰 render/api）。
+
+### 8.88 第九十三轮执行记录：R93 Web 呈现——内容感知搜索 + 机器可读报告内容端点（content-aware search + machine-readable report content endpoint）（2026-09-08 落地）
+
+**缺口**：R86-R92 已把 `/` 做成可交互、可分页、可进入详情的仪表盘，但 `q` 搜索框只匹配报告*标题*（元数据），从不匹配报告正文——正文里才出现的词永远搜不到；同时也没有机器可读的路由来取单个报告的正文（R92 的内嵌预览靠 iframe 引用原始 `.html`，而非结构化内容接口）。R93 落入「Web 呈现」方向：让 `q` 也能命中正文（可选开启），并补齐机器可读的 `/api/report/content` 内容端点，向后兼容 R86-R92 全部测试。
+
+**S1 实现（`fv/web/report_server.py`，R92 深化）**
+- `query_reports(rows, *, q=None, sort=None, dir="asc", content=False, bundle_dir=None)`：新增可选 `content` 模式——当 `content=True` **且** 给出 `bundle_dir` 时，`q` 除匹配元数据外还匹配报告正文（通过 `report_content` 惰性读取；正文缺失/不可读视为非匹配，`bundle_dir` 缺省时跳过正文分支，使元数据路径行为完全不变）。
+- `_controls_html`/`dashboard_html`/`_dashboard_href`/`_detail_href`/`report_detail_html`：新增 `content` 参数并全程透传——仪表盘输出一个零依赖 `<label class="content-toggle"><input type="checkbox" name="content" value="1">search report content</label>` 复选框；分页链接 `/` 、返回链接 `/` 与详情页上一份/下一份导航均保留 `content=1`，使内容模式查询在表单提交、翻页、回退与前后导航之间持续生效。
+- HTTP 处理器新增 `_param_flag(key) -> bool`（当 `content=1` 时返回 `True`，供 `content` 旗标解析）；`_route_dashboard`、`_route_meta`、`_route_report_detail` 均按该旗标透传 `content` 到 `dashboard_html`/`query_reports`/`report_detail_html`。
+- 新增 `_route_report_content`：`/api/report/content?name=…` 返回 `{ok, bundle, title, name, content}` JSON——`name` 缺失返回 400 `missing name`，未知/逃逸报告返回 404 `unknown report`，成功返回绝对 `bundle` 目录路径、`title` 为 bundle 标题、`content` 为报告原文。
+- `do_GET` 分发在 `/api/report` 之前插入 `/api/report/content` 路由。
+
+**S2 测试**（`tests/test_r93_report_content_query.py`，25 项全过）
+- `query_reports` 内容模式：仅当 `content=True` + `bundle_dir` 时命中正文关键词（且元数据仍可命中）、未给 `bundle_dir` 时跳过正文分支、两个正文关键词各命中一份报告。
+- `_pager_href`/`_controls_html`：开启时包含 `content=1`，且复选框在激活时勾选。
+- `dashboard_html`：内容搜索按正文过滤、分页保留 `content=1`、非内容搜索不勾选复选框。
+- `report_detail_html`：返回链接/下一页保留 `content`、内容查询收窄匹配数。
+- HTTP 路由：`/api/report/content` 返回 JSON（200/400/404）；`/api/meta?q=zebra&content=1` 过滤；`/?q=zebra&content=1` 过滤；`/report/…?content=1` 保留内容旗标。
+
+**验证**
+- `tests/test_r93_report_content_query.py` = 25/25；R93 + R88-R92 向后兼容定向回归全过（83 passed，含 R90/R91/R92 既有断言 16/16、10/10）。
+- 报告族全量回归（`test_r72_report_bundle` + `test_r74_report_cli` + `test_r76_report_source` + `test_r82_report_web` + `test_r83_automation_bundle` + `test_r84_serve_cli` + `test_r86_report_dashboard` + `test_r87_bundle_summary` + `test_r88_bundle_query` + `test_r89_bundle_pagination` + `test_r90_dashboard_controls` + `test_r91_report_detail` + `test_r92_report_detail_preview` + `test_r93_report_content_query`）= 341/341。
+- `ruff`（`fv/web/report_server.py`、`tests/test_r93_report_content_query.py`）全部通过（已修正 Python 3.9 不支持 f-string 替换字段内换行的问题，前置计算 `prev_href`/`nxt_href` 变量后再构建 f-string）。
+- 其余 7 项失败均为渲染/API 且依赖 VTK 未安装，与 R93 无关（R93 未触碰 render/api）。

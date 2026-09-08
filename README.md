@@ -745,3 +745,25 @@ gate on push/PR.
   embedded preview (and its absence for an unreadable report), the navigation
   preserved alongside it, and the live /report/<name> and /<report>.html routes
   backing the iframe.
+- R93 - Web presentation: content-aware search + machine-readable report content
+  endpoint: R86-R92 made / an interactive, paged, detail-able dashboard, but the
+  search/q box only matched report *titles* (metadata), never the report body, and
+  there was no machine-readable route to fetch a single report's content — a user
+  searching for a term that only appears inside a report could never find it. R93
+  deepens fv/web/report_server.py: query_reports() gains an opt-in content mode —
+  when content=True and a bundle_dir is given, q also matches report body text
+  (read lazily via report_content(); body missing/unreadable treated as a
+  non-match, and without a bundle_dir the content branch is skipped so the
+  metadata-only path is unchanged); a _param_flag() handler helper parses
+  content=1; the content flag is threaded through _controls_html(), dashboard_html(),
+  _dashboard_href() and _detail_href() (so a content-mode query survives the form,
+  pager, back-links and previous/next navigation); report_detail_html() and the /
+  dashboard and /api/meta routes all honour it; and a new /api/report/content?name=…
+  -> _route_report_content route returns {ok, bundle, title, name, content} JSON
+  (400 on a missing name, 404 on unknown). The dashboard emits a dependency-free
+  <label class="content-toggle"> checkbox so a browser user can switch on
+  content search with no JavaScript. Tests (tests/test_r93_report_content_query.py)
+  cover the content-mode query matcher, the content checkbox, the content-aware
+  dashboard / detail pages, the preserved content flag through the pager and
+  navigation, and the live /api/report/content, /api/meta?content=1, /?content=1
+  and /report/<name>?content=1 routes.

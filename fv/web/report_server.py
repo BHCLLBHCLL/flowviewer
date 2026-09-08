@@ -22,6 +22,8 @@ Endpoints:
 * ``GET /api/bundle.zip``       -> download the whole bundle as an archive
 * ``GET /api/report?name=<n>``  -> JSON single-report metadata (name / label /
   title / size / mtime / index)
+* ``GET /api/report/content?name=<n>`` -> JSON single-report content (raw HTML
+  text; 400 on a missing name, 404 on unknown / unreadable) (R93)
 * ``GET /<report>.html``        -> a single report (path-traversal safe)
 * ``GET /report/<name>``        -> dashboard-context detail page for one report
   (back link, metadata, open link, embedded report preview, prev/next
@@ -56,6 +58,16 @@ each report without clicking out (the "open report" link now targets the
 absolute raw path instead of a relative one that resolved back to the page
 itself). It also adds ``report_content()``, a pure path-safe helper returning
 the report's raw HTML text, as the machine counterpart to ``report_detail()``.
+R93 closes the last Web-呈现 content gap: ``/``, ``/api/meta`` and
+``/report/<name>`` could only search a report's name / label / title, so a user
+typing a keyword found *inside* a report's body got no matches, and there was no
+machine way to fetch a single report's content over HTTP. It deepens
+``query_reports`` with an opt-in ``content=True`` mode (plus a ``bundle_dir``
+to read bodies) so ``q`` also matches the report body text, threads a
+``content=1`` flag through the dashboard, its controls form and the pager /
+detail navigation (so a content-mode query survives paging and prev / next),
+and adds ``/api/report/content?name=``, the JSON counterpart to ``/api/report``
+that returns a report's raw HTML text.
 No third-party dependencies are added.
 """
 
@@ -240,8 +252,9 @@ def bundle_summary(bundle_dir) -> dict:
 _SORT_KEYS = ("name", "label", "title", "size", "mtime")
 
 
-def query_reports(rows, *, q=None, sort=None, dir="asc") -> list[dict]:
-    """Filter / sort a list of :func:`report_meta` rows (R88).
+def query_reports(rows, *, q=None, sort=None, dir="asc", content=False,
+                  bundle_dir=None) -> list[dict]:
+    """Filter / sort a list of :func:`report_meta` rows (R88; content R93).
 
     ``q`` is a case-insensitive substring match against a row's ``name``,
     ``label`` or ``title``. ``sort`` orders by ``name``/``label``/``title``
@@ -249,16 +262,33 @@ def query_reports(rows, *, q=None, sort=None, dir="asc") -> list[dict]:
     ``"asc"`` (default) or ``"desc"``. An unknown ``sort`` key raises
     :class:`ValueError`. With no arguments the rows are returned in their given
     (index) order, so the dashboard and ``/api/meta`` stay backward compatible.
+
+    When ``content`` is ``True`` *and* ``bundle_dir`` is given, ``q`` also
+    matches a report's body text (read lazily via :func:`report_content`); a
+    body that is missing or unreadable is treated as a non-match, so a content
+    search never breaks on a stale index. Without ``bundle_dir`` the content
+    branch is skipped, so the metadata-only behaviour is unchanged.
     """
     result = list(rows)
     if q:
         needle = q.lower()
-        result = [
-            row for row in result
-            if needle in row["name"].lower()
-            or needle in row["label"].lower()
-            or needle in row["title"].lower()
-        ]
+        if content and bundle_dir is not None:
+            def _matches(row):
+                if (needle in row["name"].lower()
+                        or needle in row["label"].lower()
+                        or needle in row["title"].lower()):
+                    return True
+                text = report_content(bundle_dir, row["name"])
+                return text is not None and needle in text.lower()
+
+            result = [row for row in result if _matches(row)]
+        else:
+            result = [
+                row for row in result
+                if needle in row["name"].lower()
+                or needle in row["label"].lower()
+                or needle in row["title"].lower()
+            ]
     if sort:
         if sort not in _SORT_KEYS:
             raise ValueError(f"unknown sort key {sort!r}")
@@ -293,7 +323,8 @@ def window_reports(rows, *, limit=None, offset=0) -> list[dict]:
 
 
 def _pager_href(offset: int, limit: Optional[int], q: Optional[str],
-                sort: Optional[str], dir: str, dir_default: str = "asc") -> str:
+                sort: Optional[str], dir: str, dir_default: str = "asc",
+                content: bool = False) -> str:
     """Build a dashboard query string that preserves q/sort/dir for a pager."""
     parts = []
     if limit is not None:
@@ -306,6 +337,8 @@ def _pager_href(offset: int, limit: Optional[int], q: Optional[str],
         parts.append(f"sort={sort}")
     if dir and dir != dir_default:
         parts.append(f"dir={dir}")
+    if content:
+        parts.append("content=1")
     return "?" + "&".join(parts)
 
 
@@ -330,7 +363,7 @@ def _option(selected: Optional[str], value: str, text: str) -> str:
 
 
 def _controls_html(q: Optional[str], sort: Optional[str], dir: str,
-                   limit: Optional[int]) -> str:
+                   limit: Optional[int], content: bool = False) -> str:
     """A dependency-free ``GET`` form driving the dashboard query (R90).
 
     Lets a browser user type a ``q`` substring, pick a ``sort`` key / ``dir``
@@ -338,6 +371,10 @@ def _controls_html(q: Optional[str], sort: Optional[str], dir: str,
     searchable / re-rankable / paged view without hand-editing the URL. Every
     control reflects the current ``dashboard_html`` argument, and the form
     defaults to the index order / ascending / all pages when no query is set.
+
+    R93 adds an opt-in ``content`` checkbox: when checked the form submits
+    ``content=1`` (reflected as ``checked`` when the current query is a content
+    search), so ``q`` also matches report body text on submission.
     """
     q_esc = html.escape(q or "", quote=True)
     sort_opts = _option(sort, "", "Index order") + "".join(
@@ -347,18 +384,22 @@ def _controls_html(q: Optional[str], sort: Optional[str], dir: str,
     limit_opts = "".join(
         _option(limit_cur, size, "All" if not size else size)
         for size in _PAGE_SIZES)
+    content_attr = ' checked' if content else ""
     return ('<form class="dashboard-controls" method="get" action="/">\n'
             f'<input type="search" name="q" value="{q_esc}" '
             'placeholder="filter by name / label / title">\n'
             f'<select name="sort">{sort_opts}</select>\n'
             f'<select name="dir">{dir_opts}</select>\n'
             f'<select name="limit">{limit_opts}</select>\n'
+            f'<label class="content-toggle"><input type="checkbox" '
+            f'name="content" value="1"{content_attr}>search report content'
+            '</label>\n'
             '<button type="submit">apply</button>\n'
             '</form>\n')
 
 
 def dashboard_html(bundle_dir, title=None, *, q=None, sort=None, dir="asc",
-                   limit=None, offset=0) -> str:
+                   limit=None, offset=0, content=False) -> str:
     """A richer bundle overview page with per-report metadata (R86).
 
     Keeps the ``report_index_html`` ``<li><a href="X">label</a></li>`` anchors so
@@ -378,12 +419,17 @@ def dashboard_html(bundle_dir, title=None, *, q=None, sort=None, dir="asc",
     (``<form class="dashboard-controls">``) letting a browser user type a ``q``
     substring, pick a ``sort`` key / ``dir`` direction and a ``limit`` page
     size, so ``/`` is a searchable / re-rankable / paged view without hand-
-    editing the URL. ``title`` (fallback: the bundle's ``<title>``) drives the
-    ``<h1>``.
+    editing the URL. R93 makes the search content-aware: when ``content`` is
+    ``True`` the ``q`` filter also matches report body text (via
+    :func:`report_content`), an opt-in ``content`` checkbox appears in the
+    controls form (pre-checked for a content search), and the pager links
+    preserve ``content=1`` so a content-mode query survives paging. ``title``
+    (fallback: the bundle's ``<title>``) drives the ``<h1>``.
     """
     bdir = Path(bundle_dir)
     heading = title or bundle_title(bdir / "index.html")
-    matched = query_reports(report_meta(bdir), q=q, sort=sort, dir=dir)
+    matched = query_reports(report_meta(bdir), q=q, sort=sort, dir=dir,
+                            content=content, bundle_dir=bdir)
     total = len(matched)
     rows = window_reports(matched, limit=limit, offset=offset)
     summary = _summary_from_rows(matched)
@@ -418,14 +464,16 @@ def dashboard_html(bundle_dir, title=None, *, q=None, sort=None, dir="asc",
             prev = max(0, offset - limit)
             pager_parts.append(
                 f'<a class="pager-prev" href='
-                f'"{_pager_href(prev, limit, q, sort, dir)}">previous</a>')
+                f'"{_pager_href(prev, limit, q, sort, dir, content=content)}"'
+                f'>previous</a>')
         if offset + len(rows) < total:
             nxt = offset + len(rows)
             pager_parts.append(
                 f'<a class="pager-next" href='
-                f'"{_pager_href(nxt, limit, q, sort, dir)}">next</a>')
+                f'"{_pager_href(nxt, limit, q, sort, dir, content=content)}"'
+                f'>next</a>')
         pagination = f'<p class="pagination">{" · ".join(pager_parts)}</p>\n'
-    controls = _controls_html(q, sort, dir, limit)
+    controls = _controls_html(q, sort, dir, limit, content=content)
     return ("<!doctype html>\n<html><head><meta charset=\"utf-8\">"
             f"<title>{html.escape(heading)}</title></head><body>"
             f"<h1>{html.escape(heading)}</h1>"
@@ -487,19 +535,21 @@ def _detail_nav(rows, name) -> tuple[Optional[str], Optional[str]]:
     return prev, nxt
 
 
-def _dashboard_href(q: Optional[str], sort: Optional[str], dir: str) -> str:
-    """Dashboard ``/`` URL that preserves ``q``/``sort``/``dir`` (R91)."""
-    return "/" + _pager_href(0, None, q, sort, dir)
+def _dashboard_href(q: Optional[str], sort: Optional[str], dir: str,
+                    content: bool = False) -> str:
+    """Dashboard ``/`` URL that preserves ``q``/``sort``/``dir`` (R91; content R93)."""
+    return "/" + _pager_href(0, None, q, sort, dir, content=content)
 
 
-def _detail_href(name: str, q: Optional[str], sort: Optional[str], dir: str) -> str:
-    """Detail ``/report/<name>`` URL that preserves ``q``/``sort``/``dir`` (R91)."""
+def _detail_href(name: str, q: Optional[str], sort: Optional[str], dir: str,
+                 content: bool = False) -> str:
+    """Detail ``/report/<name>`` URL preserving query (R91; content R93)."""
     return ("/report/" + urllib.parse.quote(name, safe="")
-            + _pager_href(0, None, q, sort, dir))
+            + _pager_href(0, None, q, sort, dir, content=content))
 
 
-def report_detail_html(bundle_dir, name, *, q=None, sort=None, dir="asc"
-                       ) -> Optional[str]:
+def report_detail_html(bundle_dir, name, *, q=None, sort=None, dir="asc",
+                       content=False) -> Optional[str]:
     """A dashboard-context detail page for a single report (R91/R92).
 
     Renders the report's ``label`` (or ``name``) as the ``<h1>``, a crumb trail
@@ -511,17 +561,20 @@ def report_detail_html(bundle_dir, name, *, q=None, sort=None, dir="asc"
     absolute path) so a user reads each report in context, and the "open
     report" link now targets that absolute raw path instead of a relative one
     that resolved back to the page itself; the preview is skipped when the
-    report is unreadable. Returns ``None`` when *name* is unknown or escapes the
-    bundle, so the caller can 404.
+    report is unreadable. R93 threads ``content`` through the nav (dashboard
+    back-link and prev / next hrefs preserve ``content=1``) and the query, so a
+    content-mode search survives leaving a report. Returns ``None`` when *name*
+    is unknown or escapes the bundle, so the caller can 404.
     """
     bdir = Path(bundle_dir)
     entry = report_detail(bdir, name)
     if entry is None:
         return None
     heading = entry["label"] or entry["name"]
-    matched = query_reports(report_meta(bdir), q=q, sort=sort, dir=dir)
+    matched = query_reports(report_meta(bdir), q=q, sort=sort, dir=dir,
+                            content=content, bundle_dir=bdir)
     prev, nxt = _detail_nav(matched, name)
-    dash = _dashboard_href(q, sort, dir)
+    dash = _dashboard_href(q, sort, dir, content=content)
     crumbs = (f'<p class="crumbs"><a href="{html.escape(dash)}">dashboard</a>'
               f" · {len(matched)} match(es)</p>\n")
     caption = " · ".join(part for part in (
@@ -534,12 +587,14 @@ def report_detail_html(bundle_dir, name, *, q=None, sort=None, dir="asc"
                  "open report</a></p>\n")
     nav_parts = []
     if prev:
-        nav_parts.append(f'<a class="detail-prev" href='
-                         f'"{html.escape(_detail_href(prev, q, sort, dir))}">'
+        prev_href = html.escape(_detail_href(prev, q, sort, dir,
+                                             content=content))
+        nav_parts.append(f'<a class="detail-prev" href="{prev_href}">'
                          f'previous</a>')
     if nxt:
-        nav_parts.append(f'<a class="detail-next" href='
-                         f'"{html.escape(_detail_href(nxt, q, sort, dir))}">'
+        nxt_href = html.escape(_detail_href(nxt, q, sort, dir,
+                                            content=content))
+        nav_parts.append(f'<a class="detail-next" href="{nxt_href}">'
                          f'next</a>')
     nav = ""
     if nav_parts:
@@ -602,6 +657,8 @@ class ReportBundleHandler(BaseHTTPRequestHandler):
             return self._route_summary()
         if route == "/api/bundle.zip":
             return self._route_zip()
+        if route == "/api/report/content":
+            return self._route_report_content()
         if route == "/api/report":
             return self._route_report_api()
         if route.startswith("/report/"):
@@ -638,15 +695,21 @@ class ReportBundleHandler(BaseHTTPRequestHandler):
         except ValueError:
             raise ValueError(f"invalid {key}: {value!r}") from None
 
+    def _param_flag(self, key: str) -> bool:
+        """True when a boolean query flag (``content=1``) is set (R93)."""
+        return self._param(key) == "1"
+
     def _route_dashboard(self):
         """Serve the metadata dashboard at ``/`` (R86; queryable R88, windowed R89)."""
         title = bundle_title(self.index)
+        content = self._param_flag("content")
         try:
             payload = dashboard_html(
                 self.bundle_dir, title, q=self._param("q"),
                 sort=self._param("sort"), dir=self._param("dir") or "asc",
                 limit=self._param_int("limit"),
                 offset=self._param_int("offset") or 0,
+                content=content,
             ).encode("utf-8")
         except ValueError as exc:
             return _send_error(self, 400, str(exc))
@@ -663,6 +726,7 @@ class ReportBundleHandler(BaseHTTPRequestHandler):
             matched = query_reports(
                 report_meta(self.bundle_dir), q=self._param("q"),
                 sort=self._param("sort"), dir=self._param("dir") or "asc",
+                content=self._param_flag("content"), bundle_dir=self.bundle_dir,
             )
             rows = window_reports(matched, limit=limit, offset=offset)
         except ValueError as exc:
@@ -703,12 +767,29 @@ class ReportBundleHandler(BaseHTTPRequestHandler):
             "report": entry,
         })
 
+    def _route_report_content(self):
+        """Serve a single report's raw content as JSON (R93)."""
+        name = self._param("name")
+        if not name:
+            return _send_error(self, 400, "missing name")
+        content = report_content(self.bundle_dir, name)
+        if content is None:
+            return _send_error(self, 404, f"unknown report: {name}")
+        _send_json(self, {
+            "ok": True,
+            "bundle": str(Path(self.bundle_dir).resolve()),
+            "title": bundle_title(self.index),
+            "name": name,
+            "content": content,
+        })
+
     def _route_report_detail(self, route: str):
         """Serve the dashboard-context detail page for one report (R91)."""
         name = urllib.parse.unquote(route[len("/report/"):])
         body = report_detail_html(
             self.bundle_dir, name, q=self._param("q"),
             sort=self._param("sort"), dir=self._param("dir") or "asc",
+            content=self._param_flag("content"),
         )
         if body is None:
             return _send_error(self, 404, f"unknown report: {name}")
