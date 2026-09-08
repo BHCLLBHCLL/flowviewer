@@ -682,3 +682,19 @@ gate on push/PR.
   sort, unknown-key ValueError, index-order default), the queryable dashboard
   (and its bundle_listings-parsability), plus the / and /api/meta query-string
   routes and the 400 path.
+- R89 - Web presentation: bundle pagination / windowing layer: R86-R88 made /
+  rich, searchable and re-rankable, yet still rendered the *whole* (matched) set
+  on one page — a large bundle had no paged browsing. R89 deepens
+  fv/web/report_server.py: window_reports() slices a report_meta row list by
+  limit/offset (limit=None returns everything for R86-R88 compatibility;
+  negative limit/offset raise ValueError), dashboard_html() gains keyword
+  limit/offset and renders a pager <p class="pagination"> (showing range +
+  previous/next links that preserve q/sort/dir via _pager_href) while the summary
+  block always reflects the full matched set, and both /?limit=&offset= and
+  /api/meta?limit=&offset= window their output (/api/meta adds total/offset/limit
+  fields; invalid pagination params return a 400 JSON error). fv.web re-exports
+  window_reports. Tests (tests/test_r89_bundle_pagination.py) cover the pure
+  windowing helper (no-limit identity, slicing, input immutability, negative
+  rejection, q-composition), the paginated dashboard (range/links/href-preserving
+  q/sort/dir, no-pager-when-no-limit, bundle_listings-parsability), plus the
+  / and /api/meta paginated routes and the invalid-pagination 400 path.

@@ -18,6 +18,7 @@ from .report_server import (
     query_reports,
     report_meta,
     serve_bundle,
+    window_reports,
 )
 from .server import WebViewerServer, serve_session
 
@@ -31,4 +32,5 @@ __all__ = [
     "report_meta",
     "serve_bundle",
     "serve_session",
+    "window_reports",
 ]

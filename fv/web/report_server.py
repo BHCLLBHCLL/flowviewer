@@ -28,7 +28,11 @@ a live dashboard built from ``report_meta`` (report's own ``<title>`` plus
 R87 adds a bundle overview: ``bundle_summary`` aggregates the per-report metadata
 into a count / total size / generated span, the dashboard renders it as a summary
 block, and ``/api/meta`` (plus the new ``/api/summary``) exposes it machine-
-readably. No third-party dependencies are added.
+readably. R88 makes both ``/`` and ``/api/meta`` queryable/re-rankable via
+``q`` / ``sort`` / ``dir``. R89 adds ``limit`` / ``offset`` windowing so a large
+bundle is browsable in pages -- ``/`` renders a pager (previous / next, preserving
+``q``/``sort``/``dir``) and ``/api/meta`` returns ``total`` / ``offset`` / ``limit``
+alongside the page. No third-party dependencies are added.
 """
 
 from __future__ import annotations
@@ -244,7 +248,45 @@ def query_reports(rows, *, q=None, sort=None, dir="asc") -> list[dict]:
     return result
 
 
-def dashboard_html(bundle_dir, title=None, *, q=None, sort=None, dir="asc") -> str:
+def window_reports(rows, *, limit=None, offset=0) -> list[dict]:
+    """Window a (filtered / sorted) :func:`report_meta` row list (R89).
+
+    ``limit`` is ``None`` for no windowing (return everything) or a non-negative
+    row count for the page size; ``offset`` is a non-negative skip. The slice
+    ``rows[offset:offset+limit]`` is returned, so an ``offset`` past the end
+    yields ``[]`` and ``limit`` ``0`` yields ``[]``. Negative ``limit`` /
+    ``offset`` raise :class:`ValueError`. With ``limit`` ``None`` the rows are
+    returned unchanged, so ``dashboard_html`` and ``/api/meta`` stay backward
+    compatible when no pagination is requested.
+    """
+    if limit is not None and limit < 0:
+        raise ValueError("limit must be >= 0")
+    if offset < 0:
+        raise ValueError("offset must be >= 0")
+    if limit is None:
+        return list(rows)
+    return list(rows[offset:offset + limit])
+
+
+def _pager_href(offset: int, limit: Optional[int], q: Optional[str],
+                sort: Optional[str], dir: str, dir_default: str = "asc") -> str:
+    """Build a dashboard query string that preserves q/sort/dir for a pager."""
+    parts = []
+    if limit is not None:
+        parts.append(f"limit={limit}")
+    if offset:
+        parts.append(f"offset={offset}")
+    if q:
+        parts.append(f"q={urllib.parse.quote(q, safe='')}")
+    if sort:
+        parts.append(f"sort={sort}")
+    if dir and dir != dir_default:
+        parts.append(f"dir={dir}")
+    return "?" + "&".join(parts)
+
+
+def dashboard_html(bundle_dir, title=None, *, q=None, sort=None, dir="asc",
+                   limit=None, offset=0) -> str:
     """A richer bundle overview page with per-report metadata (R86).
 
     Keeps the ``report_index_html`` ``<li><a href="X">label</a></li>`` anchors so
@@ -255,13 +297,20 @@ def dashboard_html(bundle_dir, title=None, *, q=None, sort=None, dir="asc") -> s
     count, total size, generated span) built from :func:`bundle_summary`. R88
     lets ``q`` filter by title/label/name and ``sort``/``dir`` re-order the
     reports, so ``/?q=&sort=&dir=`` gives a searchable, re-rankable dashboard
-    (the summary block tracks the visible subset). ``title`` (fallback: the
-    bundle's ``<title>``) drives the ``<h1>``.
+    (the summary block tracks the matched subset). R89 adds ``limit``/``offset``
+    windowing: with a ``limit`` the page renders only that slice and a
+    ``<p class="pagination">`` ranges line plus previous / next links (which
+    preserve ``q``/``sort``/``dir``) appears, so a large bundle is browsable in
+    pages. The summary block always reflects the *whole* match (``q``/``sort``
+    applied), not just the page. ``title`` (fallback: the bundle's ``<title>``)
+    drives the ``<h1>``.
     """
     bdir = Path(bundle_dir)
     heading = title or bundle_title(bdir / "index.html")
-    rows = query_reports(report_meta(bdir), q=q, sort=sort, dir=dir)
-    summary = _summary_from_rows(rows)
+    matched = query_reports(report_meta(bdir), q=q, sort=sort, dir=dir)
+    total = len(matched)
+    rows = window_reports(matched, limit=limit, offset=offset)
+    summary = _summary_from_rows(matched)
     summary_parts = [
         f'{summary["report_count"]} report(s)',
         f'{_fmt_size(summary["total_bytes"])} total',
@@ -279,11 +328,32 @@ def dashboard_html(bundle_dir, title=None, *, q=None, sort=None, dir="asc") -> s
         items.append(f'<li class="meta">{html.escape(" · ".join(caption_parts))}'
                      f"</li>\n")
     body = "".join(items)
+    pagination = ""
+    if limit is not None:
+        if rows:
+            start = offset + 1
+            end = offset + len(rows)
+            range_text = f"showing {start}–{end} of {total}"
+        else:
+            range_text = f"showing 0 of {total}"
+        pager_parts = [f'<span class="pager-range">{html.escape(range_text)}'
+                       f"</span>"]
+        if offset > 0:
+            prev = max(0, offset - limit)
+            pager_parts.append(
+                f'<a class="pager-prev" href='
+                f'"{_pager_href(prev, limit, q, sort, dir)}">previous</a>')
+        if offset + len(rows) < total:
+            nxt = offset + len(rows)
+            pager_parts.append(
+                f'<a class="pager-next" href='
+                f'"{_pager_href(nxt, limit, q, sort, dir)}">next</a>')
+        pagination = f'<p class="pagination">{" · ".join(pager_parts)}</p>\n'
     return ("<!doctype html>\n<html><head><meta charset=\"utf-8\">"
             f"<title>{html.escape(heading)}</title></head><body>"
             f"<h1>{html.escape(heading)}</h1>"
             f'<p class="summary">{html.escape(" · ".join(summary_parts))}</p>'
-            f"<ul>\n{body}</ul></body></html>\n")
+            f"{pagination}<ul>\n{body}</ul></body></html>\n")
 
 
 def _content_type(path: Path) -> str:
@@ -352,13 +422,25 @@ class ReportBundleHandler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlsplit(self.path)
         return urllib.parse.parse_qs(parsed.query).get(key, [None])[0]
 
+    def _param_int(self, key: str) -> Optional[int]:
+        """First query value as an ``int``, ``None`` if absent, else ``ValueError``."""
+        value = self._param(key)
+        if value is None or value == "":
+            return None
+        try:
+            return int(value)
+        except ValueError:
+            raise ValueError(f"invalid {key}: {value!r}") from None
+
     def _route_dashboard(self):
-        """Serve the metadata dashboard at ``/`` (R86, queryable in R88)."""
+        """Serve the metadata dashboard at ``/`` (R86; queryable R88, windowed R89)."""
         title = bundle_title(self.index)
         try:
             payload = dashboard_html(
                 self.bundle_dir, title, q=self._param("q"),
                 sort=self._param("sort"), dir=self._param("dir") or "asc",
+                limit=self._param_int("limit"),
+                offset=self._param_int("offset") or 0,
             ).encode("utf-8")
         except ValueError as exc:
             return _send_error(self, 400, str(exc))
@@ -370,18 +452,25 @@ class ReportBundleHandler(BaseHTTPRequestHandler):
 
     def _route_meta(self):
         try:
-            rows = query_reports(
+            limit = self._param_int("limit")
+            offset = self._param_int("offset") or 0
+            matched = query_reports(
                 report_meta(self.bundle_dir), q=self._param("q"),
                 sort=self._param("sort"), dir=self._param("dir") or "asc",
             )
+            rows = window_reports(matched, limit=limit, offset=offset)
         except ValueError as exc:
             return _send_error(self, 400, str(exc))
+        total = len(matched)
         _send_json(self, {
             "ok": True,
             "bundle": str(Path(self.bundle_dir).resolve()),
             "title": bundle_title(self.index),
+            "total": total,
+            "offset": offset,
+            "limit": limit,
             "reports": rows,
-            "summary": _summary_from_rows(rows),
+            "summary": _summary_from_rows(matched),
         })
 
     def _route_summary(self):

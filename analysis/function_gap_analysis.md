@@ -3459,3 +3459,25 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 - 报告族全量回归（`test_r72_report_bundle` + `test_r74_report_cli` + `test_r75_analysis_import` + `test_r76_report_source` + `test_r77_sequence_source` + `test_r82_report_web` + `test_r83_automation_bundle` + `test_r84_serve_cli` + `test_r85_gui_publish` + `test_r86_report_dashboard` + `test_r87_bundle_summary` + `test_r88_bundle_query`）= 118/118。
 - `ruff`（`fv/web/report_server.py`、`fv/web/__init__.py`、`tests/test_r88_bundle_query.py`）全部通过。
 - `test_r32_web.py::test_automation_session_chain` 仍为既有 VTK 9.4.2+ 环境问题失败（`vtkOpenGLRenderer` 无 `AddActor2D`），与 R88 无关（R88 未触碰 render/api）。
+
+### 8.84 第八十九轮执行记录：R89 Web 呈现——bundle 分页/窗口化层（web presentation: bundle pagination / windowing layer）（2026-09-08 落地）
+
+**缺口**：R86-R88 让 `/` 成为丰富、可搜索、可重排的总览仪表盘并暴露 `/api/meta`/`/api/summary`，但这些端点仍渲染**整个（匹配）集合**——报告一多，用户无法逐页浏览：想看「前 20 个报告」「第 2 页的窗口」，只能一次拉到全部再本地切片。落入规划文档 955 行「Web 呈现」方向下的浏览层。R89 在这一层之上加**分页/窗口化层**（pagination/windowing）：`window_reports` 按 `limit`/`offset` 对（过滤/排序后的）行列表切片，`dashboard_html` 渲染分页切片并带 previous/next 分页链接（通过 `_pager_href` 保留 `q`/`sort`/`dir`），`/` 与 `/api/meta` 通过相同的 `limit`/`offset` 逐页浏览（`/api/meta` 新增 `total`/`offset`/`limit` 字段）。全程零第三方依赖、向后兼容 R86-R88 全部测试。
+
+**S1 实现（`fv/web/report_server.py`，R86/R87/R88 深化）**
+- `window_reports(rows, *, limit=None, offset=0) -> list[dict]`：`limit` 为 `None`（不加窗口，原样返回）或非负页大小，`offset` 为非负跳过数；返回切片 `rows[offset:offset+limit]`（`limit` 为 `0` 或 `offset` 越过末尾均得 `[]`）；负 `limit`/`offset` 抛 `ValueError`。`limit` 为 `None` 时原样返回，故 `dashboard_html` 与 `/api/meta` 默认行为向后兼容。
+- `_pager_href(offset, limit, q, sort, dir, dir_default="asc") -> str`：构建保留 `limit`/`offset`/`q`/`sort`/`dir` 的分页查询串（`dir` 为默认值时省略、`q` 用 URL 编码）。
+- `dashboard_html` 签名增 `*, limit=None, offset=0`：内部用 `query_reports` 过滤/排序得 `matched`，用 `window_reports` 切片得本页 `rows`，summary 区块始终反映**整个匹配集**（q/sort 应用后），有 `limit` 时渲染 `<p class="pagination">`（`showing 起始–结束 of 总数` range 行 + previous/next 链接），无 `limit` 不渲染 pager。
+- 路由：`_route_dashboard`/`_route_meta` 消费 `limit`/`offset`（新增 `_param_int` helper 从 URL 提取整型参数，非法/空返回 `None` 或抛 `ValueError` 映射为 400 JSON）；`/api/meta` 新增 `total`/`offset`/`limit` 字段，`reports` 为窗口切片、`summary` 基于全匹配。
+- `fv/web/__init__.py` 导出 `window_reports`。
+
+**S2 测试**（`tests/test_r89_bundle_pagination.py`，13 项全过）
+- `window_reports`：无 `limit` 保索引序、`limit`+`offset` 切片（含越界/`limit=0`）、不改变输入、负 `limit`/`offset` 抛 `ValueError`、与 `query_reports` 组合（q 后窗口）。
+- `dashboard_html`：`limit` 渲染 pager（range 行、previous/next 链接的显示/隐藏）、summary 反映全匹配集、pager href 保留 `q`/`sort`/`dir` 并推进 offset、无 `limit` 不渲染 pager、分页页可被 `bundle_listings` 解析、负 `limit` 抛 `ValueError`。
+- HTTP 路由：`/api/meta?limit=&offset=` 返回页 + `total`/`offset`/`limit`；`/?limit=&offset=` 渲染分页切片；无效分页参数（非整型/负数）在 `/` 与 `/api/meta` 均返回 400 JSON。
+
+**验证**
+- `tests/test_r89_bundle_pagination.py` = 13/13；`tests/test_r82_report_web` + `test_r85_gui_publish` + `test_r86_report_dashboard` + `test_r87_bundle_summary` + `test_r88_bundle_query` = 44/44（R82/R85/R86/R87/R88 向后兼容确认）。
+- 报告族全量回归（`test_r80_project_cli` + `test_r81_preset_cli` + `test_r82_report_web` + `test_r83_automation_bundle` + `test_r84_serve_cli` + `test_r85_gui_publish` + `test_r86_report_dashboard` + `test_r87_bundle_summary` + `test_r88_bundle_query` + `test_r89_bundle_pagination`）= 87/87。
+- `ruff`（`fv/web/report_server.py`、`fv/web/__init__.py`、`tests/test_r89_bundle_pagination.py`）全部通过。
+- `test_r32_web.py::test_automation_session_chain` 仍为既有 VTK 9.4.2+ 环境问题失败（`vtkOpenGLRenderer` 无 `AddActor2D`），与 R89 无关（R89 未触碰 render/api）。
