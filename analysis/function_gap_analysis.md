@@ -3595,3 +3595,28 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 - `tests/test_r94_report_match_snippet.py` = 30/30；R94 + R88-R93 向后兼容定向回归全过（71 passed）。
 - Web/报告族全量回归（`test_r82_report_web` + `test_r83_automation_bundle` + `test_r84_serve_cli` + `test_r85_gui_publish` + `test_r86_report_dashboard` + `test_r87_bundle_summary` + `test_r88_bundle_query` + `test_r89_bundle_pagination` + `test_r90_dashboard_controls` + `test_r91_report_detail` + `test_r92_report_detail_preview` + `test_r93_report_content_query` + `test_r94_report_match_snippet`）= 152/152。
 - `ruff`（`fv/web/report_server.py`、`fv/web/__init__.py`、`tests/test_r94_report_match_snippet.py`）全部通过。
+
+### 8.90 第九十五轮执行记录：R95 Web 呈现——全部正文命中（多片段）+ 命中计数（every body match + match count）（2026-09-11 落地）
+
+**缺口**：R94 为内容搜索（`content=1`）补上了单条正文命中片段，但每份报告只展示*首条*命中——当某个词在正文中反复出现时，用户既不知道总共命中多少处，也看不到其余命中落在哪里，容易误以为只有一处。R95 落入「Web 呈现」方向：把*每一处*非重叠正文命中都呈现出来，并给出命中计数，让用户既能看清命中规模、又能逐条定位；全部改动为增量式，既有报告锚点不变，`bundle_listings` 保持可解析、元数据搜索行为不变，向后兼容 R86-R94 全部测试。
+
+**S1 实现（`fv/web/report_server.py`，R94 深化）**
+- 新增模块常量 `_MAX_SNIPPETS = 5`：仪表盘/详情页每份报告最多渲染的命中片段数，超出部分折叠为「… and N more match(es)」提示。
+- 新增纯函数 `_snippet_window(plain, idx, width, qlen) -> tuple`：抽取以 `plain` 中位置 `idx` 的命中为中心、长度约 `width` 的窗口，返回 `(start, end, text)`；两端被截断时补 `…`，是 `content_snippet`/`content_snippets` 共用的居中数学。
+- 新增纯函数 `content_snippets(bundle_dir, name, q, *, width=120, limit=None) -> list`：取报告正文，`_strip_tags` 去标签并折叠空白，对每一处大小写不敏感 `q` 命中返回一个居中的纯文本窗口（两端补 `…`）；重叠窗口按 `start > prev_end` 合并，`limit` 可截断数量；`q` 为空、正文缺失/不可读、未知/逃逸报告时返回 `[]`。
+- `content_snippet(bundle_dir, name, q, *, width=120) -> Optional[str]` 重实现为 `content_snippets(..., limit=1)` 取首项（无命中时 `None`），R94 行为完全不变。
+- `dashboard_html`：当 `content` 且 `q` 时，对每份匹配报告渲染一条 `<li class="snippet">highlight_html(snippet, q)</li>`（最多 `_MAX_SNIPPETS` 条），超出时再追加 `<li class="snippet-more">… and N more match(es)</li>`；新增 class 与既有 `<li><a>` 锚点不同，故 `bundle_listings` 仍可解析。
+- `report_detail_html`：当 `content` 且 `q` 时渲染若干 `<p class="snippet">highlight_html(snippet, q)</p>`（同样以 `_MAX_SNIPPETS` 截断）。
+- `_route_report_snippet` 扩展为返回 `{ok, bundle, title, name, q, count, snippet, snippets}` JSON：`count` 为命中总数、`snippets` 为全部片段列表、`snippet` 仍为首条（无命中为 `null`）；`name` 缺失 400 `missing name`，`q` 缺失 400 `missing q`，未知/逃逸报告 404 `unknown report`。
+- 模块 docstring 与 `fv/web/__init__.py` 导出（新增 `content_snippets`）同步更新。
+
+**S2 测试**（`tests/test_r95_report_match_snippets.py`，28 项全过）
+- `content_snippets` / `_snippet_window`（纯函数）：每处命中一条（alpha 3、beta 1、gamma 7）、大小写不敏感、无查询/关键词缺失/未知报告/路径逃逸返回 `[]`、`limit=2` 截断、各窗口可区分、两端带 `…`、重叠窗口（`zebra zebra zebra`）合并为 1、`content_snippet == snips[0]`。
+- `dashboard_html`：内容搜索每处命中一条 `<li class="snippet">`（alpha 3 条）；gamma（7 处）截断为 5 条并出现 `<li class="snippet-more">` 与「and 2 more match(es)」；元数据搜索无片段；仅命中元数据（`q=html`）不产生片段；新增后仍可被 `bundle_listings` 解析。
+- `report_detail_html`：内容搜索每处命中一条 `<p class="snippet">`（alpha 3 条）；gamma 以 5 条截断；元数据搜索无片段。
+- HTTP 路由：`/api/report/snippet` 返回 `count==3` 且 `snippets` 长度为 3、`snippet==snippets[0]`；单命中 `count==1`；无命中 `count==0`/`[]`/`null`；缺 name 400、缺 q 400、未知 404；`/?q=zebra&content=1` 渲染 3 条片段；`/?q=zebra` 无片段。
+
+**验证**
+- `tests/test_r95_report_match_snippets.py` = 28/28；R95 + R93-R94 向后兼容定向回归全过（76 passed）。
+- Web/报告族全量回归（`test_r82_report_web` + `test_r83_automation_bundle` + `test_r84_serve_cli` + `test_r85_gui_publish` + `test_r86_report_dashboard` + `test_r87_bundle_summary` + `test_r88_bundle_query` + `test_r89_bundle_pagination` + `test_r90_dashboard_controls` + `test_r91_report_detail` + `test_r92_report_detail_preview` + `test_r93_report_content_query` + `test_r94_report_match_snippet` + `test_r95_report_match_snippets`）= 180/180。
+- `ruff`（`fv/web/report_server.py`、`fv/web/__init__.py`、`tests/test_r95_report_match_snippets.py`）全部通过。

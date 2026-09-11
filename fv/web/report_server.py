@@ -24,9 +24,9 @@ Endpoints:
   title / size / mtime / index)
 * ``GET /api/report/content?name=<n>`` -> JSON single-report content (raw HTML
   text; 400 on a missing name, 404 on unknown / unreadable) (R93)
-* ``GET /api/report/snippet?name=<n>&q=<q>`` -> JSON plain-text excerpt of a
-  report body around a ``q`` match (400 on a missing name / q, 404 on unknown;
-  ``snippet`` is ``null`` when the body does not contain ``q``) (R94)
+* ``GET /api/report/snippet?name=<n>&q=<q>`` -> JSON plain-text excerpts of a
+  report body around every ``q`` match (``count`` + ``snippets`` list, ``snippet``
+  = the first or ``null``; 400 on a missing name / q, 404 on unknown) (R94/R95)
 * ``GET /<report>.html``        -> a single report (path-traversal safe)
 * ``GET /report/<name>``        -> dashboard-context detail page for one report
   (back link, metadata, open link, embedded report preview, prev/next
@@ -86,6 +86,17 @@ sees *why* a report matched; ``/api/report/snippet?name=&q=`` exposes the same
 excerpt machine-readably. The snippets are purely additive (existing report
 anchors are untouched, so ``bundle_listings`` stays parseable and the metadata
 search output is unchanged).
+R95 closes the last Web-呈现 snippet gap: R94's excerpt showed only the *first*
+body match, so a report where the term recurs gave no sense of how many matches
+there are or where the rest are. It adds ``content_snippets()``, a pure helper
+returning one excerpt per non-overlapping body match (overlapping windows merged,
+optionally capped by ``limit``), reimplements ``content_snippet()`` as its first
+element (so R94 behaviour is unchanged), renders one ``<li class="snippet">`` /
+``<p class="snippet">`` per match on the dashboard / detail pages (capped at
+``_MAX_SNIPPETS``, with an "… and N more match(es)" note when the rest are
+collapsed), and extends ``/api/report/snippet?name=&q=`` with ``count`` and a
+``snippets`` list (``snippet`` stays the first excerpt for backward
+compatibility). Everything stays purely additive.
 No third-party dependencies are added.
 """
 
@@ -108,6 +119,10 @@ from typing import Optional
 VERSION = "1.0.0"
 _DEFAULT_TITLE = "flowviewer analysis bundle"
 _HTML_SUFFIXES = (".html", ".htm")
+
+# Most content-search match excerpts rendered per report on the dashboard / detail
+# pages before collapsing the rest into a "… and N more" note (R95).
+_MAX_SNIPPETS = 5
 
 # ``report_index_html`` emits one `<li><a href="X">label</a></li>` per report.
 _ITEM_RE = re.compile(r'<li>\s*<a\s+href="([^"]+)"[^>]*>(.*?)</a>\s*</li>',
@@ -471,6 +486,11 @@ def dashboard_html(bundle_dir, title=None, *, q=None, sort=None, dir="asc",
     ``<li class="snippet">`` plain-text excerpt under each matched report when a
     content search is active (``content`` and ``q``), with the ``q`` match marked
     via :func:`highlight_html`, so a browser user sees *why* a report matched.
+    R95 renders one ``<li class="snippet">`` excerpt per body match (via
+    :func:`content_snippets`), capped at ``_MAX_SNIPPETS`` with a
+    ``<li class="snippet-more">`` "… and N more match(es)" note for the rest, so a
+    report where the term recurs shows every occurrence instead of just the
+    first.
     ``title``
     (fallback: the bundle's ``<title>``) drives the ``<h1>``.
     """
@@ -498,10 +518,16 @@ def dashboard_html(bundle_dir, title=None, *, q=None, sort=None, dir="asc",
         items.append(f'<li class="meta">{html.escape(" · ".join(caption_parts))}'
                      f"</li>\n")
         if content and q:
-            snippet = content_snippet(bdir, row["name"], q)
-            if snippet is not None:
+            snippets = content_snippets(bdir, row["name"], q)
+            shown = snippets[:_MAX_SNIPPETS]
+            for snippet in shown:
                 items.append(
                     f'<li class="snippet">{highlight_html(snippet, q)}</li>\n')
+            extra = len(snippets) - len(shown)
+            if extra:
+                items.append(
+                    f'<li class="snippet-more">… and {extra} more match(es)'
+                    "</li>\n")
     body = "".join(items)
     pagination = ""
     if limit is not None:
@@ -576,36 +602,71 @@ def report_content(bundle_dir, name) -> Optional[str]:
         return None
 
 
-def content_snippet(bundle_dir, name, q, *, width: int = 120) -> Optional[str]:
-    """A short plain-text excerpt of a report body around a ``q`` match (R94).
-
-    Strips the report's HTML tags and collapses whitespace, then returns a
-    ``width``-character window centred on the first case-insensitive ``q`` match
-    (prefixed / suffixed with ``…`` when the window is truncated at either end).
-    Returns ``None`` when ``q`` is empty, the body is missing / unreadable, or
-    ``q`` does not appear in the body -- so a caller can fall back to metadata
-    alone. The excerpt carries no markup; callers escape / highlight it for HTML
-    (see :func:`highlight_html`).
-    """
-    if not q:
-        return None
-    text = report_content(bundle_dir, name)
-    if text is None:
-        return None
-    plain = " ".join(_strip_tags(text).split())
-    idx = plain.lower().find(q.lower())
-    if idx < 0:
-        return None
-    pad = max(0, (width - len(q)) // 2)
+def _snippet_window(plain: str, idx: int, width: int, qlen: int) -> tuple:
+    """``(start, end, text)`` window of ``plain`` centred on a match at ``idx`` (R95)."""
+    pad = max(0, (width - qlen) // 2)
     start = max(0, idx - pad)
     end = min(len(plain), start + width)
     start = max(0, end - width)
-    snippet = plain[start:end]
+    text = plain[start:end]
     if start > 0:
-        snippet = "…" + snippet
+        text = "…" + text
     if end < len(plain):
-        snippet = snippet + "…"
-    return snippet
+        text = text + "…"
+    return start, end, text
+
+
+def content_snippets(bundle_dir, name, q, *, width: int = 120,
+                     limit: Optional[int] = None) -> list:
+    """Plain-text excerpts around *every* ``q`` match in a report body (R95).
+
+    Strips the report's HTML tags and collapses whitespace, then returns one
+    ``width``-character window per non-overlapping case-insensitive ``q`` match
+    (each prefixed / suffixed with ``…`` when truncated at either end). Windows
+    that would overlap the previous one are merged (skipped), so a term that
+    recurs within a single window yields one excerpt rather than duplicates. A
+    ``limit`` caps the number of excerpts. Returns ``[]`` when ``q`` is empty,
+    the body is missing / unreadable, or ``q`` does not appear -- so a caller can
+    fall back to metadata alone. The excerpts carry no markup; callers escape /
+    highlight them for HTML (see :func:`highlight_html`).
+    """
+    if not q:
+        return []
+    text = report_content(bundle_dir, name)
+    if text is None:
+        return []
+    plain = " ".join(_strip_tags(text).split())
+    needle = q.lower()
+    qlen = len(needle)
+    lowered = plain.lower()
+    snippets = []
+    prev_end = -1
+    i = 0
+    while True:
+        j = lowered.find(needle, i)
+        if j < 0:
+            break
+        start, end, window = _snippet_window(plain, j, width, qlen)
+        if start > prev_end:
+            snippets.append(window)
+            prev_end = end
+            if limit is not None and len(snippets) >= limit:
+                break
+        i = j + qlen
+    return snippets
+
+
+def content_snippet(bundle_dir, name, q, *, width: int = 120) -> Optional[str]:
+    """A short plain-text excerpt of a report body around a ``q`` match (R94).
+
+    The first of :func:`content_snippets` (window centred on the first
+    case-insensitive ``q`` match, ``…`` when truncated), or ``None`` when ``q``
+    is empty, the body is missing / unreadable, or ``q`` does not appear -- so a
+    caller can fall back to metadata alone. The excerpt carries no markup;
+    callers escape / highlight it for HTML (see :func:`highlight_html`).
+    """
+    snippets = content_snippets(bundle_dir, name, q, width=width, limit=1)
+    return snippets[0] if snippets else None
 
 
 def _detail_nav(rows, name) -> tuple[Optional[str], Optional[str]]:
@@ -652,7 +713,10 @@ def report_detail_html(bundle_dir, name, *, q=None, sort=None, dir="asc",
     ``<p class="snippet">`` plain-text excerpt around the ``q`` match when a
     content search is active (``content`` and ``q``), with the match marked via
     :func:`highlight_html`, so a user landing here from a content search sees
-    *why* the report matched. Returns ``None`` when *name*
+    *why* the report matched. R95 renders one ``<p class="snippet">`` excerpt per
+    body match (via :func:`content_snippets`), capped at ``_MAX_SNIPPETS``, so a
+    report where the term recurs shows every occurrence. Returns ``None`` when
+    *name*
     is unknown or escapes the bundle, so the caller can 404.
     """
     bdir = Path(bundle_dir)
@@ -690,10 +754,10 @@ def report_detail_html(bundle_dir, name, *, q=None, sort=None, dir="asc",
         nav = f'<p class="detail-nav">{" · ".join(nav_parts)}</p>\n'
     snippet_para = ""
     if content and q:
-        snippet = content_snippet(bdir, name, q)
-        if snippet is not None:
-            snippet_para = (f'<p class="snippet">{highlight_html(snippet, q)}'
-                            "</p>\n")
+        snippets = content_snippets(bdir, name, q)[:_MAX_SNIPPETS]
+        snippet_para = "".join(
+            f'<p class="snippet">{highlight_html(snippet, q)}</p>\n'
+            for snippet in snippets)
     preview = ""
     if report_content(bdir, name) is not None:
         preview = ('<div class="report-preview">\n'
@@ -881,7 +945,7 @@ class ReportBundleHandler(BaseHTTPRequestHandler):
         })
 
     def _route_report_snippet(self):
-        """Serve a report body excerpt around a ``q`` match as JSON (R94)."""
+        """Serve a report's body excerpts around a ``q`` match as JSON (R94/R95)."""
         name = self._param("name")
         if not name:
             return _send_error(self, 400, "missing name")
@@ -890,13 +954,16 @@ class ReportBundleHandler(BaseHTTPRequestHandler):
             return _send_error(self, 400, "missing q")
         if report_detail(self.bundle_dir, name) is None:
             return _send_error(self, 404, f"unknown report: {name}")
+        snippets = content_snippets(self.bundle_dir, name, q)
         _send_json(self, {
             "ok": True,
             "bundle": str(Path(self.bundle_dir).resolve()),
             "title": bundle_title(self.index),
             "name": name,
             "q": q,
-            "snippet": content_snippet(self.bundle_dir, name, q),
+            "count": len(snippets),
+            "snippet": snippets[0] if snippets else None,
+            "snippets": snippets,
         })
 
     def _route_report_detail(self, route: str):

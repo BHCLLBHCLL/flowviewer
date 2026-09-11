@@ -788,3 +788,24 @@ gate on push/PR.
   (tests/test_r94_report_match_snippet.py) cover the two pure helpers, the
   dashboard / detail snippet rendering, bundle_listings() parsability, and the live
   /api/report/snippet, /?q=&content=1 and /report/<name>?q=&content=1 routes.
+- R95 - Web presentation: every body match (multi-snippet) + match count:
+  R94 surfaced a single body excerpt per matched report, so a term that recurred
+  inside a report gave no sense of how many matches there were or where the rest
+  lived. R95 deepens fv/web/report_server.py: content_snippets() returns one
+  plain-text excerpt per non-overlapping case-insensitive q match (windows centred
+  on each match with … truncation, overlapping windows merged, an optional limit
+  cap), content_snippet() is reimplemented as content_snippets(...limit=1)[0] so
+  R94 is unchanged, and a _snippet_window() helper factors out the centring math;
+  the dashboard renders one <li class="snippet"> per match (capped at
+  _MAX_SNIPPETS=5) followed by a <li class="snippet-more"> "… and N more match(es)"
+  note for the rest, and the detail page renders one <p class="snippet"> per match
+  (same cap); and /api/report/snippet gains a match count plus a snippets list
+  ({ok, bundle, title, name, q, count, snippet, snippets}, snippet still the first
+  excerpt or null). The new classes are distinct from the <li><a> anchors, so
+  bundle_listings() stays parseable and a metadata search is unchanged. Tests
+  (tests/test_r95_report_match_snippets.py) cover content_snippets() /
+  _snippet_window() (per-occurrence count, case-insensitivity, empty/unknown/path
+  escape, limit cap, merged overlaps, distinguishable windows), the multi-snippet
+  dashboard / detail rendering with the cap and "more" note, bundle_listings()
+  parsability, and the extended live /api/report/snippet, /?q=&content=1 and
+  /report/<name>?q=&content=1 routes.
