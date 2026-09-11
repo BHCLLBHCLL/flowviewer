@@ -809,3 +809,32 @@ gate on push/PR.
   dashboard / detail rendering with the cap and "more" note, bundle_listings()
   parsability, and the extended live /api/report/snippet, /?q=&content=1 and
   /report/<name>?q=&content=1 routes.
+- R96 - Web presentation: relevance ranking by match count + visible match counts:
+  R95 rendered *every* body match (a content_snippets() list + a count), but the
+  results stayed in index / metadata order and the page never showed *how many*
+  times a report matched, so a content search had no relevance ordering — the
+  report where the query recurs most was not surfaced. R96 deepens
+  fv/web/report_server.py: content_match_count() counts the non-overlapping
+  case-insensitive q matches in a report body (tags stripped, whitespace
+  collapsed, 0 when q is empty or the body is missing/unreadable), sharing a new
+  _match_indices() scan with content_snippets() (refactored onto it) so a report's
+  count and its excerpts always agree; query_reports() gains a "matches" sort key
+  that ranks rows by descending body match count (via content_match_count()) and
+  raises ValueError when used without content=True + bundle_dir, while the
+  unknown-sort-key behaviour is unchanged; a _default_dir() helper resolves the
+  sort direction, defaulting to desc for sort=matches (so the most-matched report
+  is first) and asc otherwise; the dashboard renders a
+  <li class="matches">N match(es) in body</li> line per matched report plus the
+  total match count in the <p class="summary"> block, and the detail page renders a
+  <p class="matches"> line; /api/report/snippet gains a matches field; and a
+  "Matches (body)" option appears in the controls form. All of it is purely
+  additive — the existing <li><a> anchors, the five metadata sort keys and a
+  metadata search are unchanged, so bundle_listings() stays parseable. Tests
+  (tests/test_r96_report_match_rank.py) cover content_match_count() (counts,
+  case-insensitivity, empty/absent/path-escape zero, agreement with
+  content_snippets()), the "matches" sort key (desc/asc ranking, the content /
+  bundle_dir guard, unknown-key still raising), the dashboard ranking + per-report
+  / total match-count rendering, the metadata-only zero-count case, the detail
+  match-count line + ranking nav, bundle_listings() parsability, and the live
+  /?q=&sort=matches&content=1, /api/meta?q=&sort=matches&content=1,
+  /?sort=matches 400 and /api/report/snippet matches routes.

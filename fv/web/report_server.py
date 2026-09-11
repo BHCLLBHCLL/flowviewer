@@ -308,7 +308,20 @@ def bundle_summary(bundle_dir) -> dict:
     return _summary_from_rows(report_meta(bundle_dir))
 
 
-_SORT_KEYS = ("name", "label", "title", "size", "mtime")
+_SORT_KEYS = ("name", "label", "title", "size", "mtime", "matches")
+
+
+def _default_dir(sort: Optional[str], dir: Optional[str]) -> str:
+    """Resolve a sort direction, defaulting to ``desc`` for ``matches`` (R96).
+
+    ``None`` / empty ``dir`` falls back to ``desc`` when ``sort`` is
+    ``"matches"`` (a relevance ranking wants the most-matched report first) and
+    ``asc`` otherwise, so the existing callers keep their ascending default
+    while a match-count query ranks without an explicit ``dir=``.
+    """
+    if dir:
+        return dir
+    return "desc" if sort == "matches" else "asc"
 
 
 def query_reports(rows, *, q=None, sort=None, dir="asc", content=False,
@@ -327,6 +340,12 @@ def query_reports(rows, *, q=None, sort=None, dir="asc", content=False,
     body that is missing or unreadable is treated as a non-match, so a content
     search never breaks on a stale index. Without ``bundle_dir`` the content
     branch is skipped, so the metadata-only behaviour is unchanged.
+
+    R96 adds the ``matches`` sort key: a *relevance* ranking that orders rows by
+    their descending body match count (via :func:`content_match_count`), so the
+    report where ``q`` recurs most surfaces first. It only makes sense for a
+    content search, so using it without ``content`` / ``bundle_dir`` raises
+    :class:`ValueError` instead of silently behaving like an index order.
     """
     result = list(rows)
     if q:
@@ -351,13 +370,21 @@ def query_reports(rows, *, q=None, sort=None, dir="asc", content=False,
     if sort:
         if sort not in _SORT_KEYS:
             raise ValueError(f"unknown sort key {sort!r}")
-        key = {"size": "size_bytes", "mtime": "mtime"}.get(sort, sort)
+        if sort == "matches":
+            if not (content and bundle_dir is not None):
+                raise ValueError("sort 'matches' requires a content search")
+            counts = {row["name"]: content_match_count(
+                bundle_dir, row["name"], q) for row in result}
+            result = sorted(result, key=lambda row: counts[row["name"]],
+                            reverse=dir == "desc")
+        else:
+            key = {"size": "size_bytes", "mtime": "mtime"}.get(sort, sort)
 
-        def _key(row):
-            value = row[key]
-            return value.lower() if isinstance(value, str) else value
+            def _key(row):
+                value = row[key]
+                return value.lower() if isinstance(value, str) else value
 
-        result = sorted(result, key=_key, reverse=dir == "desc")
+            result = sorted(result, key=_key, reverse=dir == "desc")
     return result
 
 
@@ -409,6 +436,7 @@ _SORT_LABELS = (
     ("title", "Title"),
     ("size", "Size"),
     ("mtime", "Modified"),
+    ("matches", "Matches (body)"),
 )
 _PAGE_SIZES = ("", "10", "25", "50", "100")
 
@@ -457,7 +485,7 @@ def _controls_html(q: Optional[str], sort: Optional[str], dir: str,
             '</form>\n')
 
 
-def dashboard_html(bundle_dir, title=None, *, q=None, sort=None, dir="asc",
+def dashboard_html(bundle_dir, title=None, *, q=None, sort=None, dir=None,
                    limit=None, offset=0, content=False) -> str:
     """A richer bundle overview page with per-report metadata (R86).
 
@@ -490,11 +518,17 @@ def dashboard_html(bundle_dir, title=None, *, q=None, sort=None, dir="asc",
     :func:`content_snippets`), capped at ``_MAX_SNIPPETS`` with a
     ``<li class="snippet-more">`` "… and N more match(es)" note for the rest, so a
     report where the term recurs shows every occurrence instead of just the
+    first. R96 makes a content search *rankable* and its match count visible:
+    each matched report gets a ``<li class="matches">N match(es) in body</li>``
+    line (from :func:`content_match_count`), the summary block appends the total
+    match count, and ``sort="matches"`` orders the reports by descending match
+    count (with ``dir`` defaulting to ``desc``) so the most relevant report is
     first.
     ``title``
     (fallback: the bundle's ``<title>``) drives the ``<h1>``.
     """
     bdir = Path(bundle_dir)
+    dir = _default_dir(sort, dir)
     heading = title or bundle_title(bdir / "index.html")
     matched = query_reports(report_meta(bdir), q=q, sort=sort, dir=dir,
                             content=content, bundle_dir=bdir)
@@ -505,6 +539,10 @@ def dashboard_html(bundle_dir, title=None, *, q=None, sort=None, dir="asc",
         f'{summary["report_count"]} report(s)',
         f'{_fmt_size(summary["total_bytes"])} total',
     ]
+    if content and q:
+        total_matches = sum(
+            content_match_count(bdir, row["name"], q) for row in matched)
+        summary_parts.append(f"{total_matches} match(es)")
     if summary["oldest"]:
         summary_parts.append(
             f'generated {summary["oldest"]} – {summary["newest"]}')
@@ -518,6 +556,9 @@ def dashboard_html(bundle_dir, title=None, *, q=None, sort=None, dir="asc",
         items.append(f'<li class="meta">{html.escape(" · ".join(caption_parts))}'
                      f"</li>\n")
         if content and q:
+            count = content_match_count(bdir, row["name"], q)
+            items.append(
+                f'<li class="matches">{count} match(es) in body</li>\n')
             snippets = content_snippets(bdir, row["name"], q)
             shown = snippets[:_MAX_SNIPPETS]
             for snippet in shown:
@@ -602,6 +643,26 @@ def report_content(bundle_dir, name) -> Optional[str]:
         return None
 
 
+def _match_indices(plain: str, needle: str):
+    """Yield the start index of every non-overlapping ``needle`` in ``plain`` (R96).
+
+    ``needle`` must already be lower-cased; matching runs against a lowered copy
+    of ``plain`` so it is case-insensitive while the yielded indices still refer
+    to the original text. Shared by :func:`content_match_count` and
+    :func:`content_snippets`, so a report's match count and its excerpts always
+    agree on where the matches are.
+    """
+    lowered = plain.lower()
+    n = len(needle)
+    i = 0
+    while True:
+        j = lowered.find(needle, i)
+        if j < 0:
+            return
+        yield j
+        i = j + n
+
+
 def _snippet_window(plain: str, idx: int, width: int, qlen: int) -> tuple:
     """``(start, end, text)`` window of ``plain`` centred on a match at ``idx`` (R95)."""
     pad = max(0, (width - qlen) // 2)
@@ -638,22 +699,36 @@ def content_snippets(bundle_dir, name, q, *, width: int = 120,
     plain = " ".join(_strip_tags(text).split())
     needle = q.lower()
     qlen = len(needle)
-    lowered = plain.lower()
     snippets = []
     prev_end = -1
-    i = 0
-    while True:
-        j = lowered.find(needle, i)
-        if j < 0:
-            break
+    for j in _match_indices(plain, needle):
         start, end, window = _snippet_window(plain, j, width, qlen)
         if start > prev_end:
             snippets.append(window)
             prev_end = end
             if limit is not None and len(snippets) >= limit:
                 break
-        i = j + qlen
     return snippets
+
+
+def content_match_count(bundle_dir, name, q) -> int:
+    """Count the ``q`` matches in a report body (R96).
+
+    Strips the report's HTML tags and collapses whitespace exactly as
+    :func:`content_snippets` does, then counts the non-overlapping
+    case-insensitive ``q`` matches via the shared :func:`_match_indices` scan --
+    so a report's match count and its excerpts always agree on where the
+    matches are. Returns ``0`` when ``q`` is empty or the body is missing /
+    unreadable, so it can be used as a ranking / display key without
+    special-casing a degenerate report.
+    """
+    if not q:
+        return 0
+    text = report_content(bundle_dir, name)
+    if text is None:
+        return 0
+    plain = " ".join(_strip_tags(text).split())
+    return sum(1 for _ in _match_indices(plain, q.lower()))
 
 
 def content_snippet(bundle_dir, name, q, *, width: int = 120) -> Optional[str]:
@@ -694,7 +769,7 @@ def _detail_href(name: str, q: Optional[str], sort: Optional[str], dir: str,
             + _pager_href(0, None, q, sort, dir, content=content))
 
 
-def report_detail_html(bundle_dir, name, *, q=None, sort=None, dir="asc",
+def report_detail_html(bundle_dir, name, *, q=None, sort=None, dir=None,
                        content=False) -> Optional[str]:
     """A dashboard-context detail page for a single report (R91/R92).
 
@@ -715,11 +790,15 @@ def report_detail_html(bundle_dir, name, *, q=None, sort=None, dir="asc",
     :func:`highlight_html`, so a user landing here from a content search sees
     *why* the report matched. R95 renders one ``<p class="snippet">`` excerpt per
     body match (via :func:`content_snippets`), capped at ``_MAX_SNIPPETS``, so a
-    report where the term recurs shows every occurrence. Returns ``None`` when
+    report where the term recurs shows every occurrence. R96 renders the report's
+    body match count as a ``<p class="matches">`` line (from
+    :func:`content_match_count`) and defaults the direction to ``desc`` for a
+    ``sort="matches"`` ranking. Returns ``None`` when
     *name*
     is unknown or escapes the bundle, so the caller can 404.
     """
     bdir = Path(bundle_dir)
+    dir = _default_dir(sort, dir)
     entry = report_detail(bdir, name)
     if entry is None:
         return None
@@ -754,8 +833,10 @@ def report_detail_html(bundle_dir, name, *, q=None, sort=None, dir="asc",
         nav = f'<p class="detail-nav">{" · ".join(nav_parts)}</p>\n'
     snippet_para = ""
     if content and q:
+        count = content_match_count(bdir, name, q)
+        snippet_para = (f'<p class="matches">{count} match(es) in body</p>\n')
         snippets = content_snippets(bdir, name, q)[:_MAX_SNIPPETS]
-        snippet_para = "".join(
+        snippet_para += "".join(
             f'<p class="snippet">{highlight_html(snippet, q)}</p>\n'
             for snippet in snippets)
     preview = ""
@@ -867,7 +948,7 @@ class ReportBundleHandler(BaseHTTPRequestHandler):
         try:
             payload = dashboard_html(
                 self.bundle_dir, title, q=self._param("q"),
-                sort=self._param("sort"), dir=self._param("dir") or "asc",
+                sort=self._param("sort"), dir=self._param("dir"),
                 limit=self._param_int("limit"),
                 offset=self._param_int("offset") or 0,
                 content=content,
@@ -886,7 +967,8 @@ class ReportBundleHandler(BaseHTTPRequestHandler):
             offset = self._param_int("offset") or 0
             matched = query_reports(
                 report_meta(self.bundle_dir), q=self._param("q"),
-                sort=self._param("sort"), dir=self._param("dir") or "asc",
+                sort=self._param("sort"),
+                dir=_default_dir(self._param("sort"), self._param("dir")),
                 content=self._param_flag("content"), bundle_dir=self.bundle_dir,
             )
             rows = window_reports(matched, limit=limit, offset=offset)
@@ -962,6 +1044,7 @@ class ReportBundleHandler(BaseHTTPRequestHandler):
             "name": name,
             "q": q,
             "count": len(snippets),
+            "matches": content_match_count(self.bundle_dir, name, q),
             "snippet": snippets[0] if snippets else None,
             "snippets": snippets,
         })
@@ -971,7 +1054,7 @@ class ReportBundleHandler(BaseHTTPRequestHandler):
         name = urllib.parse.unquote(route[len("/report/"):])
         body = report_detail_html(
             self.bundle_dir, name, q=self._param("q"),
-            sort=self._param("sort"), dir=self._param("dir") or "asc",
+            sort=self._param("sort"), dir=self._param("dir"),
             content=self._param_flag("content"),
         )
         if body is None:

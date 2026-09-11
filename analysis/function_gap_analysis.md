@@ -3620,3 +3620,31 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 - `tests/test_r95_report_match_snippets.py` = 28/28；R95 + R93-R94 向后兼容定向回归全过（76 passed）。
 - Web/报告族全量回归（`test_r82_report_web` + `test_r83_automation_bundle` + `test_r84_serve_cli` + `test_r85_gui_publish` + `test_r86_report_dashboard` + `test_r87_bundle_summary` + `test_r88_bundle_query` + `test_r89_bundle_pagination` + `test_r90_dashboard_controls` + `test_r91_report_detail` + `test_r92_report_detail_preview` + `test_r93_report_content_query` + `test_r94_report_match_snippet` + `test_r95_report_match_snippets`）= 180/180。
 - `ruff`（`fv/web/report_server.py`、`fv/web/__init__.py`、`tests/test_r95_report_match_snippets.py`）全部通过。
+
+### 8.91 第九十六轮执行记录：R96 Web 呈现——按命中数相关度排序 + 可见命中计数（relevance ranking by match count + visible match counts）（2026-09-11 落地）
+
+**缺口**：R95 把*每一处*正文命中都渲染出来并给出计数，但结果仍按索引/元数据顺序排列，页面上也没有显式显示*每份报告命中多少次*——内容搜索因此缺少相关度排序：命中次数最多的报告不会被排到前面，用户要先逐条浏览才能找到最相关的那份。R96 落在「Web 呈现」方向：为内容搜索补上「按正文命中数排序」这一*相关度*维度，并把每份报告与整体的命中计数显式呈现出来；全部改动为增量式，既有报告锚点、五个元数据排序键与元数据搜索行为均不变，`bundle_listings` 保持可解析，向后兼容 R86-R95 全部测试。
+
+**S1 实现（`fv/web/report_server.py`，R95 深化）**
+- 新增私有生成器 `_match_indices(plain, needle)`：在 `plain.lower()` 上逐个产出非重叠命中起点（`needle` 需已小写），被 `content_match_count` 与 `content_snippets` 共用，保证同一报告的命中计数与片段位置始终一致。
+- 新增纯函数 `content_match_count(bundle_dir, name, q) -> int`：与 `content_snippets` 同样 `_strip_tags` 去标签并折叠空白，再经 `_match_indices` 统计非重叠大小写不敏感 `q` 命中数；`q` 为空、正文缺失/不可读时返回 `0`，可直接用作排序/展示键。
+- `content_snippets` 重构为迭代 `_match_indices(plain, needle)`（去掉自带的 `find` 循环），行为不变。
+- `query_reports` 新增 `"matches"` 排序键（`_SORT_KEYS` 增列）：按正文命中数（`content_match_count`）降序排名，使命中最多的报告优先；该键仅在 `content=True` 且提供 `bundle_dir` 时有效，否则 `raise ValueError("sort 'matches' requires a content search")`；未知排序键仍照旧 `raise ValueError(f"unknown sort key {sort!r}")`。
+- 新增私有助手 `_default_dir(sort, dir)`：`dir` 为空时对 `sort == "matches"` 默认 `desc`（相关度排序要最相关在前），否则 `asc`；`dashboard_html` / `report_detail_html` 的 `dir` 形参默认值改为 `None` 并在入口解析，路由将 `dir` 原样透传（`_route_meta` 显式经 `_default_dir` 解析），既有显式 `dir="asc"` 调用的行为不变。
+- `dashboard_html`：当 `content` 且 `q` 时，每份匹配报告追加一条 `<li class="matches">N match(es) in body</li>`（`N = content_match_count`），并在 `<p class="summary">` 汇总中追加整体命中数 `M match(es)`。
+- `report_detail_html`：当 `content` 且 `q` 时渲染一条 `<p class="matches">N match(es) in body</p>`。
+- `_controls_html` 的排序下拉新增 `"matches"` -> 「Matches (body)」选项。
+- `_route_report_snippet` 的 JSON 新增 `matches` 字段（`content_match_count`，与 `count` 一致的正文命中规模）。
+- 模块 docstring 与 `fv/web/__init__.py` 导出（新增 `content_match_count`）同步更新。
+
+**S2 测试**（`tests/test_r96_report_match_rank.py`，22 项全过）
+- `content_match_count`（纯函数）：alpha/beta/gamma 命中数分别为 2/5/1、大小写不敏感、无查询/关键词缺失/未知报告返回 `0`、与 `content_snippets` 长度一致。
+- `query_reports` 的 `"matches"` 键：`dir="desc"` 排名为 beta>alpha>gamma、`dir="asc"` 反向、缺 `content` 或 `bundle_dir` 抛 `ValueError`、未知键仍抛 `ValueError`。
+- `dashboard_html`：`sort="matches"` 默认 `desc`（锚点顺序 beta<alpha<gamma）、每份报告渲染 `<li class="matches">N match(es) in body</li>`（5/2/1）、汇总出现整体命中数 `8 match(es)`、仅命中元数据（`q=html`）时渲染 `0 match(es) in body` 且无片段、非内容搜索无 `class="matches"`、控件表单出现 `value="matches"`、排序后页面仍可被 `bundle_listings` 解析。
+- `report_detail_html`：渲染 `<p class="matches">5 match(es) in body</p>`；`sort="matches"` 排名下 beta 居首故只有 `detail-next`、无 `detail-prev`。
+- HTTP 路由：`/?q=signal&sort=matches&content=1` 渲染顺序 beta<alpha<gamma；`/api/meta?q=signal&sort=matches&content=1` 报告顺序为 beta/alpha/gamma；`/?sort=matches` 与 `/api/meta?sort=matches`（缺 `content`）均 400；`/api/report/snippet` 的 `matches` 与 `count` 均为 5。
+
+**验证**
+- `tests/test_r96_report_match_rank.py` = 22/22。
+- Web/报告族全量回归（`test_r82_report_web` + `test_r83_automation_bundle` + `test_r84_serve_cli` + `test_r85_gui_publish` + `test_r86_report_dashboard` + `test_r87_bundle_summary` + `test_r88_bundle_query` + `test_r89_bundle_pagination` + `test_r90_dashboard_controls` + `test_r91_report_detail` + `test_r92_report_detail_preview` + `test_r93_report_content_query` + `test_r94_report_match_snippet` + `test_r95_report_match_snippets` + `test_r96_report_match_rank`）= 202/202。
+- `ruff`（`fv/web/report_server.py`、`fv/web/__init__.py`、`tests/test_r96_report_match_rank.py`）全部通过。
