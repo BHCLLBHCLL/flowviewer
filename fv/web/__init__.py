@@ -12,9 +12,11 @@
   ``<mark>`` highlight surfaced on the dashboard / detail pages plus an
   ``/api/report/snippet`` JSON endpoint (R94), and every-match excerpts (a
   ``content_snippets`` list with a match ``count``) on the dashboard / detail
-  pages and in ``/api/report/snippet`` (R95), and relevance ranking by body
+  pages and in ``/api/report/snippet`` (R95), relevance ranking by body
   match count (a ``matches`` sort key) plus visible per-report / total match
-  counts (``content_match_count``) on the dashboard / detail pages (R96).
+  counts (``content_match_count``) on the dashboard / detail pages (R96), and
+  those same per-report / total match counts on the machine-readable
+  ``/api/meta`` surface, computed once via ``content_match_counts`` (R97).
 * :mod:`fv.automation`        - headless AutomationSession + serve HTTP-RPC
   bridge.
 """
@@ -24,6 +26,7 @@ from .report_server import (
     ReportBundleServer,
     bundle_summary,
     content_match_count,
+    content_match_counts,
     content_snippet,
     content_snippets,
     dashboard_html,
@@ -43,6 +46,7 @@ __all__ = [
     "WebViewerServer",
     "bundle_summary",
     "content_match_count",
+    "content_match_counts",
     "content_snippet",
     "content_snippets",
     "dashboard_html",

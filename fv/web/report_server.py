@@ -16,7 +16,8 @@ Endpoints:
 * ``GET /index.html``           -> bundle index page (generated if absent)
 * ``GET /api/list``             -> JSON report listing (name + human label)
 * ``GET /api/meta``             -> JSON per-report metadata + aggregate summary
-  (label/title/size/mtime)
+  (label/title/size/mtime; in a content search each report also carries a body
+  ``matches`` count plus an aggregate ``matches`` total) (R86/R97)
 * ``GET /api/summary``          -> JSON bundle overview (count / total size /
   generated span)
 * ``GET /api/bundle.zip``       -> download the whole bundle as an archive
@@ -97,6 +98,25 @@ element (so R94 behaviour is unchanged), renders one ``<li class="snippet">`` /
 collapsed), and extends ``/api/report/snippet?name=&q=`` with ``count`` and a
 ``snippets`` list (``snippet`` stays the first excerpt for backward
 compatibility). Everything stays purely additive.
+R96 makes a content search *rankable* and its match count visible: it adds
+``content_match_count()`` (plus the shared ``_match_indices()`` scan), a
+``sort="matches"`` relevance key that orders reports by descending body match
+count (only valid for a content search), a ``dir`` defaulting to ``desc`` for
+that key, a ``<li class="matches">`` / ``<p class="matches">`` "N match(es) in
+body" line per report on the dashboard / detail pages, an aggregate match count
+in the dashboard summary, a "Matches (body)" controls option, and a ``matches``
+field in ``/api/report/snippet``.
+R97 closes the last Web-呈现 relevance gap: R96 made the *pages* show each
+report's body match count and the total, but the machine-readable ``/api/meta``
+returned no match metadata -- a script could rank by ``sort=matches`` yet could
+not read *why* the order was what it was. It adds ``content_match_counts()``, a
+pure helper returning ``{name: count}`` for many reports at once, reuses it in
+``dashboard_html`` so the summary total and the per-report lines come from a
+single scan per report, and, when a content search is active, attaches a
+per-report ``matches`` count plus an aggregate ``matches`` total to the
+``/api/meta`` payload -- so the JSON surface carries exactly the relevance
+counts the pages render. Still purely additive: a non-content ``/api/meta``
+response is unchanged.
 No third-party dependencies are added.
 """
 
@@ -523,7 +543,8 @@ def dashboard_html(bundle_dir, title=None, *, q=None, sort=None, dir=None,
     line (from :func:`content_match_count`), the summary block appends the total
     match count, and ``sort="matches"`` orders the reports by descending match
     count (with ``dir`` defaulting to ``desc``) so the most relevant report is
-    first.
+    first. R97 shares those counts (via :func:`content_match_counts`) so the
+    summary total and the per-report lines come from a single scan per report.
     ``title``
     (fallback: the bundle's ``<title>``) drives the ``<h1>``.
     """
@@ -535,14 +556,16 @@ def dashboard_html(bundle_dir, title=None, *, q=None, sort=None, dir=None,
     total = len(matched)
     rows = window_reports(matched, limit=limit, offset=offset)
     summary = _summary_from_rows(matched)
+    counts = None
+    if content and q:
+        counts = content_match_counts(
+            bdir, [row["name"] for row in matched], q)
     summary_parts = [
         f'{summary["report_count"]} report(s)',
         f'{_fmt_size(summary["total_bytes"])} total',
     ]
-    if content and q:
-        total_matches = sum(
-            content_match_count(bdir, row["name"], q) for row in matched)
-        summary_parts.append(f"{total_matches} match(es)")
+    if counts is not None:
+        summary_parts.append(f"{sum(counts.values())} match(es)")
     if summary["oldest"]:
         summary_parts.append(
             f'generated {summary["oldest"]} – {summary["newest"]}')
@@ -555,8 +578,8 @@ def dashboard_html(bundle_dir, title=None, *, q=None, sort=None, dir=None,
             row["size_bytes"]), _fmt_mtime(row["mtime"])) if part]
         items.append(f'<li class="meta">{html.escape(" · ".join(caption_parts))}'
                      f"</li>\n")
-        if content and q:
-            count = content_match_count(bdir, row["name"], q)
+        if counts is not None:
+            count = counts[row["name"]]
             items.append(
                 f'<li class="matches">{count} match(es) in body</li>\n')
             snippets = content_snippets(bdir, row["name"], q)
@@ -729,6 +752,21 @@ def content_match_count(bundle_dir, name, q) -> int:
         return 0
     plain = " ".join(_strip_tags(text).split())
     return sum(1 for _ in _match_indices(plain, q.lower()))
+
+
+def content_match_counts(bundle_dir, names, q) -> dict:
+    """Body match counts for many reports at once (R97).
+
+    Returns ``{name: count}`` for every name in *names*, where each count is
+    :func:`content_match_count` for that report. Reading each body once and
+    reusing the result lets the dashboard render each report's count *and* the
+    aggregate in a single scan per report (instead of recounting the summary and
+    every row separately), and gives the machine-readable ``/api/meta`` surface
+    the same per-report / total counts the pages show. A name that is missing /
+    unreadable counts ``0`` (see :func:`content_match_count`), so the result
+    always carries exactly one entry per requested name.
+    """
+    return {name: content_match_count(bundle_dir, name, q) for name in names}
 
 
 def content_snippet(bundle_dir, name, q, *, width: int = 120) -> Optional[str]:
@@ -962,29 +1000,45 @@ class ReportBundleHandler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def _route_meta(self):
+        """Serve per-report metadata as JSON (R86; content match counts R97).
+
+        When a content search is active (``content=1`` with a ``q``) each report
+        row carries a ``matches`` body match count and the payload carries an
+        aggregate ``matches`` total, mirroring the counts the dashboard / detail
+        pages render (R96) so a machine client sees the same relevance metadata
+        it can already rank by with ``sort=matches``.
+        """
+        q = self._param("q")
+        content = self._param_flag("content")
         try:
             limit = self._param_int("limit")
             offset = self._param_int("offset") or 0
             matched = query_reports(
-                report_meta(self.bundle_dir), q=self._param("q"),
+                report_meta(self.bundle_dir), q=q,
                 sort=self._param("sort"),
                 dir=_default_dir(self._param("sort"), self._param("dir")),
-                content=self._param_flag("content"), bundle_dir=self.bundle_dir,
+                content=content, bundle_dir=self.bundle_dir,
             )
             rows = window_reports(matched, limit=limit, offset=offset)
         except ValueError as exc:
             return _send_error(self, 400, str(exc))
-        total = len(matched)
-        _send_json(self, {
+        payload = {
             "ok": True,
             "bundle": str(Path(self.bundle_dir).resolve()),
             "title": bundle_title(self.index),
-            "total": total,
+            "total": len(matched),
             "offset": offset,
             "limit": limit,
             "reports": rows,
             "summary": _summary_from_rows(matched),
-        })
+        }
+        if content and q:
+            counts = content_match_counts(
+                self.bundle_dir, [row["name"] for row in matched], q)
+            payload["matches"] = sum(counts.values())
+            payload["reports"] = [
+                {**row, "matches": counts[row["name"]]} for row in rows]
+        _send_json(self, payload)
 
     def _route_summary(self):
         """Serve the bundle overview as JSON (R87)."""

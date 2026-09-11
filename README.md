@@ -838,3 +838,25 @@ gate on push/PR.
   match-count line + ranking nav, bundle_listings() parsability, and the live
   /?q=&sort=matches&content=1, /api/meta?q=&sort=matches&content=1,
   /?sort=matches 400 and /api/report/snippet matches routes.
+- R97 - Web presentation: content match counts on /api/meta (machine-readable parity):
+  R96 made the dashboard / detail pages show each report's body match count and the
+  aggregate total, and let a client rank rows with sort=matches, but the
+  machine-readable /api/meta carried no match metadata — a script could reorder by
+  relevance yet could not read *why* the order was what it was. R97 closes that gap
+  in fv/web/report_server.py: a content_match_counts(bundle_dir, names, q) helper
+  returns {name: content_match_count(...)} for many reports at once (exactly one
+  entry per requested name, 0 for a missing / unreadable body), the dashboard now
+  computes the summary total and every per-report line from that single scan per
+  report, and _route_meta (refactored to build a payload dict) gains an aggregate
+  matches total plus a per-report matches count in content mode (content=1 with a
+  q), mirroring the counts the pages render. The additions are purely additive — a
+  non-content /api/meta response is unchanged field-for-field, the existing report
+  keys and summary stay put, and the <li><a> anchors / bundle_listings() are
+  untouched. Tests (tests/test_r97_report_match_counts.py) cover
+  content_match_counts() (one entry per name, agreement with content_match_count(),
+  case-insensitivity, empty query / missing body / empty names / duplicate names),
+  the dashboard single-pass per-report + total counts, and /api/meta's per-report +
+  aggregate matches with unchanged row keys, the non-content and content-without-q
+  absence, the metadata-only zero count, pagination (page rows counted, aggregate
+  over all, total unchanged), sort=matches tracking the ranking, and the
+  unknown-sort 400.

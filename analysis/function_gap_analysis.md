@@ -3648,3 +3648,23 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 - `tests/test_r96_report_match_rank.py` = 22/22。
 - Web/报告族全量回归（`test_r82_report_web` + `test_r83_automation_bundle` + `test_r84_serve_cli` + `test_r85_gui_publish` + `test_r86_report_dashboard` + `test_r87_bundle_summary` + `test_r88_bundle_query` + `test_r89_bundle_pagination` + `test_r90_dashboard_controls` + `test_r91_report_detail` + `test_r92_report_detail_preview` + `test_r93_report_content_query` + `test_r94_report_match_snippet` + `test_r95_report_match_snippets` + `test_r96_report_match_rank`）= 202/202。
 - `ruff`（`fv/web/report_server.py`、`fv/web/__init__.py`、`tests/test_r96_report_match_rank.py`）全部通过。
+
+### 8.92 第九十七轮执行记录：R97 Web 呈现——机器可读 API 的命中计数（content match counts on /api/meta）（2026-09-12 落地）
+
+**缺口**：R96 让仪表盘/详情*页面*显示每份报告的正文命中数与整体命中总数，并支持 `sort=matches` 相关度排序，但机器可读的 `/api/meta` 不携带任何命中元数据——脚本虽能按相关度重排结果，却读不到*为什么*是这个顺序（每份报告命中多少次、整体多少）。R97 落在「Web 呈现」方向：把页面已经呈现的每份报告/整体命中计数补齐到 `/api/meta` 这一机器可读面，让脚本与页面看到同一份相关度元数据；全部改动为增量式，非内容搜索的 `/api/meta` 响应逐字段不变、既有报告字段与 `summary` 不变、`bundle_listings` 保持可解析，向后兼容 R86-R96 全部测试。
+
+**S1 实现（`fv/web/report_server.py`，R96 深化）**
+- 新增纯函数 `content_match_counts(bundle_dir, names, q) -> dict`：对 `names` 中每个报告返回 `name -> content_match_count(...)` 的映射；正文缺失/不可读计 `0`，故结果恒为「每个请求名一条」。一次读取复用结果，让仪表盘对每份报告只扫描一次即可渲染各行计数与整体计数，也让 `/api/meta` 拥有与页面完全一致的单报告/整体计数。
+- `dashboard_html`：当 `content` 且 `q` 时改为单次 `content_match_counts(bdir, [row["name"] for row in matched], q)`，汇总总数取 `sum(counts.values())`、每行取 `counts[row["name"]]`（由逐行 `content_match_count` + 单独汇总循环改为单遍），页面输出与 R96 完全一致。
+- `_route_meta` 重构为构建 `payload` dict 后统一 `_send_json`；当 `content` 且 `q` 时，`payload["matches"] = sum(counts.values())`，且 `payload["reports"]` 的每行追加 `"matches": counts[row["name"]]`；非内容搜索时 `payload` 与 R86-R96 逐字段一致。
+- 模块 docstring 补全 R96 段并新增 R97 段，`/api/meta` 端点说明更新为 `(R86/R97)`；`fv/web/__init__.py` 导出（新增 `content_match_counts`）同步更新。
+
+**S2 测试**（`tests/test_r97_report_match_counts.py`，20 项全过）
+- `content_match_counts`（纯函数）：每个请求名恰一条、与逐条 `content_match_count` 一致、大小写不敏感、空查询全 `0`、缺失报告计 `0` 且保留键、空 `names` 返回 `{}`、重复名折叠、与 `content_snippets` 长度一致。
+- `dashboard_html`：内容搜索仍渲染每份报告 `<li class="matches">N match(es) in body</li>`（5/2/1）与汇总整体命中数 `8 match(es)`。
+- HTTP 路由 `/api/meta`：内容搜索每行 `matches` 等于 `COUNTS`（2/5/1）、聚合 `matches` 等于其和（8）、既有行键（name/label/title/size_bytes/mtime）保留、非内容搜索无 `matches`、`content=1` 无 `q` 无 `matches`、仅命中元数据（`q=html`）计数为 `0`、`sort=matches` 下行顺序 beta/alpha/gamma 且计数随排名、分页（`limit=2`）仅对页内行计数而聚合仍针对全部（`total` 不变）、无命中为空/零、未知排序键 400。
+
+**验证**
+- `tests/test_r97_report_match_counts.py` = 20/20。
+- Web/报告族全量回归（`test_r82_report_web` + `test_r83_automation_bundle` + `test_r84_serve_cli` + `test_r85_gui_publish` + `test_r86_report_dashboard` + `test_r87_bundle_summary` + `test_r88_bundle_query` + `test_r89_bundle_pagination` + `test_r90_dashboard_controls` + `test_r91_report_detail` + `test_r92_report_detail_preview` + `test_r93_report_content_query` + `test_r94_report_match_snippet` + `test_r95_report_match_snippets` + `test_r96_report_match_rank` + `test_r97_report_match_counts`）= 222/222。
+- `ruff`（`fv/web/report_server.py`、`fv/web/__init__.py`、`tests/test_r97_report_match_counts.py`）全部通过。
