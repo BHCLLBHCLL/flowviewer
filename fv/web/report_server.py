@@ -24,6 +24,9 @@ Endpoints:
   title / size / mtime / index)
 * ``GET /api/report/content?name=<n>`` -> JSON single-report content (raw HTML
   text; 400 on a missing name, 404 on unknown / unreadable) (R93)
+* ``GET /api/report/snippet?name=<n>&q=<q>`` -> JSON plain-text excerpt of a
+  report body around a ``q`` match (400 on a missing name / q, 404 on unknown;
+  ``snippet`` is ``null`` when the body does not contain ``q``) (R94)
 * ``GET /<report>.html``        -> a single report (path-traversal safe)
 * ``GET /report/<name>``        -> dashboard-context detail page for one report
   (back link, metadata, open link, embedded report preview, prev/next
@@ -66,8 +69,23 @@ machine way to fetch a single report's content over HTTP. It deepens
 to read bodies) so ``q`` also matches the report body text, threads a
 ``content=1`` flag through the dashboard, its controls form and the pager /
 detail navigation (so a content-mode query survives paging and prev / next),
-and adds ``/api/report/content?name=``, the JSON counterpart to ``/api/report``
-that returns a report's raw HTML text.
+and adds
+``/api/report/content?name=``, the JSON counterpart to ``/api/report`` that
+returns a report's raw HTML text.
+R94 closes the last Web-呈现 search-usability gap: a content search (R93) can
+now match a report's body, but the dashboard / detail pages gave no clue *where*
+the match lived -- a body-only hit looked identical to a title hit. It adds
+``content_snippet()``, a pure helper returning a short plain-text excerpt of a
+report body centred on a ``q`` match (HTML tags stripped, whitespace collapsed,
+``…`` when truncated; ``None`` when ``q`` is empty / absent or the body is
+unreadable), and ``highlight_html()``, which HTML-escapes text and wraps each
+case-insensitive ``q`` match in ``<mark>``. When a content search is active the
+dashboard renders a ``<li class="snippet">`` excerpt under each matched report
+and the detail page renders a ``<p class="snippet">`` excerpt, so a browser user
+sees *why* a report matched; ``/api/report/snippet?name=&q=`` exposes the same
+excerpt machine-readably. The snippets are purely additive (existing report
+anchors are untouched, so ``bundle_listings`` stays parseable and the metadata
+search output is unchanged).
 No third-party dependencies are added.
 """
 
@@ -114,6 +132,32 @@ def _send_error(handler: BaseHTTPRequestHandler, status: int, msg: str) -> None:
 
 def _strip_tags(text: str) -> str:
     return re.sub(r"<[^>]+>", "", text)
+
+
+def highlight_html(text: str, q: Optional[str]) -> str:
+    """HTML-escaped *text* with each case-insensitive ``q`` match in ``<mark>`` (R94).
+
+    Returns plain HTML-escaped ``text`` when ``q`` is empty, so a caller without
+    a query renders exactly as before. Every non-overlapping occurrence is marked
+    in order, and each unmarked / marked piece is escaped separately, so a
+    hostile ``q`` or text cannot inject markup.
+    """
+    if not q:
+        return html.escape(text)
+    needle = q.lower()
+    lower = text.lower()
+    n = len(needle)
+    parts = []
+    i = 0
+    while True:
+        j = lower.find(needle, i)
+        if j < 0:
+            parts.append(html.escape(text[i:]))
+            break
+        parts.append(html.escape(text[i:j]))
+        parts.append(f"<mark>{html.escape(text[j:j + n])}</mark>")
+        i = j + n
+    return "".join(parts)
 
 
 def bundle_title(index) -> str:
@@ -423,7 +467,11 @@ def dashboard_html(bundle_dir, title=None, *, q=None, sort=None, dir="asc",
     ``True`` the ``q`` filter also matches report body text (via
     :func:`report_content`), an opt-in ``content`` checkbox appears in the
     controls form (pre-checked for a content search), and the pager links
-    preserve ``content=1`` so a content-mode query survives paging. ``title``
+    preserve ``content=1`` so a content-mode query survives paging. R94 renders a
+    ``<li class="snippet">`` plain-text excerpt under each matched report when a
+    content search is active (``content`` and ``q``), with the ``q`` match marked
+    via :func:`highlight_html`, so a browser user sees *why* a report matched.
+    ``title``
     (fallback: the bundle's ``<title>``) drives the ``<h1>``.
     """
     bdir = Path(bundle_dir)
@@ -449,6 +497,11 @@ def dashboard_html(bundle_dir, title=None, *, q=None, sort=None, dir="asc",
             row["size_bytes"]), _fmt_mtime(row["mtime"])) if part]
         items.append(f'<li class="meta">{html.escape(" · ".join(caption_parts))}'
                      f"</li>\n")
+        if content and q:
+            snippet = content_snippet(bdir, row["name"], q)
+            if snippet is not None:
+                items.append(
+                    f'<li class="snippet">{highlight_html(snippet, q)}</li>\n')
     body = "".join(items)
     pagination = ""
     if limit is not None:
@@ -523,6 +576,38 @@ def report_content(bundle_dir, name) -> Optional[str]:
         return None
 
 
+def content_snippet(bundle_dir, name, q, *, width: int = 120) -> Optional[str]:
+    """A short plain-text excerpt of a report body around a ``q`` match (R94).
+
+    Strips the report's HTML tags and collapses whitespace, then returns a
+    ``width``-character window centred on the first case-insensitive ``q`` match
+    (prefixed / suffixed with ``…`` when the window is truncated at either end).
+    Returns ``None`` when ``q`` is empty, the body is missing / unreadable, or
+    ``q`` does not appear in the body -- so a caller can fall back to metadata
+    alone. The excerpt carries no markup; callers escape / highlight it for HTML
+    (see :func:`highlight_html`).
+    """
+    if not q:
+        return None
+    text = report_content(bundle_dir, name)
+    if text is None:
+        return None
+    plain = " ".join(_strip_tags(text).split())
+    idx = plain.lower().find(q.lower())
+    if idx < 0:
+        return None
+    pad = max(0, (width - len(q)) // 2)
+    start = max(0, idx - pad)
+    end = min(len(plain), start + width)
+    start = max(0, end - width)
+    snippet = plain[start:end]
+    if start > 0:
+        snippet = "…" + snippet
+    if end < len(plain):
+        snippet = snippet + "…"
+    return snippet
+
+
 def _detail_nav(rows, name) -> tuple[Optional[str], Optional[str]]:
     """``(prev_name, next_name)`` neighbours of *name* in an ordered row list."""
     names = [row["name"] for row in rows]
@@ -563,7 +648,11 @@ def report_detail_html(bundle_dir, name, *, q=None, sort=None, dir="asc",
     that resolved back to the page itself; the preview is skipped when the
     report is unreadable. R93 threads ``content`` through the nav (dashboard
     back-link and prev / next hrefs preserve ``content=1``) and the query, so a
-    content-mode search survives leaving a report. Returns ``None`` when *name*
+    content-mode search survives leaving a report. R94 renders a
+    ``<p class="snippet">`` plain-text excerpt around the ``q`` match when a
+    content search is active (``content`` and ``q``), with the match marked via
+    :func:`highlight_html`, so a user landing here from a content search sees
+    *why* the report matched. Returns ``None`` when *name*
     is unknown or escapes the bundle, so the caller can 404.
     """
     bdir = Path(bundle_dir)
@@ -599,6 +688,12 @@ def report_detail_html(bundle_dir, name, *, q=None, sort=None, dir="asc",
     nav = ""
     if nav_parts:
         nav = f'<p class="detail-nav">{" · ".join(nav_parts)}</p>\n'
+    snippet_para = ""
+    if content and q:
+        snippet = content_snippet(bdir, name, q)
+        if snippet is not None:
+            snippet_para = (f'<p class="snippet">{highlight_html(snippet, q)}'
+                            "</p>\n")
     preview = ""
     if report_content(bdir, name) is not None:
         preview = ('<div class="report-preview">\n'
@@ -608,7 +703,7 @@ def report_detail_html(bundle_dir, name, *, q=None, sort=None, dir="asc",
     return ("<!doctype html>\n<html><head><meta charset=\"utf-8\">"
             f"<title>{html.escape(heading)}</title></head><body>"
             f"<h1>{html.escape(heading)}</h1>{crumbs}{meta}{open_link}{nav}"
-            f"{preview}"
+            f"{snippet_para}{preview}"
             f'<p class="detail-path">{html.escape(entry["name"])}</p>'
             "</body></html>\n")
 
@@ -659,6 +754,8 @@ class ReportBundleHandler(BaseHTTPRequestHandler):
             return self._route_zip()
         if route == "/api/report/content":
             return self._route_report_content()
+        if route == "/api/report/snippet":
+            return self._route_report_snippet()
         if route == "/api/report":
             return self._route_report_api()
         if route.startswith("/report/"):
@@ -781,6 +878,25 @@ class ReportBundleHandler(BaseHTTPRequestHandler):
             "title": bundle_title(self.index),
             "name": name,
             "content": content,
+        })
+
+    def _route_report_snippet(self):
+        """Serve a report body excerpt around a ``q`` match as JSON (R94)."""
+        name = self._param("name")
+        if not name:
+            return _send_error(self, 400, "missing name")
+        q = self._param("q")
+        if not q:
+            return _send_error(self, 400, "missing q")
+        if report_detail(self.bundle_dir, name) is None:
+            return _send_error(self, 404, f"unknown report: {name}")
+        _send_json(self, {
+            "ok": True,
+            "bundle": str(Path(self.bundle_dir).resolve()),
+            "title": bundle_title(self.index),
+            "name": name,
+            "q": q,
+            "snippet": content_snippet(self.bundle_dir, name, q),
         })
 
     def _route_report_detail(self, route: str):

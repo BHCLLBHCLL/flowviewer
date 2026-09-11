@@ -3571,3 +3571,27 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 - 报告族全量回归（`test_r72_report_bundle` + `test_r74_report_cli` + `test_r76_report_source` + `test_r82_report_web` + `test_r83_automation_bundle` + `test_r84_serve_cli` + `test_r86_report_dashboard` + `test_r87_bundle_summary` + `test_r88_bundle_query` + `test_r89_bundle_pagination` + `test_r90_dashboard_controls` + `test_r91_report_detail` + `test_r92_report_detail_preview` + `test_r93_report_content_query`）= 341/341。
 - `ruff`（`fv/web/report_server.py`、`tests/test_r93_report_content_query.py`）全部通过（已修正 Python 3.9 不支持 f-string 替换字段内换行的问题，前置计算 `prev_href`/`nxt_href` 变量后再构建 f-string）。
 - 其余 7 项失败均为渲染/API 且依赖 VTK 未安装，与 R93 无关（R93 未触碰 render/api）。
+
+### 8.89 第九十四轮执行记录：R94 Web 呈现——内容搜索命中片段 + `<mark>` 高亮（content-search match snippets + `<mark>` highlighting）（2026-09-11 落地）
+
+**缺口**：R93 让内容搜索（`content=1`）能命中报告*正文*，但仪表盘/详情页不给任何「命中在哪里」的线索——一个只命中正文的结果和一个命中标题的结果看起来一模一样，用户既无法判断某份报告为何命中，也不知道该读正文的哪一段。R94 落入「Web 呈现」方向：为内容搜索补上命中片段（snippet）与高亮，让用户一眼看到*为什么*命中；全部改动为增量式，既有报告锚点不变，`bundle_listings` 保持可解析、元数据搜索行为不变，向后兼容 R86-R93 全部测试。
+
+**S1 实现（`fv/web/report_server.py`，R93 深化）**
+- 新增纯函数 `highlight_html(text, q) -> str`：对 `text` 做 HTML 转义，并把每一处大小写不敏感的 `q` 命中用 `<mark>…</mark>` 包裹；`q` 为空时仅返回转义后的文本（无查询的调用方渲染与旧行为一致）；每个未被标记/被标记的片段分别转义，使恶意的 `q` 或文本都无法注入标记。
+- 新增纯函数 `content_snippet(bundle_dir, name, q, *, width=120) -> Optional[str]`：取报告正文，`_strip_tags` 去标签并折叠空白，返回以首个大小写不敏感 `q` 命中为中心、长度约 `width` 的纯文本窗口（两端被截断时补 `…`）；`q` 为空、正文缺失/不可读、或 `q` 不在正文中时返回 `None`，便于调用方回退到仅元数据。片段本身不含标记，由调用方转义/高亮。
+- `dashboard_html`：在每份匹配报告的 `<li class="meta">` 之后，当 `content` 且 `q` 时追加 `<li class="snippet">highlight_html(snippet, q)</li>`（`snippet` 为 `None` 时不追加），为增量新增、不影响既有 `<li><a>` 锚点。
+- `report_detail_html`：当 `content` 且 `q` 时，渲染 `<p class="snippet">highlight_html(snippet, q)</p>` 并插入到预览之前。
+- HTTP 处理器新增 `_route_report_snippet`：`/api/report/snippet?name=&q=` 返回 `{ok, bundle, title, name, q, snippet}` JSON——`name` 缺失返回 400 `missing name`，`q` 缺失返回 400 `missing q`，未知/逃逸报告返回 404 `unknown report`，正文不含 `q` 时 `snippet` 为 `null`。
+- `do_GET` 分发在 `/api/report` 之前插入 `/api/report/snippet` 路由；模块 docstring 与 `fv/web/__init__.py` 导出（`content_snippet`、`highlight_html`）同步更新。
+
+**S2 测试**（`tests/test_r94_report_match_snippet.py`，30 项全过）
+- `highlight_html`（纯函数）：空查询仅转义、大小写不敏感包裹、全部命中逐个包裹、恶意文本与查询分别转义。
+- `content_snippet`（纯函数）：纯文本摘录（不含标记）、大小写不敏感、无查询/关键词缺失/未知报告/路径逃逸均返回 `None`、两端截断带 `…`、窗口以命中为中心。
+- `dashboard_html`：内容搜索渲染 `<li class="snippet">` 且含 `<mark>zebra</mark>`；元数据搜索无片段、无 `<mark>`；仅命中元数据（`q=html`）不产生片段；新增后仍可被 `bundle_listings` 解析。
+- `report_detail_html`：内容搜索渲染 `<p class="snippet">`；元数据搜索无片段。
+- HTTP 路由：`/api/report/snippet` 返回 JSON（200/400 缺 name/400 缺 q/404 未知/无命中 `null`）；`/?q=zebra&content=1` 渲染片段；`/?q=zebra` 无片段；`/report/<name>?q=zebra&content=1` 渲染片段。
+
+**验证**
+- `tests/test_r94_report_match_snippet.py` = 30/30；R94 + R88-R93 向后兼容定向回归全过（71 passed）。
+- Web/报告族全量回归（`test_r82_report_web` + `test_r83_automation_bundle` + `test_r84_serve_cli` + `test_r85_gui_publish` + `test_r86_report_dashboard` + `test_r87_bundle_summary` + `test_r88_bundle_query` + `test_r89_bundle_pagination` + `test_r90_dashboard_controls` + `test_r91_report_detail` + `test_r92_report_detail_preview` + `test_r93_report_content_query` + `test_r94_report_match_snippet`）= 152/152。
+- `ruff`（`fv/web/report_server.py`、`fv/web/__init__.py`、`tests/test_r94_report_match_snippet.py`）全部通过。

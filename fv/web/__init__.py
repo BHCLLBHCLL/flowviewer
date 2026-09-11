@@ -7,7 +7,10 @@
   HTTP for browsing / sharing (R82); deepen the presentation with a metadata
   dashboard at ``/`` and an ``/api/meta`` JSON surface (R86), a single-report
   detail page at ``/report/<name>`` (with an embedded report preview) and an
-  ``/api/report`` JSON endpoint (R91/R92).
+  ``/api/report`` JSON endpoint (R91/R92), content-aware search plus an
+  ``/api/report/content`` JSON endpoint (R93), and a match snippet /
+  ``<mark>`` highlight surfaced on the dashboard / detail pages plus an
+  ``/api/report/snippet`` JSON endpoint (R94).
 * :mod:`fv.automation`        - headless AutomationSession + serve HTTP-RPC
   bridge.
 """
@@ -16,7 +19,9 @@ from .report import render_report
 from .report_server import (
     ReportBundleServer,
     bundle_summary,
+    content_snippet,
     dashboard_html,
+    highlight_html,
     query_reports,
     report_content,
     report_detail,
@@ -31,7 +36,9 @@ __all__ = [
     "ReportBundleServer",
     "WebViewerServer",
     "bundle_summary",
+    "content_snippet",
     "dashboard_html",
+    "highlight_html",
     "query_reports",
     "render_report",
     "report_content",

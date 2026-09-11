@@ -767,3 +767,24 @@ gate on push/PR.
   dashboard / detail pages, the preserved content flag through the pager and
   navigation, and the live /api/report/content, /api/meta?content=1, /?content=1
   and /report/<name>?content=1 routes.
+- R94 - Web presentation: content-search match snippets + <mark> highlighting:
+  R93 let a content search (content=1) match a report *body*, but the dashboard /
+  detail pages gave no clue *where* the match lived — a body-only hit looked
+  identical to a title hit, so a user could not tell why a report matched or
+  which part of it to read. R94 deepens fv/web/report_server.py: content_snippet()
+  returns a short plain-text excerpt (tags stripped, whitespace collapsed) of a
+  report body around the first case-insensitive q match, centred on the match with
+  … truncation markers (None when q is empty, the body is missing/unreadable, or q
+  is absent); highlight_html() HTML-escapes text and wraps each case-insensitive q
+  match in <mark>, escaping each marked/unmarked piece separately so a hostile q or
+  text cannot inject markup; the dashboard renders a <li class="snippet"> excerpt
+  under each matched report and the detail page renders a <p class="snippet">
+  excerpt, both only when a content search is active (content and q); and a new
+  /api/report/snippet?name=&q= -> _route_report_snippet route returns
+  {ok, bundle, title, name, q, snippet} JSON (400 on a missing name/q, 404 on
+  unknown, snippet null when the body does not contain q). The snippets are purely
+  additive — the existing report anchors are untouched, so bundle_listings() stays
+  parseable and a metadata search is unchanged. Tests
+  (tests/test_r94_report_match_snippet.py) cover the two pure helpers, the
+  dashboard / detail snippet rendering, bundle_listings() parsability, and the live
+  /api/report/snippet, /?q=&content=1 and /report/<name>?q=&content=1 routes.
