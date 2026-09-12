@@ -3688,3 +3688,27 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 - `tests/test_r98_report_api_snippets.py` = 16/16。
 - Web/报告族全量回归（`test_r32_web` + `test_r82_report_web` + `test_r84_serve_cli` + `test_r85_gui_publish` + `test_r86_report_dashboard` + `test_r87_bundle_summary` + `test_r88_bundle_query` + `test_r89_bundle_pagination` + `test_r90_dashboard_controls` + `test_r91_report_detail` + `test_r92_report_detail_preview` + `test_r93_report_content_query` + `test_r94_report_match_snippet` + `test_r95_report_match_snippets` + `test_r96_report_match_rank` + `test_r97_report_match_counts` + `test_r98_report_api_snippets`）= 241/241。
 - `ruff`（`fv/web/report_server.py`、`fv/web/__init__.py`、`tests/test_r98_report_api_snippets.py`）全部通过。
+
+### 8.94 第九十九轮执行记录：R99 Web 呈现——页面端按需展开全部命中（on-demand uncapped snippets, full=1）（2026-09-12 落地）
+
+**缺口**：R98 已让机器可读面完整（`/api/meta` 的 `snippets` 不截断），但 HTML 仪表盘 / 详情页仍把每份报告的正文摘要截断在 `_MAX_SNIPPETS = 5` 条，且「… and N more match(es)」提示是死链——浏览器用户无法看到其余命中，页面与 JSON 两个面不齐。R99 落在「Web 呈现」方向：用一个 `full=1` 开关把页面端也接到「按需展开全部命中」，让浏览器用户能达到与 `/api/meta` 相同的完整结果；全部改动为增量式，默认 `full=False` 保持 R95 的五条上限与纯文本提示，既有报告锚点与 `bundle_listings` 不变，向后兼容 R86-R98 全部测试。
+
+**S1 实现（`fv/web/report_server.py`，R98 深化）**
+- `_pager_href`：新增 `full: bool = False` 形参，置位时在查询串末尾追加 `full=1`（紧随 `content=1`），使分页 / 导航链接在翻页或前后跳转时保留「显示全部命中」的选择。
+- `_controls_html`：新增 `full: bool = False` 形参，渲染一个无依赖的「show all matches」复选框（`name="full" value="1"`，`full` 为真时 ` checked`），提交后由路由解析，成为交互入口。
+- `dashboard_html`：签名增 `full=False`；渲染摘要时 `shown = snippets if full else snippets[:_MAX_SNIPPETS]`，`full` 为真则逐条渲染全部命中（无提示），否则超额时把 `snippet-more` 由纯文本改为指向带 `full=1` 的同一查询链接；分页 prev / next 与控件表单均透传 `full=full`。
+- `report_detail_html`：签名增 `full=False`；同理 `full` 为真时渲染全部 `<p class="snippet">`，否则 `snippet-more` 变为指向 `_detail_href(..., full=True)` 的链接；仪表盘回链与 prev / next 导航透传 `full=full`。
+- `_dashboard_href` / `_detail_href`：新增 `full` 形参并透传给 `_pager_href`，docstring 更新为 `(R91; content R93, full R99)`。
+- `_route_dashboard`：读取 `self._param_flag("full")` 并传给 `dashboard_html`；`_route_report_detail`：读取 `self._param_flag("full")` 并传给 `report_detail_html`。
+- 模块 docstring 的 `/` 与 `/report/<name>` 端点说明补充 `content=1` / `full=1`；新增 R99 段落；`fv/web/__init__.py` docstring 同步补充 R99 说明。
+
+**S2 测试**（`tests/test_r99_report_full_snippets.py`，24 项全过）
+- 仪表盘 `dashboard_html`：默认（`full=False`）首个报告截断为 5 条并出现 `snippet-more` 与「and 2 more match(es)」；`full=True` 渲染全部 11 条且无 `snippet-more`；默认提示为指向 `?q=signal&content=1&full=1` 的链接；分页 next 链接 `full=True` 时为 `?limit=2&offset=2&q=signal&content=1&full=1`、默认时不含 `full=1`；控件复选框默认未勾选、`full=True` 时 `checked`；`full` 无 `content` 时不渲染任何摘要（无 `snippet`/`matches`）；边界 5 条无提示、6 条出现「and 1 more match(es)」。
+- 详情 `report_detail_html`：默认首份报告截断为 5 条 `<p class="snippet">` 并有 `snippet-more`（链接指向 `/report/many_report.html?q=signal&content=1&full=1`）；`full=True` 渲染全部 7 条且无提示；回链 `/ ?q=signal&content=1&full=1` 与 prev/next（`some_report` 的 many/one 邻居）均保留 `full=1`。
+- HTTP 路由：`/?q=signal&content=1` 走上限（9 条含 `snippet-more`），`&full=1` 渲染全部 11 条且无提示，`&full=0` 仍走上限；`/report/many_report.html?q=signal&content=1` 截断为 5 条、`&full=1` 为 7 条且无提示；`/api/meta` 不论是否带 `full=1` 都返回完整 7 条（`full` 仅作用于页面）。
+- 一致性：`/api/meta` 行键（name/label/title/size_bytes/mtime/matches/snippets）在带 `full=1` 时仍保留。
+
+**验证**
+- `tests/test_r99_report_full_snippets.py` = 24/24。
+- Web/报告族全量回归（`test_r32_web` + `test_r82_report_web` ~ `test_r99_report_full_snippets.py` 共 19 个文件）= 270/270。
+- `ruff`（`fv/web/report_server.py`、`fv/web/__init__.py`、`tests/test_r99_report_full_snippets.py`）全部通过。

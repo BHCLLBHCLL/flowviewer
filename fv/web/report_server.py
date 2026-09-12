@@ -128,6 +128,17 @@ result) to the content-mode ``/api/meta`` rows, alongside the existing
 ``matches`` count -- so one call now yields the whole ranked search result.
 Still purely additive: rows gain ``snippets`` only in a content search, and a
 non-content ``/api/meta`` response is unchanged.
+R99 closes the last Web-呈现 snippet gap between the two surfaces: R98 made the
+JSON content-search result complete (uncapped ``snippets``), but the HTML
+dashboard / detail pages still capped at ``_MAX_SNIPPETS`` excerpts with no way
+to reach the rest. It threads a ``full=1`` flag through the dashboard controls
+form ("show all matches" checkbox), the pager / detail / back-link hrefs and the
+dashboard / detail routes: when ``full`` is set the pages render *every* body
+match, and otherwise the "… and N more match(es)" note becomes a link that
+re-runs the same query with ``full=1`` -- so a browser user reaches the same
+complete result the API returns. Still purely additive: default ``full=False``
+keeps the R95 five-snippet cap and note, so existing anchors and listings are
+unchanged.
 No third-party dependencies are added.
 """
 
@@ -441,8 +452,13 @@ def window_reports(rows, *, limit=None, offset=0) -> list[dict]:
 
 def _pager_href(offset: int, limit: Optional[int], q: Optional[str],
                 sort: Optional[str], dir: str, dir_default: str = "asc",
-                content: bool = False) -> str:
-    """Build a dashboard query string that preserves q/sort/dir for a pager."""
+                content: bool = False, full: bool = False) -> str:
+    """Build a dashboard query string that preserves q/sort/dir for a pager.
+
+    R99 adds the ``full`` flag (``full=1``): a pager / navigation link keeps the
+    "show every body match" choice while the user pages through the bundle or
+    steps between reports, just as ``content`` (R93) keeps the content search.
+    """
     parts = []
     if limit is not None:
         parts.append(f"limit={limit}")
@@ -456,6 +472,8 @@ def _pager_href(offset: int, limit: Optional[int], q: Optional[str],
         parts.append(f"dir={dir}")
     if content:
         parts.append("content=1")
+    if full:
+        parts.append("full=1")
     return "?" + "&".join(parts)
 
 
@@ -481,7 +499,8 @@ def _option(selected: Optional[str], value: str, text: str) -> str:
 
 
 def _controls_html(q: Optional[str], sort: Optional[str], dir: str,
-                   limit: Optional[int], content: bool = False) -> str:
+                   limit: Optional[int], content: bool = False,
+                   full: bool = False) -> str:
     """A dependency-free ``GET`` form driving the dashboard query (R90).
 
     Lets a browser user type a ``q`` substring, pick a ``sort`` key / ``dir``
@@ -492,7 +511,10 @@ def _controls_html(q: Optional[str], sort: Optional[str], dir: str,
 
     R93 adds an opt-in ``content`` checkbox: when checked the form submits
     ``content=1`` (reflected as ``checked`` when the current query is a content
-    search), so ``q`` also matches report body text on submission.
+    search), so ``q`` also matches report body text on submission. R99 adds a
+    ``full`` checkbox ("show all matches": submits ``full=1``, reflected when
+    the current view is already uncapped) so a user can lift the per-report
+    ``_MAX_SNIPPETS`` cap from the form instead of hand-editing the URL.
     """
     q_esc = html.escape(q or "", quote=True)
     sort_opts = _option(sort, "", "Index order") + "".join(
@@ -503,6 +525,7 @@ def _controls_html(q: Optional[str], sort: Optional[str], dir: str,
         _option(limit_cur, size, "All" if not size else size)
         for size in _PAGE_SIZES)
     content_attr = ' checked' if content else ""
+    full_attr = ' checked' if full else ""
     return ('<form class="dashboard-controls" method="get" action="/">\n'
             f'<input type="search" name="q" value="{q_esc}" '
             'placeholder="filter by name / label / title">\n'
@@ -512,12 +535,15 @@ def _controls_html(q: Optional[str], sort: Optional[str], dir: str,
             f'<label class="content-toggle"><input type="checkbox" '
             f'name="content" value="1"{content_attr}>search report content'
             '</label>\n'
+            f'<label class="full-toggle"><input type="checkbox" '
+            f'name="full" value="1"{full_attr}>show all matches'
+            '</label>\n'
             '<button type="submit">apply</button>\n'
             '</form>\n')
 
 
 def dashboard_html(bundle_dir, title=None, *, q=None, sort=None, dir=None,
-                   limit=None, offset=0, content=False) -> str:
+                   limit=None, offset=0, content=False, full=False) -> str:
     """A richer bundle overview page with per-report metadata (R86).
 
     Keeps the ``report_index_html`` ``<li><a href="X">label</a></li>`` anchors so
@@ -556,6 +582,11 @@ def dashboard_html(bundle_dir, title=None, *, q=None, sort=None, dir=None,
     count (with ``dir`` defaulting to ``desc``) so the most relevant report is
     first. R97 shares those counts (via :func:`content_match_counts`) so the
     summary total and the per-report lines come from a single scan per report.
+    R99 lifts the per-report ``_MAX_SNIPPETS`` cap on demand: when ``full`` is
+    ``True`` a content search renders *every* body match (no ``snippet-more``
+    note), and otherwise the "… and N more match(es)" note becomes a link that
+    re-runs the same query with ``full=1`` -- so a browser user reaches the same
+    complete match list the ``/api/meta`` JSON surface (R98) already returns.
     ``title``
     (fallback: the bundle's ``<title>``) drives the ``<h1>``.
     """
@@ -594,15 +625,17 @@ def dashboard_html(bundle_dir, title=None, *, q=None, sort=None, dir=None,
             items.append(
                 f'<li class="matches">{count} match(es) in body</li>\n')
             snippets = content_snippets(bdir, row["name"], q)
-            shown = snippets[:_MAX_SNIPPETS]
+            shown = snippets if full else snippets[:_MAX_SNIPPETS]
             for snippet in shown:
                 items.append(
                     f'<li class="snippet">{highlight_html(snippet, q)}</li>\n')
             extra = len(snippets) - len(shown)
             if extra:
+                more = html.escape(_pager_href(
+                    offset, limit, q, sort, dir, content=content, full=True))
                 items.append(
-                    f'<li class="snippet-more">… and {extra} more match(es)'
-                    "</li>\n")
+                    f'<li class="snippet-more"><a href="{more}">'
+                    f"… and {extra} more match(es)</a></li>\n")
     body = "".join(items)
     pagination = ""
     if limit is not None:
@@ -618,16 +651,16 @@ def dashboard_html(bundle_dir, title=None, *, q=None, sort=None, dir=None,
             prev = max(0, offset - limit)
             pager_parts.append(
                 f'<a class="pager-prev" href='
-                f'"{_pager_href(prev, limit, q, sort, dir, content=content)}"'
+                f'"{_pager_href(prev, limit, q, sort, dir, content=content, full=full)}"'
                 f'>previous</a>')
         if offset + len(rows) < total:
             nxt = offset + len(rows)
             pager_parts.append(
                 f'<a class="pager-next" href='
-                f'"{_pager_href(nxt, limit, q, sort, dir, content=content)}"'
+                f'"{_pager_href(nxt, limit, q, sort, dir, content=content, full=full)}"'
                 f'>next</a>')
         pagination = f'<p class="pagination">{" · ".join(pager_parts)}</p>\n'
-    controls = _controls_html(q, sort, dir, limit, content=content)
+    controls = _controls_html(q, sort, dir, limit, content=content, full=full)
     return ("<!doctype html>\n<html><head><meta charset=\"utf-8\">"
             f"<title>{html.escape(heading)}</title></head><body>"
             f"<h1>{html.escape(heading)}</h1>"
@@ -806,20 +839,20 @@ def _detail_nav(rows, name) -> tuple[Optional[str], Optional[str]]:
 
 
 def _dashboard_href(q: Optional[str], sort: Optional[str], dir: str,
-                    content: bool = False) -> str:
-    """Dashboard ``/`` URL that preserves ``q``/``sort``/``dir`` (R91; content R93)."""
-    return "/" + _pager_href(0, None, q, sort, dir, content=content)
+                    content: bool = False, full: bool = False) -> str:
+    """Dashboard ``/`` URL preserving ``q``/``sort``/``dir`` (R91; content R93, full R99)."""
+    return "/" + _pager_href(0, None, q, sort, dir, content=content, full=full)
 
 
 def _detail_href(name: str, q: Optional[str], sort: Optional[str], dir: str,
-                 content: bool = False) -> str:
-    """Detail ``/report/<name>`` URL preserving query (R91; content R93)."""
+                 content: bool = False, full: bool = False) -> str:
+    """Detail ``/report/<name>`` URL preserving query (R91; content R93, full R99)."""
     return ("/report/" + urllib.parse.quote(name, safe="")
-            + _pager_href(0, None, q, sort, dir, content=content))
+            + _pager_href(0, None, q, sort, dir, content=content, full=full))
 
 
 def report_detail_html(bundle_dir, name, *, q=None, sort=None, dir=None,
-                       content=False) -> Optional[str]:
+                       content=False, full=False) -> Optional[str]:
     """A dashboard-context detail page for a single report (R91/R92).
 
     Renders the report's ``label`` (or ``name``) as the ``<h1>``, a crumb trail
@@ -842,7 +875,13 @@ def report_detail_html(bundle_dir, name, *, q=None, sort=None, dir=None,
     report where the term recurs shows every occurrence. R96 renders the report's
     body match count as a ``<p class="matches">`` line (from
     :func:`content_match_count`) and defaults the direction to ``desc`` for a
-    ``sort="matches"`` ranking. Returns ``None`` when
+    ``sort="matches"`` ranking. R99 lifts the per-report ``_MAX_SNIPPETS`` cap on
+    demand on this page too: when ``full`` is ``True`` every body match is
+    rendered (no note), otherwise the "… and N more match(es)" note becomes a
+    link to the same detail URL with ``full=1``, and the dashboard / prev / next
+    hrefs preserve ``full`` -- so a user reading a report reaches its complete
+    match list, matching the ``/api/meta`` JSON surface (R98). Returns ``None``
+    when
     *name*
     is unknown or escapes the bundle, so the caller can 404.
     """
@@ -855,7 +894,7 @@ def report_detail_html(bundle_dir, name, *, q=None, sort=None, dir=None,
     matched = query_reports(report_meta(bdir), q=q, sort=sort, dir=dir,
                             content=content, bundle_dir=bdir)
     prev, nxt = _detail_nav(matched, name)
-    dash = _dashboard_href(q, sort, dir, content=content)
+    dash = _dashboard_href(q, sort, dir, content=content, full=full)
     crumbs = (f'<p class="crumbs"><a href="{html.escape(dash)}">dashboard</a>'
               f" · {len(matched)} match(es)</p>\n")
     caption = " · ".join(part for part in (
@@ -869,12 +908,12 @@ def report_detail_html(bundle_dir, name, *, q=None, sort=None, dir=None,
     nav_parts = []
     if prev:
         prev_href = html.escape(_detail_href(prev, q, sort, dir,
-                                             content=content))
+                                             content=content, full=full))
         nav_parts.append(f'<a class="detail-prev" href="{prev_href}">'
                          f'previous</a>')
     if nxt:
         nxt_href = html.escape(_detail_href(nxt, q, sort, dir,
-                                            content=content))
+                                            content=content, full=full))
         nav_parts.append(f'<a class="detail-next" href="{nxt_href}">'
                          f'next</a>')
     nav = ""
@@ -884,10 +923,18 @@ def report_detail_html(bundle_dir, name, *, q=None, sort=None, dir=None,
     if content and q:
         count = content_match_count(bdir, name, q)
         snippet_para = (f'<p class="matches">{count} match(es) in body</p>\n')
-        snippets = content_snippets(bdir, name, q)[:_MAX_SNIPPETS]
+        snippets = content_snippets(bdir, name, q)
+        shown = snippets if full else snippets[:_MAX_SNIPPETS]
         snippet_para += "".join(
             f'<p class="snippet">{highlight_html(snippet, q)}</p>\n'
-            for snippet in snippets)
+            for snippet in shown)
+        extra = len(snippets) - len(shown)
+        if extra:
+            more = html.escape(_detail_href(
+                name, q, sort, dir, content=content, full=True))
+            snippet_para += (
+                f'<p class="snippet-more"><a href="{more}">'
+                f"… and {extra} more match(es)</a></p>\n")
     preview = ""
     if report_content(bdir, name) is not None:
         preview = ('<div class="report-preview">\n'
@@ -991,7 +1038,11 @@ class ReportBundleHandler(BaseHTTPRequestHandler):
         return self._param(key) == "1"
 
     def _route_dashboard(self):
-        """Serve the metadata dashboard at ``/`` (R86; queryable R88, windowed R89)."""
+        """Serve the metadata dashboard at ``/`` (R86; queryable R88, windowed R89).
+
+        R99 reads the ``full=1`` flag so a viewer can lift the per-report
+        ``_MAX_SNIPPETS`` cap and render every body match on the page.
+        """
         title = bundle_title(self.index)
         content = self._param_flag("content")
         try:
@@ -1000,7 +1051,7 @@ class ReportBundleHandler(BaseHTTPRequestHandler):
                 sort=self._param("sort"), dir=self._param("dir"),
                 limit=self._param_int("limit"),
                 offset=self._param_int("offset") or 0,
-                content=content,
+                content=content, full=self._param_flag("full"),
             ).encode("utf-8")
         except ValueError as exc:
             return _send_error(self, 400, str(exc))
@@ -1123,12 +1174,17 @@ class ReportBundleHandler(BaseHTTPRequestHandler):
         })
 
     def _route_report_detail(self, route: str):
-        """Serve the dashboard-context detail page for one report (R91)."""
+        """Serve the dashboard-context detail page for one report (R91).
+
+        R99 reads the ``full=1`` flag so the detail page can show every body
+        match instead of the first ``_MAX_SNIPPETS`` excerpts.
+        """
         name = urllib.parse.unquote(route[len("/report/"):])
         body = report_detail_html(
             self.bundle_dir, name, q=self._param("q"),
             sort=self._param("sort"), dir=self._param("dir"),
             content=self._param_flag("content"),
+            full=self._param_flag("full"),
         )
         if body is None:
             return _send_error(self, 404, f"unknown report: {name}")

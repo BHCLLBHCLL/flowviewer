@@ -18,7 +18,10 @@
   those same per-report / total match counts on the machine-readable
   ``/api/meta`` surface, computed once via ``content_match_counts`` (R97), and
   each matched report's ``snippets`` excerpts on that surface too, so one
-  ``/api/meta`` call yields the whole content-search result (R98).
+  ``/api/meta`` call yields the whole content-search result (R98), and an
+  on-demand ``full=1`` flag that lifts the page-side ``_MAX_SNIPPETS`` cap so
+  the dashboard / detail pages render every body match, with the "… and N more
+  match(es)" note linked to the uncapped view (R99).
 * :mod:`fv.automation`        - headless AutomationSession + serve HTTP-RPC
   bridge.
 """

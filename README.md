@@ -881,3 +881,24 @@ gate on push/PR.
   (page rows carry snippets, the aggregate still spans all, total unchanged), the
   no-match empty result, the unknown-sort 400, and the JSON windows highlighting to
   the same page lines.
+- R99 - Web presentation: on-demand uncapped excerpts on the dashboard / detail pages
+  (full=1): R98 made the machine-readable content-search result complete (uncapped
+  snippets on /api/meta), but the HTML dashboard / detail pages still capped at
+  _MAX_SNIPPETS = 5 excerpts and the "… and N more match(es)" note dead-ended, so a
+  browser user could not reach the rest. R99 closes that page-vs-JSON gap in
+  fv/web/report_server.py by threading a full=1 flag through the whole page surface:
+  the controls form gains a "show all matches" checkbox (submits full=1, reflected
+  when set), _pager_href / _dashboard_href / _detail_href preserve full (so paging and
+  prev/next navigation keep the choice), and the dashboard / detail routes read
+  self._param_flag("full"). When full is set the pages render every body match (no
+  note); otherwise the "… and N more match(es)" note becomes a link that re-runs the
+  same query with full=1 — so a browser user reaches the same complete result the API
+  returns. The changes are purely additive: default full=False keeps the R95
+  five-snippet cap and the plain note, so existing report anchors / metadata search /
+  sort keys and bundle_listings stay untouched. Tests
+  (tests/test_r99_report_full_snippets.py) cover the default cap + note vs full
+  rendering every match, the note linking to full=1, the exact-cap boundary (5 → no
+  note) and over-cap (6 → "and 1 more"), the controls checkbox on/off, pager links
+  preserving (and default not adding) full, full without content being a no-op, the
+  detail back-link / prev / next hrefs preserving full, and the HTTP routes honouring
+  full=1 (with full=0 still capped) while /api/meta stays complete regardless of full.
