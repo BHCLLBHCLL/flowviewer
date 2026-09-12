@@ -3712,3 +3712,23 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 - `tests/test_r99_report_full_snippets.py` = 24/24。
 - Web/报告族全量回归（`test_r32_web` + `test_r82_report_web` ~ `test_r99_report_full_snippets.py` 共 19 个文件）= 270/270。
 - `ruff`（`fv/web/report_server.py`、`fv/web/__init__.py`、`tests/test_r99_report_full_snippets.py`）全部通过。
+
+### 8.95 第一百轮执行记录：R100 Web 呈现——报告邻域上下文（report neighbourhood context）（2026-09-12 落地）
+
+**缺口**：R91 的 `/report/<name>` 详情页只用裸「previous」/「next」在两个报告间跳转，链接既不说出邻居是谁，`/api/report` 也只返回单份报告、对它在 bundle 中的位置一无所知。R100 落在「Web 呈现」方向：补一个纯函数 `report_context()` 给出报告在当前排序下的 `index` / `total` 与 `prev` / `next` 邻域，详情页据此把 prev / next 链接标注为邻居自己的 `label`，`/api/report` 也挂上同一份 `context`（相对当前 `q` / `sort` / `dir` / `content` 排序计算）；全部改动增量式，`_detail_nav` 的 `(prev_name, next_name)` 契约、既有 `report` 字段、锚点 class / href 均不变，向后兼容 R86-R99 全部测试。
+
+**S1 实现（`fv/web/report_server.py`，R91 深化）**
+- `report_context(rows, name) -> Optional[dict]`：给定 `query_reports` 有序的 `report_meta` 行列表与报告名，返回 JSON 友好的 `{index, total, prev, next}`——`index` 为 0 基位置、`total` 为行数，`prev` / `next` 为邻域行的 `{name, label}` 摘要（首 / 尾分别为 `None`）；`name` 不在行列表中（如被 `q` 过滤）返回 `None`，避免编造位置。构建在既有的 `_detail_nav` 之上，故邻居名与详情页链接完全一致。
+- `report_detail_html`：改用 `report_context(matched, name)` 取邻域；prev / next 链接文本由裸词改为「previous: <邻居 label>」/「next: <邻居 label>」（`label` 缺省降级为 `name`，经 `html.escape`），href 仍走 `_detail_href` 并保留 `q` / `sort` / `dir` / `content` / `full`。
+- `_route_report_api`：读取 `q` / `sort` / `dir` / `content`，用 `query_reports` 求出当前排序的行列表（未知 `sort` 返回 400），在原有 `{ok, bundle, title, report}` 上新增 `context` 字段；报告被该排序过滤掉时 `context` 为 `null`。
+- 模块 docstring 的 `/api/report` 端点说明补充 ordering `context`（index / total / prev / next）并标注 `(R91/R100)`，新增 R100 段落；`report_detail_html` docstring 补充 R100 标注邻居说明；`fv/web/__init__.py` docstring 同步补充 R100 并导出 `report_context`。
+
+**S2 测试**（`tests/test_r100_report_context.py`，22 项全过）
+- `report_context`（纯）：中间 / 首（`prev is None`）/ 尾（`next is None`）/ 单行（index 0、total 1、两端 `None`）/ 不在列表与空列表返回 `None` / 跟随查询序（`sort=name` 升序）/ 与 `_detail_nav` 邻居名逐一一致。
+- 详情 `report_detail_html`：索引序下 `next: Epsilon Report`、首项仅 next、末项仅 prev、`previous`/`next` 标注邻居 label、跟随 `sort=name` / `sort=matches` 内容排序、label 经 HTML 转义（`Beta &amp; Co`、`Alpha &amp; &quot;Co&quot;`）。
+- `/api/report`：默认序 `context`（index 0 / total 5 / prev null / next epsilon）、中间（index 2 / prev epsilon / next delta）、`sort` 升 / 降序、内容相关度排序（index 2 / prev beta / next delta）、单命中（index 0 / total 1 / 两端 null）、被过滤时 `context` 为 `null` 且 `report` 仍在、以及 `report` 字段（name / index / title / ok）保持不变。
+
+**验证**
+- `tests/test_r100_report_context.py` = 22/22。
+- Web/报告族全量回归（`test_r32_web` + `test_r82_report_web` ~ `test_r100_report_context.py` 共 20 个文件）= 292/292。
+- `ruff`（`fv/web/report_server.py`、`fv/web/__init__.py`、`tests/test_r100_report_context.py`）全部通过。

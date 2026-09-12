@@ -23,7 +23,9 @@ Endpoints:
   generated span)
 * ``GET /api/bundle.zip``       -> download the whole bundle as an archive
 * ``GET /api/report?name=<n>``  -> JSON single-report metadata (name / label /
-  title / size / mtime / index)
+  title / size / mtime / index) plus an ordering ``context`` block (index /
+  total / prev / next within the active ``q``/``sort``/``dir``/``content``)
+  (R91/R100)
 * ``GET /api/report/content?name=<n>`` -> JSON single-report content (raw HTML
   text; 400 on a missing name, 404 on unknown / unreadable) (R93)
 * ``GET /api/report/snippet?name=<n>&q=<q>`` -> JSON plain-text excerpts of a
@@ -138,6 +140,19 @@ match, and otherwise the "… and N more match(es)" note becomes a link that
 re-runs the same query with ``full=1`` -- so a browser user reaches the same
 complete result the API returns. Still purely additive: default ``full=False``
 keeps the R95 five-snippet cap and note, so existing anchors and listings are
+unchanged.
+R100 closes the last Web-呈现 navigation gap: R91's detail page stepped between
+reports with bare "previous" / "next" links that named neither neighbour, and
+``/api/report`` returned a single report with no sense of *where* it sat in the
+bundle. It adds ``report_context()``, a pure helper returning a report's 0-based
+``index`` and ``total`` within an ordered :func:`report_meta` row list plus its
+``prev`` / ``next`` neighbours (each summarised as ``{name, label}``, ``None`` at
+either end; ``None`` for the whole block when the report is filtered out). The
+detail page now labels its prev / next links with the neighbour's own ``label``,
+and ``/api/report`` attaches the same context -- computed against the active
+``q`` / ``sort`` / ``dir`` / ``content`` ordering -- as a ``context`` field. Still
+purely additive: ``_detail_nav`` keeps its ``(prev_name, next_name)`` contract,
+the existing ``report`` field is untouched, and the anchor classes / hrefs are
 unchanged.
 No third-party dependencies are added.
 """
@@ -838,6 +853,39 @@ def _detail_nav(rows, name) -> tuple[Optional[str], Optional[str]]:
     return prev, nxt
 
 
+def report_context(rows, name) -> Optional[dict]:
+    """Ordering / neighbourhood context for *name* within an ordered row list (R100).
+
+    ``rows`` is a :func:`query_reports`-ordered :func:`report_meta` row list (the
+    same list the dashboard / detail pages walk). Returns a JSON-friendly
+    ``{index, total, prev, next}`` where ``index`` is the 0-based position of
+    *name*, ``total`` the row count, and ``prev`` / ``next`` are the neighbouring
+    rows summarised as ``{name, label}`` (``None`` at either end). Returns
+    ``None`` when *name* is absent from *rows* (e.g. filtered out by ``q``), so a
+    caller omits context instead of inventing a position. Built on
+    :func:`_detail_nav`, so the neighbour names match the detail page's prev /
+    next links exactly.
+    """
+    index = next(
+        (i for i, row in enumerate(rows) if row["name"] == name), None)
+    if index is None:
+        return None
+    prev_name, next_name = _detail_nav(rows, name)
+    by_name = {row["name"]: row for row in rows}
+
+    def _summary(neighbour: Optional[str]) -> Optional[dict]:
+        if neighbour is None or neighbour not in by_name:
+            return None
+        return {"name": neighbour, "label": by_name[neighbour]["label"]}
+
+    return {
+        "index": index,
+        "total": len(rows),
+        "prev": _summary(prev_name),
+        "next": _summary(next_name),
+    }
+
+
 def _dashboard_href(q: Optional[str], sort: Optional[str], dir: str,
                     content: bool = False, full: bool = False) -> str:
     """Dashboard ``/`` URL preserving ``q``/``sort``/``dir`` (R91; content R93, full R99)."""
@@ -880,7 +928,10 @@ def report_detail_html(bundle_dir, name, *, q=None, sort=None, dir=None,
     rendered (no note), otherwise the "… and N more match(es)" note becomes a
     link to the same detail URL with ``full=1``, and the dashboard / prev / next
     hrefs preserve ``full`` -- so a user reading a report reaches its complete
-    match list, matching the ``/api/meta`` JSON surface (R98). Returns ``None``
+    match list, matching the ``/api/meta`` JSON surface (R98). R100 labels the
+    prev / next links with the neighbour report's own ``label`` (via
+    :func:`report_context`) instead of a bare "previous" / "next", so a user
+    knows *which* report each step leads to before clicking. Returns ``None``
     when
     *name*
     is unknown or escapes the bundle, so the caller can 404.
@@ -893,7 +944,9 @@ def report_detail_html(bundle_dir, name, *, q=None, sort=None, dir=None,
     heading = entry["label"] or entry["name"]
     matched = query_reports(report_meta(bdir), q=q, sort=sort, dir=dir,
                             content=content, bundle_dir=bdir)
-    prev, nxt = _detail_nav(matched, name)
+    ctx = report_context(matched, name)
+    prev = ctx["prev"] if ctx else None
+    nxt = ctx["next"] if ctx else None
     dash = _dashboard_href(q, sort, dir, content=content, full=full)
     crumbs = (f'<p class="crumbs"><a href="{html.escape(dash)}">dashboard</a>'
               f" · {len(matched)} match(es)</p>\n")
@@ -907,15 +960,17 @@ def report_detail_html(bundle_dir, name, *, q=None, sort=None, dir=None,
                  "open report</a></p>\n")
     nav_parts = []
     if prev:
-        prev_href = html.escape(_detail_href(prev, q, sort, dir,
+        prev_href = html.escape(_detail_href(prev["name"], q, sort, dir,
                                              content=content, full=full))
+        prev_label = html.escape(prev["label"] or prev["name"])
         nav_parts.append(f'<a class="detail-prev" href="{prev_href}">'
-                         f'previous</a>')
+                         f"previous: {prev_label}</a>")
     if nxt:
-        nxt_href = html.escape(_detail_href(nxt, q, sort, dir,
+        nxt_href = html.escape(_detail_href(nxt["name"], q, sort, dir,
                                             content=content, full=full))
+        nxt_label = html.escape(nxt["label"] or nxt["name"])
         nav_parts.append(f'<a class="detail-next" href="{nxt_href}">'
-                         f'next</a>')
+                         f"next: {nxt_label}</a>")
     nav = ""
     if nav_parts:
         nav = f'<p class="detail-nav">{" · ".join(nav_parts)}</p>\n'
@@ -1120,18 +1175,38 @@ class ReportBundleHandler(BaseHTTPRequestHandler):
         })
 
     def _route_report_api(self):
-        """Serve a single report's metadata as JSON (R91)."""
+        """Serve a single report's metadata plus ordering context as JSON (R91/R100).
+
+        R91 returns the report's own metadata. R100 also attaches a ``context``
+        block -- the report's 0-based ``index`` and the ``total`` within the
+        current ``q`` / ``sort`` / ``dir`` / ``content`` ordering, plus its
+        ``prev`` / ``next`` neighbours (each ``{name, label}``, ``null`` at
+        either end) -- so a machine client knows where the report sits and can
+        walk the bundle without pairing this call with ``/api/meta``. ``context``
+        is ``null`` when the report is filtered out of that ordering.
+        """
         name = self._param("name")
         if not name:
             return _send_error(self, 400, "missing name")
         entry = report_detail(self.bundle_dir, name)
         if entry is None:
             return _send_error(self, 404, f"unknown report: {name}")
+        try:
+            matched = query_reports(
+                report_meta(self.bundle_dir), q=self._param("q"),
+                sort=self._param("sort"),
+                dir=_default_dir(self._param("sort"), self._param("dir")),
+                content=self._param_flag("content"),
+                bundle_dir=self.bundle_dir,
+            )
+        except ValueError as exc:
+            return _send_error(self, 400, str(exc))
         _send_json(self, {
             "ok": True,
             "bundle": str(Path(self.bundle_dir).resolve()),
             "title": bundle_title(self.index),
             "report": entry,
+            "context": report_context(matched, name),
         })
 
     def _route_report_content(self):

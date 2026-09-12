@@ -21,7 +21,10 @@
   ``/api/meta`` call yields the whole content-search result (R98), and an
   on-demand ``full=1`` flag that lifts the page-side ``_MAX_SNIPPETS`` cap so
   the dashboard / detail pages render every body match, with the "… and N more
-  match(es)" note linked to the uncapped view (R99).
+  match(es)" note linked to the uncapped view (R99), and report-neighbourhood
+  context (``report_context``) that labels the detail prev / next links with the
+  neighbour's ``label`` and attaches an ordering ``context`` block (index /
+  total / prev / next) to ``/api/report`` (R100).
 * :mod:`fv.automation`        - headless AutomationSession + serve HTTP-RPC
   bridge.
 """
@@ -38,6 +41,7 @@ from .report_server import (
     highlight_html,
     query_reports,
     report_content,
+    report_context,
     report_detail,
     report_detail_html,
     report_meta,
@@ -59,6 +63,7 @@ __all__ = [
     "query_reports",
     "render_report",
     "report_content",
+    "report_context",
     "report_detail",
     "report_detail_html",
     "report_meta",

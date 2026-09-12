@@ -902,3 +902,24 @@ gate on push/PR.
   preserving (and default not adding) full, full without content being a no-op, the
   detail back-link / prev / next hrefs preserving full, and the HTTP routes honouring
   full=1 (with full=0 still capped) while /api/meta stays complete regardless of full.
+- R100 - Web presentation: report neighbourhood context (labelled prev/next + JSON ordering):
+  R91's detail page stepped between reports with bare "previous" / "next" links that
+  named neither neighbour, and /api/report returned a single report with no sense of
+  where it sat in the bundle. R100 closes that navigation gap in
+  fv/web/report_server.py: a report_context(rows, name) helper returns a report's
+  0-based index and the total within an ordered report_meta row list plus its prev /
+  next neighbours (each summarised as {name, label}, None at either end; None for the
+  whole block when the report is filtered out), built on the already-tested _detail_nav
+  so neighbour names match the page links exactly; report_detail_html now labels its
+  prev / next links with the neighbour's own label ("previous: Epsilon Report"), and
+  _route_report_api computes the context against the active q / sort / dir / content
+  ordering and attaches it as a context field. The changes are purely additive:
+  _detail_nav keeps its (prev_name, next_name) contract, the existing report field is
+  untouched, the anchor classes / hrefs are unchanged, and bundle_listings stays
+  parseable. report_context is exported from fv/web/__init__.py. Tests
+  (tests/test_r100_report_context.py) cover report_context() (middle / first / last /
+  single-row / filtered-out None / query-order / agreement with _detail_nav), the
+  detail prev / next labels (index order, sort=name, content ranking, HTML escaping),
+  and /api/report's context (default order, middle, sort asc/desc, content ranking,
+  single match, null when the report is filtered out) while the report field stays
+  unchanged.
