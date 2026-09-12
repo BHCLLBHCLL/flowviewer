@@ -964,3 +964,28 @@ gate on push/PR.
   intact and the position landing between the dashboard link and the match count, the
   unknown-report None, and the HTTP routes (position rendered, reflecting sort,
   omitted when filtered out, and with a content / full query).
+- R103 - Web presentation: first / last jump links on the detail page:
+  R100/R101/R102 gave the detail page labelled prev / next links and a
+  "report N of M" position readout, but navigation could still move only one report
+  at a time -- reaching the first or last report of a large bundle meant clicking
+  through every neighbour, and the position readout told a user where they were
+  without offering a shortcut. R103 closes that reach gap in
+  fv/web/report_server.py: a new report_edges() helper returns the first / last
+  rows of an ordered row list (each {name, label}, None when the list is empty),
+  report_detail_html renders <a class="detail-first"> "first: …" and
+  <a class="detail-last"> "last: …" jump links to the ends of the active
+  q / sort / dir / content ordering (via the existing _detail_href, so the flags are
+  preserved), and /api/report attaches the same two jump targets as an additive
+  edges field mirroring the R100 context block. The change is purely additive:
+  report_context is unchanged, each jump is only rendered when the report is in the
+  ordering and not already at that end, the jump links carry distinct classes, and
+  the prev / next links are untouched. Tests (tests/test_r103_report_edges.py) cover
+  report_edges (default index order, sort asc / desc, content ranking, its shape, the
+  empty list and single row, and the package export), the jump links (present in the
+  middle, absent at the end already reached, absent for a single report, following
+  sort and content ranking, preserving content=1 / full=1, first before prev and last
+  after next, &amp;-escaped hrefs, labels escaped, and absent when the report is
+  filtered out), backward compatibility (prev / next and the detail-nav / crumbs
+  classes unchanged, report_context still four keys), and the HTTP edges field
+  (default order, following sort and content ranking, and still populated when context
+  is null).

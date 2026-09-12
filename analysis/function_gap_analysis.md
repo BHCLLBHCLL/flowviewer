@@ -3772,3 +3772,24 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 - `tests/test_r102_report_position.py` = 24/24。
 - Web/报告族全量回归（`test_r32_web` + `test_r82_report_web` ~ `test_r102_report_position.py` 共 22 个文件）= 334/334。
 - `ruff`（`fv/web/report_server.py`、`fv/web/__init__.py`、`tests/test_r102_report_position.py`）全部通过。
+
+### 8.98 第一百零三轮执行记录：R103 Web 呈现——详情页「first / last」跳转链接（ordering edges）（2026-09-13 落地）
+
+**缺口**：R100/R101/R102 已给详情页加上带标签的 `prev` / `next` 链接与 `report N of M` 位置读数，但导航仍只能一次移动一份报告——从中间想跳过十几份直达第一份或最后一份，只能一路点 `previous` / `next`；位置读数告诉用户「身处何处」，却不提供任何捷径。R103 落在「Web 呈现」方向：新增纯函数 `report_edges()` 返回当前排序的两端，详情页渲染直达首尾的 `first` / `last` 跳转链接，并把同样的两个跳转目标以增量 `edges` 字段挂到 `/api/report`（呼应 R100 `context` 的机读理由）；全部改动增量式，`report_context` 不变，`prev` / `next` 链接与既有锚点 class 不变，向后兼容 R86-R102 全部测试。
+
+**S1 实现（`fv/web/report_server.py`，R91/R92 详情页深化）**
+- 新增纯函数 `report_edges(rows) -> {first, last}`：对 `query_reports` 排序后的 `report_meta` 行列表，返回首行 / 末行的 `{name, label}` 摘要（与 `report_context` 的 `prev` / `next` 同形），空列表时两端均为 `None`；放在 `report_context` 之后、`_dashboard_href` 之前。
+- `report_detail_html`：在原有 `ctx` / `prev` / `nxt` 基础上新增 `edges = report_edges(matched)`，`nav_parts` 在 `prev` 之前插入 `<a class="detail-first" href="…">first: {label}</a>`（仅当 `ctx is not None and ctx["index"] > 0 and edges["first"]`），在 `nxt` 之后插入 `<a class="detail-last" href="…">last: {label}</a>`（仅当 `ctx is not None and ctx["index"] < ctx["total"] - 1 and edges["last"]`）；href 复用 `_detail_href` 以保留 `q` / `sort` / `dir` / `content` / `full`，label 经 `html.escape` 转义并以 ` · ` 连接。
+- `_route_report_api`：在既有 `"context": report_context(matched, name)` 旁新增 `"edges": report_edges(matched)`；因不依赖所请求报告，报告被 `q` 过滤掉时 `context` 为 `null` 而 `edges` 仍有值。
+- 模块 docstring：`/api/report` 端点说明补充 `edges` 块并标注 `(R91/R100/R103)`，`/report/<name>` 端点说明补充「with first/last jumps」并标注 `(R91/R92/R102/R103)`，新增 R103 段落；`report_detail_html` docstring 补充 R103 首尾跳转说明；`fv/web/__init__.py` docstring 同步补充 R103，并在 import 与 `__all__` 中导出 `report_edges`（按字母序置于 `report_detail_html` 与 `report_meta` 之间）。
+
+**S2 测试**（`tests/test_r103_report_edges.py`，27 项全过）
+- `report_edges` 纯函数：默认索引序 `first=gamma` / `last=beta`；`sort=name` 升序 `first=alpha` / `last=gamma`、降序 `first=gamma` / `last=alpha`；`q=needle&sort=matches&dir=desc&content=1` 内容排名 `first=epsilon` / `last=gamma`；形状仅 `{first, last}` 且每端仅 `{name, label}`；空列表 `{"first": None, "last": None}`；单行时两端相同；`fv.web` 包导出与 `fv.web.report_server` 同一对象。
+- 详情页跳转链接：中间报告 `alpha` 同时有 `first: Gamma Report` / `last: Beta Report` 且 href 为 `/report/gamma_report.html?` / `/report/beta_report.html?`；首份 `gamma` 无 `detail-first`、有 `detail-last`，末份 `beta` 无 `detail-last`、有 `detail-first`；单份报告两端皆无；`sort=name` 下 `delta` 的 `first` / `last` 指向 `alpha` / `gamma` 且 href 带 `sort=name`；内容排名下 `alpha` 的 `first` / `last` 指向 `epsilon` / `gamma`；`content=1` 与 `full=1` 被保留（href 中以 `&amp;` 转义）；`detail-first` 在 `detail-prev` 之前、`detail-last` 在 `detail-next` 之后；label 中的 `&` / `"` 被转义（`Beta &amp; Co`、`Alpha &amp; &quot;Co&quot;`）；报告被 `q` 过滤掉时两端链接与位置 span 均省略而 `class="crumbs"` 仍在。
+- 向后兼容：中间报告 `detail-prev` / `detail-next` 及 `previous:` / `next:` 文本不变；`<p class="detail-nav">` 与 `<p class="crumbs">` 及 `report 3 of 5` 位置 span 不变；`report_context` 仍恰为 `{index, total, prev, next}` 四键。
+- HTTP `/api/report`：默认序 `edges` 恰为 `{first: gamma, last: beta}`；`sort=name&dir=asc` 下 `first=alpha` / `last=gamma`；内容排名下 `first=epsilon` / `last=gamma`；`q=epsilon` 查 `gamma` 时 `context` 为 `null` 但 `edges` 两端均为 `epsilon`；`edges` 形状仅 `{first, last}` 且每端仅 `{name, label}`。
+
+**验证**
+- `tests/test_r103_report_edges.py` = 27/27。
+- Web/报告族全量回归（`test_r32_web` + `test_r82_report_web` ~ `test_r103_report_edges.py` 共 23 个文件）= 361/361。
+- `ruff`（`fv/web/report_server.py`、`fv/web/__init__.py`、`tests/test_r103_report_edges.py`）全部通过。

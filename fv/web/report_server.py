@@ -25,8 +25,8 @@ Endpoints:
 * ``GET /api/bundle.zip``       -> download the whole bundle as an archive
 * ``GET /api/report?name=<n>``  -> JSON single-report metadata (name / label /
   title / size / mtime / index) plus an ordering ``context`` block (index /
-  total / prev / next within the active ``q``/``sort``/``dir``/``content``)
-  (R91/R100)
+  total / prev / next within the active ``q``/``sort``/``dir``/``content``) and
+  an ``edges`` block (first / last of that ordering) (R91/R100/R103)
 * ``GET /api/report/content?name=<n>`` -> JSON single-report content (raw HTML
   text; 400 on a missing name, 404 on unknown / unreadable) (R93)
 * ``GET /api/report/snippet?name=<n>&q=<q>`` -> JSON plain-text excerpts of a
@@ -178,6 +178,19 @@ crumbs, so the human surface shows the ``index``/``total`` the machine surface
 (R100) already returns. Still purely additive: the dashboard back link and the
 ``N match(es)`` crumb are unchanged, the span is only added when the report is
 in the active ordering, and the ``prev`` / ``next`` labels / hrefs are untouched.
+R103 closes the last navigation-reach gap: the detail page's prev / next links
+(R100/R101/R102) can only move one report at a time, so reaching the first or
+last report of a large ordering means clicking through every neighbour, and the
+R102 position readout tells a user *where* they are but offers no shortcut. It
+adds "first" / "last" jump links
+(``<a class="detail-first">`` / ``<a class="detail-last">``) to the ends of the
+active ordering via a new :func:`report_edges` helper, and exposes the same two
+jump targets as an additive ``edges`` field on ``/api/report`` (mirroring the
+R100 ``context`` rationale), so a browser user reading report 37 of 100 reaches
+either end in one click and a machine client can do the same. Still purely
+additive: :func:`report_context` is unchanged, the jump links carry distinct
+classes and are only added when the report is in the ordering and not already at
+that end, and the ``prev`` / ``next`` links are untouched.
 No third-party dependencies are added.
 """
 
@@ -924,6 +937,30 @@ def report_context(rows, name) -> Optional[dict]:
     }
 
 
+def report_edges(rows) -> dict:
+    """First / last row summaries of an ordered row list (R103).
+
+    ``rows`` is a :func:`query_reports`-ordered :func:`report_meta` row list (the
+    same list the dashboard / detail pages walk). Returns a JSON-friendly
+    ``{first, last}`` where each end is summarised as ``{name, label}`` -- the
+    same shape :func:`report_context` uses for ``prev`` / ``next`` -- or ``None``
+    when *rows* is empty. The detail page uses them to offer "first" / "last"
+    jumps to the ends of the active ``q``/``sort``/``dir``/``content`` ordering,
+    so a browser user reading report 37 of 100 reaches either end in one click
+    instead of stepping through prev / next; ``/api/report`` exposes the same two
+    jump targets as an ``edges`` field, mirroring the ``context`` block.
+    """
+    def _end(row) -> Optional[dict]:
+        if row is None:
+            return None
+        return {"name": row["name"], "label": row["label"]}
+
+    return {
+        "first": _end(rows[0] if rows else None),
+        "last": _end(rows[-1] if rows else None),
+    }
+
+
 def _dashboard_href(q: Optional[str], sort: Optional[str], dir: str,
                     content: bool = False, full: bool = False) -> str:
     """Dashboard ``/`` URL preserving ``q``/``sort``/``dir`` (R91; content R93, full R99)."""
@@ -975,7 +1012,13 @@ def report_detail_html(bundle_dir, name, *, q=None, sort=None, dir=None,
     within the active ``q``/``sort``/``dir``/``content`` ordering, from
     :func:`report_context`), so a user reading a report sees *where* it sits in
     the bundle instead of only the total match count -- the human counterpart of
-    the ``index``/``total`` that ``/api/report`` (R100) already returns. Returns
+    the ``index``/``total`` that ``/api/report`` (R100) already returns. R103
+    adds "first" / "last" jump links (``<a class="detail-first">`` / ``<a
+    class="detail-last">``, from :func:`report_edges`) to the ends of the active
+    ``q``/``sort``/``dir``/``content`` ordering, so a user in the middle of a
+    large bundle reaches either end in one click instead of stepping through
+    every prev / next; each jump is only rendered when the report is in the
+    ordering and not already at that end. Returns
     ``None`` when
     *name*
     is unknown or escapes the bundle, so the caller can 404.
@@ -1007,7 +1050,15 @@ def report_detail_html(bundle_dir, name, *, q=None, sort=None, dir=None,
     raw = "/" + urllib.parse.quote(name, safe="")
     open_link = (f'<p class="report-open"><a href="{raw}" target="_blank">'
                  "open report</a></p>\n")
+    edges = report_edges(matched)
     nav_parts = []
+    if ctx is not None and ctx["index"] > 0 and edges["first"]:
+        first = edges["first"]
+        first_href = html.escape(_detail_href(first["name"], q, sort, dir,
+                                              content=content, full=full))
+        first_label = html.escape(first["label"] or first["name"])
+        nav_parts.append(f'<a class="detail-first" href="{first_href}">'
+                         f"first: {first_label}</a>")
     if prev:
         prev_href = html.escape(_detail_href(prev["name"], q, sort, dir,
                                              content=content, full=full))
@@ -1020,6 +1071,14 @@ def report_detail_html(bundle_dir, name, *, q=None, sort=None, dir=None,
         nxt_label = html.escape(nxt["label"] or nxt["name"])
         nav_parts.append(f'<a class="detail-next" href="{nxt_href}">'
                          f"next: {nxt_label}</a>")
+    if (ctx is not None and ctx["index"] < ctx["total"] - 1
+            and edges["last"]):
+        last = edges["last"]
+        last_href = html.escape(_detail_href(last["name"], q, sort, dir,
+                                             content=content, full=full))
+        last_label = html.escape(last["label"] or last["name"])
+        nav_parts.append(f'<a class="detail-last" href="{last_href}">'
+                         f"last: {last_label}</a>")
     nav = ""
     if nav_parts:
         nav = f'<p class="detail-nav">{" · ".join(nav_parts)}</p>\n'
@@ -1256,6 +1315,7 @@ class ReportBundleHandler(BaseHTTPRequestHandler):
             "title": bundle_title(self.index),
             "report": entry,
             "context": report_context(matched, name),
+            "edges": report_edges(matched),
         })
 
     def _route_report_content(self):
