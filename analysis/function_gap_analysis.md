@@ -3752,3 +3752,23 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 - `tests/test_r101_dashboard_detail_links.py` = 18/18。
 - Web/报告族全量回归（`test_r32_web` + `test_r82_report_web` ~ `test_r101_dashboard_detail_links.py` 共 21 个文件）= 310/310。
 - `ruff`（`fv/web/report_server.py`、`fv/web/__init__.py`、`tests/test_r101_dashboard_detail_links.py`）全部通过。
+
+### 8.97 第一百零二轮执行记录：R102 Web 呈现——详情页「report N of M」位置读数（position readout）（2026-09-13 落地）
+
+**缺口**：R100 的 `report_context()` 已算出一份报告在当前排序下的 0 基 `index`、`total` 并以 `context` 块挂到 `/api/report`，但详情页只消费了 `prev` / `next` 两个邻居——面包屑只显示总匹配数 `N match(es)`，从不显示「当前这份报告排第几」。于是浏览器用户在上下文里阅读时，无法判断自己是在第一份、中间还是最后一份报告。R102 落在「Web 呈现」方向：把 `report_context` 已经算出的 `index` / `total` 也呈现到人看的页面上；全部改动增量式，仪表盘回链、`N match(es)` 面包屑、`prev` / `next` 标签与 href 均不变，向后兼容 R86-R101 全部测试。
+
+**S1 实现（`fv/web/report_server.py`，R91/R92 详情页深化）**
+- `report_detail_html`：把原先两段式面包屑改为 `crumb_parts` 列表——先是仪表盘回链 `<a href="…">dashboard</a>`，再在 `ctx is not None` 时插入 `<span class="report-position">report {index + 1} of {total}</span>`（1 基，来自页内已算的 `ctx = report_context(matched, name)`），最后仍是 `{len(matched)} match(es)`，以 ` · ` 连接；报告被当前 `q` 过滤掉（`ctx is None`）时该 span 省略，面包屑仍保留回链与匹配数。
+- 模块 docstring 的 `GET /report/<name>` 端点说明补充「a "report N of M" position readout」并标注 `(R91/R92/R102)`，新增 R102 段落；`report_detail_html` docstring 补充 R102 位置读数说明；`fv/web/__init__.py` docstring 同步补充 R102。
+
+**S2 测试**（`tests/test_r102_report_position.py`，24 项全过）
+- 索引序位置：`many` / `some` / `one` 分别为 `report 1 of 3` / `report 2 of 3` / `report 3 of 3`；断言 1 基（无 `report 0 of`）；与 `report_context` 逐份一致。
+- 反映排序：`sort=name` 下 `one` 为 `report 2 of 3`；`q=signal&content=1&sort=matches&dir=asc` 下 `one` 为 `report 1 of 3`、`many`（默认 `desc`）为 `report 3 of 3`；`sort=name&dir=desc` 下 `one` 为 `report 2 of 3` 且与 `report_context` 一致。
+- 查询收缩 total / 省略 span：`q=one` 下 `one` 为 `report 1 of 1`；`q=one` 查 `many` 时 span 省略但 `class="crumbs"` 与 `1 match(es)` 仍在。
+- 增量不改旧行为：`class="crumbs"` 与 `3 match(es)` 保留；位置 span 位于 dashboard 回链与匹配数之间；回链保留并带当前 `q` / `content=1` / `sort=matches`；`detail-prev` / `detail-next` 仍在；未知报告返回 `None`。
+- HTTP：`/report/many_report.html` 渲染 `report 1 of 3`；`/report/one_report.html?sort=name` 渲染 `report 2 of 3`；`?q=one` 查 `many` 时无 span 且有 `1 match(es)`；`?q=signal&content=1&sort=matches&dir=asc` 渲染 `report 1 of 3`；`?q=signal&content=1&full=1` 渲染 `report 1 of 3`。
+
+**验证**
+- `tests/test_r102_report_position.py` = 24/24。
+- Web/报告族全量回归（`test_r32_web` + `test_r82_report_web` ~ `test_r102_report_position.py` 共 22 个文件）= 334/334。
+- `ruff`（`fv/web/report_server.py`、`fv/web/__init__.py`、`tests/test_r102_report_position.py`）全部通过。

@@ -26,7 +26,9 @@
   neighbour's ``label`` and attaches an ordering ``context`` block (index /
   total / prev / next) to ``/api/report`` (R100), and a per-report "details"
   link on the dashboard that opens that detail view while preserving the active
-  ``q``/``sort``/``dir``/``content``/``full`` (R101).
+  ``q``/``sort``/``dir``/``content``/``full`` (R101), and a "report N of M"
+  position readout in the detail crumbs that surfaces the ``index``/``total``
+  that ``report_context`` already computes (R102).
 * :mod:`fv.automation`        - headless AutomationSession + serve HTTP-RPC
   bridge.
 """

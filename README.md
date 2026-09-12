@@ -943,3 +943,24 @@ gate on push/PR.
   parsing a rendered dashboard (names/labels unchanged, action rows ignored), and the
   HTTP routes (dashboard exposes the links, following one resolves the detail page,
   and a ?q=…&content=1&full=1 query is preserved through the link).
+- R102 - Web presentation: a "report N of M" position readout in the detail crumbs:
+  R100's report_context() computed each report's 0-based index and the total within
+  the active ordering and exposed them on /api/report, but the detail page consumed
+  only the prev / next neighbours -- its crumb trail showed the total match count yet
+  never where the current report sat, so a browser user reading in context could not
+  tell whether they were at the first, middle or last report. R102 closes that gap in
+  fv/web/report_server.py: report_detail_html now renders the position from the same
+  report_context result the page already computes as a
+  <span class="report-position"> "report N of M" readout (1-based) inside the crumbs,
+  so the human surface shows the index / total the machine surface (R100) already
+  returns. The change is purely additive: the dashboard back link and the
+  N match(es) crumb are unchanged, the span is only added when the report is in the
+  active ordering (omitted when filtered out), and the prev / next labels / hrefs are
+  untouched. Tests (tests/test_r102_report_position.py) cover the position within the
+  index order (first / middle / last, 1-based), agreement with report_context, the
+  position reflecting the active ordering (sort=name, matches asc / desc, dir=desc),
+  the shrunken total under a query, the span omitted when the report is filtered out
+  while the crumbs and match count remain, the crumbs / back link / prev-next staying
+  intact and the position landing between the dashboard link and the match count, the
+  unknown-report None, and the HTTP routes (position rendered, reflecting sort,
+  omitted when filtered out, and with a content / full query).

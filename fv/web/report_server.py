@@ -35,7 +35,7 @@ Endpoints:
 * ``GET /<report>.html``        -> a single report (path-traversal safe)
 * ``GET /report/<name>``        -> dashboard-context detail page for one report
   (back link, metadata, open link, embedded report preview, prev/next
-  navigation) (R91/R92)
+  navigation, and a "report N of M" position readout) (R91/R92/R102)
 
 R86 deepens the web presentation: ``/`` is no longer a bare ``<ul>`` of links but
 a live dashboard built from ``report_meta`` (report's own ``<title>`` plus
@@ -166,6 +166,18 @@ view straight from the dashboard. Still purely additive: the row's primary
 ``<li><a href="name">label</a></li>`` anchor is untouched, and the action ``<li>``
 carries a class so ``_ITEM_RE`` ignores it and ``bundle_listings`` stays
 parseable.
+R102 closes the last Web-呈现 context gap: R100 computed each report's 0-based
+``index`` and the ``total`` in :func:`report_context` and exposed them on
+``/api/report``, but the detail page consumed only the ``prev`` / ``next``
+neighbours -- the crumb trail showed the total match count yet never *where* the
+current report sat, so a browser user reading in context could not tell whether
+they were at the first, middle or last report. It renders the position from the
+same :func:`report_context` result the page already computes as a
+``<span class="report-position">`` "report N of M" readout (1-based) inside the
+crumbs, so the human surface shows the ``index``/``total`` the machine surface
+(R100) already returns. Still purely additive: the dashboard back link and the
+``N match(es)`` crumb are unchanged, the span is only added when the report is
+in the active ordering, and the ``prev`` / ``next`` labels / hrefs are untouched.
 No third-party dependencies are added.
 """
 
@@ -957,8 +969,14 @@ def report_detail_html(bundle_dir, name, *, q=None, sort=None, dir=None,
     match list, matching the ``/api/meta`` JSON surface (R98). R100 labels the
     prev / next links with the neighbour report's own ``label`` (via
     :func:`report_context`) instead of a bare "previous" / "next", so a user
-    knows *which* report each step leads to before clicking. Returns ``None``
-    when
+    knows *which* report each step leads to before clicking. R102 surfaces the
+    same ordering context the caller already computes: the crumb trail gains a
+    ``<span class="report-position">`` "report N of M" readout (1-based index
+    within the active ``q``/``sort``/``dir``/``content`` ordering, from
+    :func:`report_context`), so a user reading a report sees *where* it sits in
+    the bundle instead of only the total match count -- the human counterpart of
+    the ``index``/``total`` that ``/api/report`` (R100) already returns. Returns
+    ``None`` when
     *name*
     is unknown or escapes the bundle, so the caller can 404.
     """
@@ -974,8 +992,13 @@ def report_detail_html(bundle_dir, name, *, q=None, sort=None, dir=None,
     prev = ctx["prev"] if ctx else None
     nxt = ctx["next"] if ctx else None
     dash = _dashboard_href(q, sort, dir, content=content, full=full)
-    crumbs = (f'<p class="crumbs"><a href="{html.escape(dash)}">dashboard</a>'
-              f" · {len(matched)} match(es)</p>\n")
+    crumb_parts = [f'<a href="{html.escape(dash)}">dashboard</a>']
+    if ctx is not None:
+        crumb_parts.append(
+            f'<span class="report-position">report {ctx["index"] + 1} '
+            f'of {ctx["total"]}</span>')
+    crumb_parts.append(f"{len(matched)} match(es)")
+    crumbs = f'<p class="crumbs">{" · ".join(crumb_parts)}</p>\n'
     caption = " · ".join(part for part in (
         entry["title"], _fmt_size(entry["size_bytes"]),
         _fmt_mtime(entry["mtime"])) if part)
