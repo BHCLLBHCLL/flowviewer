@@ -923,3 +923,23 @@ gate on push/PR.
   and /api/report's context (default order, middle, sort asc/desc, content ranking,
   single match, null when the report is filtered out) while the report field stays
   unchanged.
+- R101 - Web presentation: a dashboard entry point into the detail view:
+  R91/R92 added the dashboard-context detail page at /report/<name>, but the
+  dashboard's per-report anchors pointed straight at the raw report files, so the
+  detail view was reachable only by hand-editing the URL or stepping prev / next from
+  another report's detail page. R101 closes that navigation gap in
+  fv/web/report_server.py: dashboard_html now renders a sibling
+  <li class="actions"><a class="detail-link" href="/report/<name>?…">details</a></li>
+  under each report's primary anchor, built with the existing _detail_href so the link
+  opens the detail view while preserving the active q / sort / dir / content / full
+  (and URL-quoting the report name). The changes are purely additive: the primary
+  <li><a href="name">label</a></li> anchor is untouched, and the action <li> carries a
+  class so _ITEM_RE ignores it and bundle_listings stays parseable. Tests
+  (tests/test_r101_dashboard_detail_links.py) cover the per-row details link (one per
+  report, targeting /report/<name>?), the primary anchor staying intact and preceding
+  the action row, query survival (q; sort+dir; content; content+full; default free of
+  content=1/full=1), the &amp;-escaped href, URL-quoting of a spaced report name,
+  windowing (only the rendered slice gets a link, offset included), bundle_listings
+  parsing a rendered dashboard (names/labels unchanged, action rows ignored), and the
+  HTTP routes (dashboard exposes the links, following one resolves the detail page,
+  and a ?q=…&content=1&full=1 query is preserved through the link).

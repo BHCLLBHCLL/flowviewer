@@ -12,7 +12,8 @@ any browser, in the R30 headless close-out spirit.
 Endpoints:
 
 * ``GET /``                     -> metadata dashboard (report label + title +
-  size + mtime; ``/index.html`` stays the untouched bundle index file)
+  size + mtime, plus a per-report "details" link into the context view;
+  ``/index.html`` stays the untouched bundle index file) (R86/R101)
 * ``GET /index.html``           -> bundle index page (generated if absent)
 * ``GET /api/list``             -> JSON report listing (name + human label)
 * ``GET /api/meta``             -> JSON per-report metadata + aggregate summary
@@ -154,6 +155,17 @@ and ``/api/report`` attaches the same context -- computed against the active
 purely additive: ``_detail_nav`` keeps its ``(prev_name, next_name)`` contract,
 the existing ``report`` field is untouched, and the anchor classes / hrefs are
 unchanged.
+R101 closes the last Web-呈现 navigation gap in the other direction: R91/R92 added
+the dashboard-context detail page, but the dashboard's rows only linked to the
+raw report files, so ``/report/<name>`` was reachable only by hand-editing the
+URL or stepping prev / next from another report's detail page. It adds a
+per-report ``<li class="actions"><a class="detail-link" href="/report/<name>?…">``
+"details" link to ``dashboard_html`` that preserves the active
+``q``/``sort``/``dir``/``content``/``full`` -- so a browser user opens the detail
+view straight from the dashboard. Still purely additive: the row's primary
+``<li><a href="name">label</a></li>`` anchor is untouched, and the action ``<li>``
+carries a class so ``_ITEM_RE`` ignores it and ``bundle_listings`` stays
+parseable.
 No third-party dependencies are added.
 """
 
@@ -602,6 +614,15 @@ def dashboard_html(bundle_dir, title=None, *, q=None, sort=None, dir=None,
     note), and otherwise the "… and N more match(es)" note becomes a link that
     re-runs the same query with ``full=1`` -- so a browser user reaches the same
     complete match list the ``/api/meta`` JSON surface (R98) already returns.
+    R101 gives every row an entry point into the R91/R92 detail view: the row's
+    primary anchor still targets the raw report file (so
+    :func:`bundle_listings` keeps parsing the page), but a sibling
+    ``<li class="actions"><a class="detail-link" href="/report/<name>?…">``
+    "details" link now opens ``/report/<name>`` while preserving the active
+    ``q``/``sort``/``dir``/``content``/``full`` -- so a browser user reaches the
+    dashboard-context detail page directly instead of hand-editing the URL or
+    stepping prev / next from another report. The action ``<li>`` carries a
+    class, so :data:`_ITEM_RE` ignores it and the listing stays parseable.
     ``title``
     (fallback: the bundle's ``<title>``) drives the ``<h1>``.
     """
@@ -635,6 +656,11 @@ def dashboard_html(bundle_dir, title=None, *, q=None, sort=None, dir=None,
             row["size_bytes"]), _fmt_mtime(row["mtime"])) if part]
         items.append(f'<li class="meta">{html.escape(" · ".join(caption_parts))}'
                      f"</li>\n")
+        detail = html.escape(_detail_href(row["name"], q, sort, dir,
+                                          content=content, full=full))
+        items.append(
+            f'<li class="actions"><a class="detail-link" href="{detail}">'
+            "details</a></li>\n")
         if counts is not None:
             count = counts[row["name"]]
             items.append(

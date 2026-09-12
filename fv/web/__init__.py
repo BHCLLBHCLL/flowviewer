@@ -24,7 +24,9 @@
   match(es)" note linked to the uncapped view (R99), and report-neighbourhood
   context (``report_context``) that labels the detail prev / next links with the
   neighbour's ``label`` and attaches an ordering ``context`` block (index /
-  total / prev / next) to ``/api/report`` (R100).
+  total / prev / next) to ``/api/report`` (R100), and a per-report "details"
+  link on the dashboard that opens that detail view while preserving the active
+  ``q``/``sort``/``dir``/``content``/``full`` (R101).
 * :mod:`fv.automation`        - headless AutomationSession + serve HTTP-RPC
   bridge.
 """

@@ -3732,3 +3732,23 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 - `tests/test_r100_report_context.py` = 22/22。
 - Web/报告族全量回归（`test_r32_web` + `test_r82_report_web` ~ `test_r100_report_context.py` 共 20 个文件）= 292/292。
 - `ruff`（`fv/web/report_server.py`、`fv/web/__init__.py`、`tests/test_r100_report_context.py`）全部通过。
+
+### 8.96 第一百零一轮执行记录：R101 Web 呈现——仪表盘直通详情页（dashboard entry point into the detail view）（2026-09-13 落地）
+
+**缺口**：R91/R92 已给出仪表盘上下文的详情页 `/report/<name>`，但仪表盘每行报告的锚点仍直指原始报告文件，详情页只能靠手改 URL、或从另一份报告详情页逐份 prev / next 才能到达——从仪表盘「进不去」。R101 落在「Web 呈现」方向：给仪表盘每一行加一个「details」链接直达 `/report/<name>` 并保留当前查询态；全部改动增量式，主锚点 `<li><a href="name">label</a></li>`、`_ITEM_RE` 解析与 `bundle_listings` 均不变，向后兼容 R86-R100 全部测试。
+
+**S1 实现（`fv/web/report_server.py`，R91/R92 深化）**
+- `dashboard_html`：在每个报告的主锚点与 `meta` 说明之后追加兄弟行 `<li class="actions"><a class="detail-link" href="…">details</a></li>`，href 由既有 `_detail_href(row["name"], q, sort, dir, content=content, full=full)` 生成——即打开 `/report/<name>` 同时保留当前 `q` / `sort` / `dir` / `content` / `full`，并对报告名做 URL 引号、对 href 做 HTML 转义。动作行带 class，`_ITEM_RE`（要求 `<li>` 紧跟 `<a`）不会误匹配，故 `index.html` 与另存的仪表盘页面仍可被 `bundle_listings` 解析。
+- 模块 docstring 的 `GET /` 端点说明补充每报告「details」链接（标注 `(R86/R101)`），新增 R101 段落；`dashboard_html` docstring 补充 R101 说明；`fv/web/__init__.py` docstring 同步补充 R101。
+
+**S2 测试**（`tests/test_r101_dashboard_detail_links.py`，18 项全过）
+- 每行一个详情链接：逐报告断言 `<li class="actions"><a class="detail-link" href="/report/<name>?">details</a></li>`；`detail-link` / `actions` 计数等于报告数；链接指向 `/report/<name>?`；主锚点 `<li><a href="many_report.html">Many Report</a></li>` 仍在且位于动作行之前。
+- 查询态保留：`q`、`sort`+`dir`（`&amp;` 转义）、`content=1`、`content=1&amp;full=1`、缺省不含 `content=1`/`full=1`；含空格报告名被 URL 引号（`odd%20report.html`）；`&` 转义为 `&amp;`。
+- 窗口化：`limit=1` 仅渲染切片得到 1 个详情链接；`limit=1&offset=1` 亦然。
+- 列表可解析：把带查询态渲染的仪表盘写入 `index.html` 后 `bundle_listings` 名字 / 标签与顺序不变；动作行被忽略（无 `label == "details"`）。
+- HTTP：`/` 暴露详情链接、跟随 `/report/some_report.html?` 得到 200 详情页、`/?q=signal&content=1&full=1` 的查询态经详情链接保留。
+
+**验证**
+- `tests/test_r101_dashboard_detail_links.py` = 18/18。
+- Web/报告族全量回归（`test_r32_web` + `test_r82_report_web` ~ `test_r101_dashboard_detail_links.py` 共 21 个文件）= 310/310。
+- `ruff`（`fv/web/report_server.py`、`fv/web/__init__.py`、`tests/test_r101_dashboard_detail_links.py`）全部通过。
