@@ -3668,3 +3668,23 @@ import。**范围/诚实降级**：场图仍为粗粒度预览（默认 24×24 �
 - `tests/test_r97_report_match_counts.py` = 20/20。
 - Web/报告族全量回归（`test_r82_report_web` + `test_r83_automation_bundle` + `test_r84_serve_cli` + `test_r85_gui_publish` + `test_r86_report_dashboard` + `test_r87_bundle_summary` + `test_r88_bundle_query` + `test_r89_bundle_pagination` + `test_r90_dashboard_controls` + `test_r91_report_detail` + `test_r92_report_detail_preview` + `test_r93_report_content_query` + `test_r94_report_match_snippet` + `test_r95_report_match_snippets` + `test_r96_report_match_rank` + `test_r97_report_match_counts`）= 222/222。
 - `ruff`（`fv/web/report_server.py`、`fv/web/__init__.py`、`tests/test_r97_report_match_counts.py`）全部通过。
+
+### 8.93 第九十八轮执行记录：R98 Web 呈现——机器可读 API 的命中摘要（content-search snippets on /api/meta）（2026-09-12 落地）
+
+**缺口**：R97 给 `/api/meta` 补上了每份报告的正文命中*计数*，但展示*命中位置/原因*的摘要仍留在 HTML 页面，或需对每份报告分别请求一次 `/api/report/snippet`——客户端要拼出一次完整的内容搜索结果仍需 N+1 次调用。R98 落在「Web 呈现」方向：把内容搜索下每份报告的摘要（仪表盘/详情页渲染的 `content_snippets()` 窗口，且不做上限截断，使 JSON 面即完整结果）连同既有的 `matches` 计数一并挂到 `/api/meta` 行上，让一次调用即可拿到整份相关度排序结果（元数据 + 计数 + 摘要）；全部改动为增量式，非内容搜索的 `/api/meta` 响应逐字段不变、既有报告字段与 `summary` 不变、`bundle_listings` 保持可解析，向后兼容 R86-R97 全部测试。
+
+**S1 实现（`fv/web/report_server.py`，R97 深化）**
+- `_route_meta`：内容模式（`content` 且 `q`）下，`payload["reports"]` 的每行由 `{**row, "matches": counts[row["name"]]}` 扩为再追加 `"snippets": content_snippets(self.bundle_dir, row["name"], q)`；聚合 `payload["matches"]` 与既有字段不变，非内容搜索时 `payload` 与 R86-R97 逐字段一致。摘要不做上限截断（页面用 `_MAX_SNIPPETS = 5`），故 JSON 面即完整命中列表。
+- `_route_meta` docstring 更新为「counts R97, excerpts R98」，说明每行同时携带 `matches` 与 `snippets`——机器客户端从这一次调用即可读到完整的内容搜索排序结果，无需再逐份报告配一次 `/api/report/snippet`。
+- 模块 docstring 的 `/api/meta` 端点说明更新为 `(R86/R97/R98)` 并补充「每份报告另带正文 `snippets` 摘要」；新增 R98 段落；`fv/web/__init__.py` docstring 同步补充 `snippets` 说明。
+
+**S2 测试**（`tests/test_r98_report_api_snippets.py`，16 项全过）
+- `/api/meta` 内容搜索：每行 `snippets` 等于 `content_snippets(bundle, name, q)`、均为非空字符串且含查询、`len(snippets) == matches == COUNTS`（2/5/1）、与 `/api/report/snippet` 结果一致、大小写不敏感查询一致、既有行键（name/label/title/size_bytes/mtime）保留。
+- 上限：7 次命中的报告 JSON 返回 7 条而仪表盘仅渲染 5 条 `<li class="snippet">` 且出现 `snippet-more`（JSON 面不截断）。
+- 边界：非内容搜索无 `snippets`、`content=1` 无 `q` 无 `snippets`、仅命中元数据（`q=html`）摘要为空且计数为 `0`、`sort=matches` 下行顺序 beta/alpha/gamma 且摘要长度随排名、分页（`limit=2`）仅页内行带摘要而聚合 `matches`/`total` 仍针对全部、无命中为空/零、未知排序键 400。
+- 一致性：JSON 摘要经 `highlight_html(snippet, KEYWORD)` 后出现在仪表盘页面中，证明二者同源。
+
+**验证**
+- `tests/test_r98_report_api_snippets.py` = 16/16。
+- Web/报告族全量回归（`test_r32_web` + `test_r82_report_web` + `test_r84_serve_cli` + `test_r85_gui_publish` + `test_r86_report_dashboard` + `test_r87_bundle_summary` + `test_r88_bundle_query` + `test_r89_bundle_pagination` + `test_r90_dashboard_controls` + `test_r91_report_detail` + `test_r92_report_detail_preview` + `test_r93_report_content_query` + `test_r94_report_match_snippet` + `test_r95_report_match_snippets` + `test_r96_report_match_rank` + `test_r97_report_match_counts` + `test_r98_report_api_snippets`）= 241/241。
+- `ruff`（`fv/web/report_server.py`、`fv/web/__init__.py`、`tests/test_r98_report_api_snippets.py`）全部通过。

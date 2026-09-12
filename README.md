@@ -860,3 +860,24 @@ gate on push/PR.
   absence, the metadata-only zero count, pagination (page rows counted, aggregate
   over all, total unchanged), sort=matches tracking the ranking, and the
   unknown-sort 400.
+- R98 - Web presentation: content-search excerpts on /api/meta (machine-readable parity):
+  R97 gave /api/meta each report's body match *count*, but the *excerpts* that show
+  where / why a report matched stayed on the HTML pages or behind one
+  /api/report/snippet request per report, so a client assembling a full
+  content-search result still needed N+1 calls. R98 closes that gap in
+  fv/web/report_server.py: in a content search the per-report /api/meta rows now
+  also carry their snippets — the content_snippets() windows the dashboard / detail
+  pages render, uncapped so the JSON surface is the complete result — alongside the
+  existing matches count, so one call yields the whole ranked search result
+  (metadata + counts + excerpts). The additions are purely additive — rows gain
+  snippets only in a content search, a non-content /api/meta response is unchanged,
+  and the existing report anchors / metadata search / sort keys stay untouched.
+  Tests (tests/test_r98_report_api_snippets.py) cover the per-report snippets
+  equalling content_snippets(), non-emptiness / query containment / length agreeing
+  with matches, uncapped output (JSON returns 7 while the page truncates at 5 with
+  snippet-more), agreement with /api/report/snippet, case-insensitivity, preserved
+  row keys, the non-content and content-without-q absence, metadata-only empty
+  snippets + zero counts, snippets tracking the sort=matches ranking, pagination
+  (page rows carry snippets, the aggregate still spans all, total unchanged), the
+  no-match empty result, the unknown-sort 400, and the JSON windows highlighting to
+  the same page lines.

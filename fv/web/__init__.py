@@ -16,7 +16,9 @@
   match count (a ``matches`` sort key) plus visible per-report / total match
   counts (``content_match_count``) on the dashboard / detail pages (R96), and
   those same per-report / total match counts on the machine-readable
-  ``/api/meta`` surface, computed once via ``content_match_counts`` (R97).
+  ``/api/meta`` surface, computed once via ``content_match_counts`` (R97), and
+  each matched report's ``snippets`` excerpts on that surface too, so one
+  ``/api/meta`` call yields the whole content-search result (R98).
 * :mod:`fv.automation`        - headless AutomationSession + serve HTTP-RPC
   bridge.
 """

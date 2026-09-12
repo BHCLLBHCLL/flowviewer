@@ -17,7 +17,8 @@ Endpoints:
 * ``GET /api/list``             -> JSON report listing (name + human label)
 * ``GET /api/meta``             -> JSON per-report metadata + aggregate summary
   (label/title/size/mtime; in a content search each report also carries a body
-  ``matches`` count plus an aggregate ``matches`` total) (R86/R97)
+  ``matches`` count and its body ``snippets`` excerpts plus an aggregate
+  ``matches`` total) (R86/R97/R98)
 * ``GET /api/summary``          -> JSON bundle overview (count / total size /
   generated span)
 * ``GET /api/bundle.zip``       -> download the whole bundle as an archive
@@ -117,6 +118,16 @@ per-report ``matches`` count plus an aggregate ``matches`` total to the
 ``/api/meta`` payload -- so the JSON surface carries exactly the relevance
 counts the pages render. Still purely additive: a non-content ``/api/meta``
 response is unchanged.
+R98 closes the last Web-呈现 machine-search gap: R97 gave ``/api/meta`` the
+per-report match *counts*, but the excerpts that show *where* a report matched
+remained on the HTML pages or behind one ``/api/report/snippet`` request per
+report, so a client assembling a full content-search result needed N+1 calls.
+It attaches each report's ``snippets`` (the ``content_snippets`` windows the
+dashboard / detail pages render, uncapped so the JSON surface is the complete
+result) to the content-mode ``/api/meta`` rows, alongside the existing
+``matches`` count -- so one call now yields the whole ranked search result.
+Still purely additive: rows gain ``snippets`` only in a content search, and a
+non-content ``/api/meta`` response is unchanged.
 No third-party dependencies are added.
 """
 
@@ -1000,13 +1011,16 @@ class ReportBundleHandler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def _route_meta(self):
-        """Serve per-report metadata as JSON (R86; content match counts R97).
+        """Serve per-report metadata as JSON (R86; counts R97, excerpts R98).
 
         When a content search is active (``content=1`` with a ``q``) each report
-        row carries a ``matches`` body match count and the payload carries an
-        aggregate ``matches`` total, mirroring the counts the dashboard / detail
-        pages render (R96) so a machine client sees the same relevance metadata
-        it can already rank by with ``sort=matches``.
+        row carries a ``matches`` body match count and its ``snippets`` excerpts
+        (the same plain-text windows the dashboard / detail pages render, via
+        :func:`content_snippets`), and the payload carries an aggregate
+        ``matches`` total -- so a machine client reads the whole ranked content
+        search result (metadata + counts + excerpts) from this single call,
+        instead of pairing the listing with one ``/api/report/snippet`` request
+        per report.
         """
         q = self._param("q")
         content = self._param_flag("content")
@@ -1037,7 +1051,12 @@ class ReportBundleHandler(BaseHTTPRequestHandler):
                 self.bundle_dir, [row["name"] for row in matched], q)
             payload["matches"] = sum(counts.values())
             payload["reports"] = [
-                {**row, "matches": counts[row["name"]]} for row in rows]
+                {**row,
+                 "matches": counts[row["name"]],
+                 "snippets": content_snippets(
+                     self.bundle_dir, row["name"], q)}
+                for row in rows
+            ]
         _send_json(self, payload)
 
     def _route_summary(self):
