@@ -7,3 +7,6 @@ tests/*
 !tests/data/
 !tests/data/*
 .pytest_tmp/*.tlb
+
+.trae/
+out_empty/
