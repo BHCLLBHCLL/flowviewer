@@ -11,9 +11,10 @@
 
 | 轮次 | 主题 | 关键交付 | 提交信息（subject） | 依赖 |
 |---|---|---|---|---|
-| **R110** | 收尾在途修复 + 测试隔离 | R109 补丁落地 + VTK 归因更正 + 测试期望对齐 + **消除测试态污染** + `scripts/round.py` | `fix(plane): true polyhedron FPH cells — completes R109, unblocks real FPH cuts` | — |
+| **R110** ✅ | 测试基线可信化（已推送 56a6351） | conftest 夹具隔离（消除 2.4 GB 残留与顺序依赖假失败）+ R109 遗留收尾（test_r19 期望、README 归因）+ VTK 9.6 迁移风险记录 + 测试产物泄漏修复 + `scripts/round.py` | `R110: trustworthy test baseline (fixture isolation, R109 follow-up, README attribution)` | — |
 | **R111** | 错误可见化 | `load_file` 未识别容器抛错；GPH 无场显式报告；越界节点报错；宽泛 except 收敛 | `fix(crdl): fail loudly on unrecognised containers and empty field sets` | R110 |
 | **R112** | FLD 几何忠实 | 面表去重（6.3×）+ FLD 表面 0-based 索引 + 表面积分用全顶点（Newell） | `fix(fld): de-duplicate face table and use 0-based surface node ids` | R111 |
+| ↳ **R111b** | 测试基线加固（并入 R111） | `test_gui.py` 体渲染路径偶发原生无响应（位置漂移）定位与隔离；全量回归恢复可重复 | 并入 R111 提交 | R111 |
 | **R113** | 数值正确性 | 面积/体积/壁距/谱幅值/相干/lag 符号/邻居选择统一修正 | `fix(numeric): Newell areas, owner∪neighbour volumes, wall-surface DST, one-sided PSD` | R112 |
 | **R114** | golden 语料 | `tests/data/golden_*.npz/json` 入仓 + CI 不再静默 skip | `test(data): in-repo golden corpus so numeric tests run in CI` | R113 |
 | **R115** | 解析解金标 | 22 项解析金标 × 三类网格（结构化/FPH/FLD） | `test(numeric): analytic ground-truth suite across structured, FPH and FLD meshes` | R114 |
@@ -205,3 +206,24 @@
 4. 之后按表推进，每轮完成即推送。
 
 > 每轮完成后在 `DEV_SUMMARY.md` 追加一条（标题、证据、回归数字），保持项目既有习惯。
+
+---
+
+## 12. 执行记录
+
+### R110 ✅（2026-09-13，提交 `56a6351`，已推送 origin/main）
+
+**交付**：测试夹具隔离；R109 遗留收尾；VTK 9.6 迁移风险记录；测试产物泄漏修复；`scripts/round.py` 门禁脚本。
+
+**证据**
+- `tests/pytest_tmp` 曾累积 **2.4 GB / 14,853 文件**；`tmp_path_factory` 的 `{node.name}{counter}` 命名在每次会话从 1 重新计数 → 重复运行看到上次遗留文件。修复后：原先失败的 `test_r68_presets`+`test_r72_report_bundle` 连续两次运行均 **28 passed**；会话结束残留 **0 文件**。
+- `test_r19`：实测 63,697 个 FPH 单元**全部为闭合多面体、零无面单元**（R109 用 owner∪neighbour 完整壳后旧期望失效）→ 改名并断言 VTK_POLYHEDRON + 1:1 索引 + ≥4 面。
+- README：删除"VTK ≥9.4.2 上游缺陷 / 需锁 9.3.1"的错误归因。
+- **VTK 9.6 迁移风险**：`SetCells`→`ImportLegacyFormat` 后，重放 `tests/test_gui.py` 前 66 个测试出现原生堆损坏（0xCFFFFFFF）于体渲染测试；回退即恢复 → 保留弃用但稳定的调用，就地写明复现方式，迁移留 R118。
+- 产物泄漏：`test_r12p0_scene_export_honest_fail` 曾每次往仓库根目录写 `out.fbx/out.cvw` → 改写 `tmp_path`。
+
+**回归**：`python scripts/round.py --check` → **1037 passed / 0 failed / 3 skipped**（310 s）；105 个非 GUI 模块 **1037 passed**（354 s）。
+
+**遗留（转入 R111/R118）**：`test_gui.py` 体渲染路径的偶发原生无响应（位置漂移，需当作 R118 前置项处理）。
+
+**流程改进（本轮教训）**：整文件 `write` 曾把 `fv/render/plane.py`（1457 行）与 `README.md`（1045 行）**截断**，已用 `git checkout` 恢复并改用定点 `edit`。此后大文件一律用 `edit`，写完立即校验行数与 `ruff`/`ast.parse`。
