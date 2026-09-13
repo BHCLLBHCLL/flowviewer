@@ -434,6 +434,8 @@ class VolumeDialog(ObjectSettingsPanel):
         form = QFormLayout()
         self.opacity = _dspin(self.vobj.scalar_opacity, 0.0, 1.0, 2)
         form.addRow("Opacity:", self.opacity)
+        self.opacity_mid = _dspin(self.vobj.opacity_mid, 0.0, 1.0, 2)
+        form.addRow("Mid opacity:", self.opacity_mid)
         self.sampling = QSpinBox(page)
         self.sampling.setRange(1, 100)
         self.sampling.setValue(int(self.vobj.sampling))
@@ -489,6 +491,7 @@ class VolumeDialog(ObjectSettingsPanel):
         obj.show_scalar = self.display.isChecked()
         obj.scalar_var = self.var.currentData() or ""
         obj.scalar_opacity = float(self.opacity.value())
+        obj.opacity_mid = float(self.opacity_mid.value())
         obj.sampling = int(self.sampling.value())
         obj.draw_type = self.draw.currentData() or "Solid"
         obj.scalar_mono_color = self.mono.isChecked()

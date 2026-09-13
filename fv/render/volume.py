@@ -135,7 +135,8 @@ def _transfer_functions(obj, lo: float, hi: float, opacity: float):
     Invert honoured via :func:`fv.render.colorbar.build_lut`) at the
     colorbar gradation instead of a hard-coded 8-stop ramp; opacity uses a
     3-point ramp (low → mid → high, P2-4) for a smoother depth cue, with
-    the floor lowered for Transparent / Sampled draw types.
+    the floor lowered for Transparent / Sampled draw types. The mid point
+    level is taken from ``obj.opacity_mid`` (R108).
     """
     from .colorbar import build_lut
     palette = (getattr(obj, "colorbar", "") or "").strip() or "Rainbow"
@@ -152,10 +153,13 @@ def _transfer_functions(obj, lo: float, hi: float, opacity: float):
                        or (getattr(obj, "draw_type", "") or ""
                            in ("Transparent", "Sampled"))
                        else 0.6)
-    mid_frac = float(getattr(obj, "opacity_mid", 0.75) or 0.75)
+    mid_frac = getattr(obj, "opacity_mid", 0.75)
+    mid_frac = 0.75 if mid_frac is None else float(mid_frac)
+    mid_frac = min(1.0, max(0.0, mid_frac))
     # P2-4: 3-point opacity ramp (low → mid → high) instead of 2 stops
+    # R108: mid opacity is user-controllable (Volume → Scalar → Mid opacity)
     otf.AddPoint(lo, floor)
-    otf.AddPoint(lo + 0.5 * span, max(floor, opacity * min(1.0, mid_frac)))
+    otf.AddPoint(lo + 0.5 * span, max(floor, opacity * mid_frac))
     otf.AddPoint(hi, opacity)
     return ctf, otf
 

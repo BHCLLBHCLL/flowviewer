@@ -1061,3 +1061,18 @@ gate on push/PR.
   forwarded by Capture Sequence. No serializer change was needed. Tests cover the
   mode selection (linear sits on the chord, spline overshoots, auto matches spline,
   two-keyframe spline degrades) and the dialog round-trip.
+- R108 - Volume transfer-function mid-opacity control (render depth):
+  fv/render/volume.py's 3-point opacity ramp (P2-4: low -> mid -> high) already
+  read obj.opacity_mid via getattr, but there was no VolumeObject field and no
+  VolumeDialog control, so the mid point was stuck at the 0.75 default and the
+  parameter was unreachable. R108 promotes it to a real field
+  (VolumeObject.opacity_mid, default 0.75, reflectively round-tripped through the
+  .sta serializer) and adds a "Mid opacity:" spin box to the Volume Scalar tab
+  (object_dialogs2.VolumeDialog), seeded from the object and written back by
+  apply_to. While exposing the control, the render fallback bug
+  `float(getattr(obj, "opacity_mid", 0.75) or 0.75)` was fixed: a user value of
+  0.0 previously collapsed to 0.75, and out-of-range values were not clamped --
+  the mid fraction is now read verbatim, treated as 0.75 when None, and clamped
+  to [0, 1]. Tests cover the field default, the dialog round-trip, and the
+  transfer function itself (0.0 no longer falls back, 1.0 saturates, >1 clamps,
+  None uses 0.75).

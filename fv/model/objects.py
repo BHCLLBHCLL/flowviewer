@@ -410,6 +410,7 @@ class VolumeObject(PostObject):
     show_scalar: bool = True
     scalar_var: str = ""
     scalar_opacity: float = 1.0
+    opacity_mid: float = 0.75                   # R108 transfer-fn mid opacity
     scalar_mono_color: bool = False
     scalar_mono_rgb: tuple[float, float, float] = (0.6, 0.7, 0.8)
     transparent: bool = False

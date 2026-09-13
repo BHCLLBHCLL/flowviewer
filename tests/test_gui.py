@@ -5913,3 +5913,43 @@ def test_sheen_dialogs_remaining_p14(qapp):
     d.c_water.setChecked(True)
     d.apply_to(iso)
     assert iso.contour_water is True and iso.contour_luster is False
+
+
+@pytest.mark.skipif(not _HAS_QT, reason="PyQt5 unavailable")
+def test_volume_dialog_mid_opacity_r108(qapp):
+    """R108: VolumeDialog exposes and writes the mid-opacity control."""
+    from fv.gui.object_dialogs2 import VolumeDialog
+    from fv.model.objects import VolumeObject
+    obj = VolumeObject(index=1)
+    d = VolumeDialog(obj)
+    assert d.opacity_mid.value() == 0.75
+    d.opacity_mid.setValue(0.2)
+    d.apply_to(obj)
+    assert obj.opacity_mid == 0.2
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+def test_volume_transfer_mid_opacity_r108():
+    """R108: opacity_mid drives the mid transfer-function point."""
+    from fv.model.objects import VolumeObject
+    from fv.render.volume import _transfer_functions
+    obj = VolumeObject(index=1)
+    obj.colorbar = "Rainbow"
+    assert obj.opacity_mid == 0.75
+
+    _, otf_default = _transfer_functions(obj, 0.0, 1.0, 1.0)
+    obj.opacity_mid = 0.0
+    _, otf_zero = _transfer_functions(obj, 0.0, 1.0, 1.0)
+    obj.opacity_mid = 1.0
+    _, otf_full = _transfer_functions(obj, 0.0, 1.0, 1.0)
+    obj.opacity_mid = 2.0
+    _, otf_over = _transfer_functions(obj, 0.0, 1.0, 1.0)
+    obj.opacity_mid = None
+    _, otf_none = _transfer_functions(obj, 0.0, 1.0, 1.0)
+
+    assert (otf_zero.GetValue(0.5) <= otf_default.GetValue(0.5)
+            <= otf_full.GetValue(0.5))
+    assert otf_zero.GetValue(0.5) == otf_zero.GetValue(0.0)   # floor
+    assert otf_full.GetValue(0.5) == otf_full.GetValue(1.0)   # opacity
+    assert otf_over.GetValue(0.5) == otf_full.GetValue(0.5)   # >1 clamps
+    assert otf_none.GetValue(0.5) == otf_default.GetValue(0.5)  # None
