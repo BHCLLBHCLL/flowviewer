@@ -625,6 +625,37 @@ def _trim_indices(verts, conn, bounds, n_declared):
     return keep_v, remap, base, keep_c, cell_remap, inside
 
 
+def _normalise_face_nodes(faces, n_vertices: int, cell_conn) -> list:
+    """Return *faces* with 0-based node ids (R112).
+
+    FLD face quads (LS_SurfaceGeometryArray) and the hex connectivity
+    (LS_Elements) share one index convention, but only the connectivity was
+    normalised: the surface renderer fed the raw 1-based ids straight into a
+    0-based vtkPoints, so every face used the wrong vertices (measured on
+    ex1_100.fld: ids 1..21145 with no 0, one out-of-range reference).
+
+    The convention comes from the connectivity when it is available;
+    otherwise fall back to the same heuristic used to detect cell ids
+    (smallest id > 0 while the largest reaches past the last vertex means
+    1-based).  Only the 1-based case is shifted; a 0-based list is returned
+    unchanged, so files that were already correct cannot regress.
+    """
+    if not faces:
+        return list(faces)
+    one_based = False
+    if cell_conn is not None and getattr(cell_conn, "size", 0):
+        valid = np.asarray(cell_conn)[np.asarray(cell_conn) >= 0]
+        if valid.size and valid.min() > 0 and valid.max() >= n_vertices:
+            one_based = True
+    if not one_based:
+        flat = [int(v) for f in faces for v in f]
+        if flat:
+            lo, hi = min(flat), max(flat)
+            one_based = lo > 0 and hi >= n_vertices
+    if not one_based:
+        return [tuple(int(v) for v in f) for f in faces]
+    return [tuple(int(v) - 1 for v in f) for f in faces]
+
 def _trim_faces(faces, face_cells, bc_plan, base, inside, remap, n_all,
                 has_conn, cell_remap):
     """Filter an FLD NGON face list + BC plan to a vertex-subset box.
@@ -750,6 +781,10 @@ def parse_fld(filepath: str, data=None, bounds=None,
                 cell_conn is not None and cell_conn.size > 0, cell_remap)
             trim_meta["total_faces"] = total_faces
             trim_meta["kept_faces"] = len(faces)
+        if keep_v is None:
+            # R112: only the untrimmed path needs normalising here; _trim_faces
+            # already rebases its output onto the compact 0-based vertex array.
+            faces = _normalise_face_nodes(faces, n_verts, cell_conn)
         result["faces"] = faces
         result["bc_plan"] = bc_plan
         result["face_cells"] = face_cells

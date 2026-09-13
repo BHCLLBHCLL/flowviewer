@@ -105,12 +105,27 @@ def _fld_surface_polydata(ff: FieldFile, obj):
             c = int(face_cells[fi])
             keep[i] = c < n and bool(mask[c])
         sel = sel[keep]
+    # R112: ff.faces is a REGION-CONCATENATED list -- the same physical face
+    # appears once per BC region it belongs to (measured 34978 entries for
+    # 5556 distinct faces on ex1_100.fld).  Rendering it verbatim drew every
+    # face ~6.3x, so any area or per-face statistic was inflated by that
+    # factor while the face-vs-VTK ratio still looked correct.  Collapse to
+    # the distinct faces first: for drawing, a face is a face.
+    seen = set()
+    uniq: list = []
+    for fi in sel:
+        f = ff.faces[fi]
+        key = tuple(sorted(int(v) for v in f))
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(f)
+
     points = vtk.vtkPoints()
     points.SetData(_vns.numpy_to_vtk(verts, deep=True))
     quads = vtk.vtkCellArray()
     ids = vtk.vtkIdList()
-    for fi in sel:
-        quad = ff.faces[fi]
+    for quad in uniq:
         ids.Reset()
         for vi in quad:
             ids.InsertNextId(int(vi))

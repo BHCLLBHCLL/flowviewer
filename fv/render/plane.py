@@ -1451,17 +1451,21 @@ def integrate_cut(pd, scalar_name: Optional[str],
         n = ids.GetNumberOfIds()
         if n < 3:
             continue
-        p0 = np.array(pd.GetPoint(ids.GetId(0)))
-        p1 = np.array(pd.GetPoint(ids.GetId(1)))
-        p2 = np.array(pd.GetPoint(ids.GetId(2)))
-        cross = np.cross(p1 - p0, p2 - p0)
-        tri_area = 0.5 * np.linalg.norm(cross)
-        area += tri_area
-        if tri_area == 0.0:
+        # R112: fan-triangulate the polygon.  The previous version used only
+        # the first three vertices, which under-reported an n-gon by (n-2)/n
+        # (a unit quad integrated as 0.5); FPH wall surfaces came out at 17.9%
+        # of the true area and FLD surfaces were wrong too.
+        pts = [np.array(pd.GetPoint(ids.GetId(k))) for k in range(n)]
+        cn = np.zeros(3)
+        for k in range(1, n - 1):
+            cross = np.cross(pts[k] - pts[0], pts[k + 1] - pts[0])
+            cn += cross
+        poly_area = 0.5 * float(np.linalg.norm(cn))
+        if poly_area == 0.0:
             continue
-        cn = cross / (2.0 * tri_area)
-        # scalar: cell-centred → per-triangle value; node-centred → mean of
-        # vertices
+        area += poly_area
+        cn = cn / (2.0 * poly_area)
+        # scalar: cell-centred -> per-polygon value; node-centred -> mean
         if scalar_name is not None:
             if cd_array is not None:
                 s = float(cd_array.GetTuple1(c))
@@ -1470,13 +1474,13 @@ def integrate_cut(pd, scalar_name: Optional[str],
                 s = float(np.mean(vals))
             else:
                 s = 0.0
-            scalar_sum += s * tri_area
+            scalar_sum += s * poly_area
         if vector is not None:
             vsum = np.zeros(3)
             for k in range(n):
                 vsum += np.asarray(vector[ids.GetId(k)]) / n
-            vec_normal += np.dot(vsum, cn) * tri_area
-            vec_axes += vsum * tri_area
+            vec_normal += np.dot(vsum, cn) * poly_area
+            vec_axes += vsum * poly_area
 
     out = {"area": area}
     if scalar_name is not None:
