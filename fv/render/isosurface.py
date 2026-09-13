@@ -58,6 +58,9 @@ def build_isosurface_actors(ff: FieldFile, obj,
         prop.SetColor(*obj.contour_mono_rgb)
     if getattr(obj, "contour_transparent", False):
         prop.SetOpacity(0.6)
+    from .material import apply_sheen
+    apply_sheen(prop, getattr(obj, "contour_luster", False),
+                getattr(obj, "contour_water", False))
     out["contour"] = actor
 
     if getattr(obj, "contour_line", False):

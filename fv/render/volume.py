@@ -160,6 +160,15 @@ def _transfer_functions(obj, lo: float, hi: float, opacity: float):
     return ctf, otf
 
 
+def _apply_volume_sheen(prop, obj) -> None:
+    """Apply Luster / Water to a volume property when requested (P1.4)."""
+    if not (getattr(obj, "luster", False) or getattr(obj, "water", False)):
+        return
+    from .material import apply_sheen
+    apply_sheen(prop, bool(getattr(obj, "luster", False)),
+                bool(getattr(obj, "water", False)))
+
+
 def _raycast_volume_actor(ugrid, var: str, obj, opacity: float):
     """Unstructured-grid ray-cast volume (P1.3) with parameterised TFs."""
     lo, hi = _data_range(ugrid, var)
@@ -177,6 +186,7 @@ def _raycast_volume_actor(ugrid, var: str, obj, opacity: float):
     prop.SetAmbient(0.25)
     prop.SetDiffuse(0.8)
     prop.SetSpecular(0.3)
+    _apply_volume_sheen(prop, obj)
     return vol
 
 
@@ -239,6 +249,7 @@ def _resampled_volume_actor(ugrid, var: str, obj, opacity: float):
     prop.SetAmbient(0.25)
     prop.SetDiffuse(0.8)
     prop.SetSpecular(0.3)
+    _apply_volume_sheen(prop, obj)
     return vol
 
 
@@ -258,6 +269,7 @@ def _plain_volume_actor(ugrid, var: str, obj, opacity: float):
         except (AttributeError, TypeError):
             actor.GetProperty().SetColor(0.6, 0.7, 0.8)
     actor.GetProperty().SetOpacity(opacity)
+    _apply_volume_sheen(actor.GetProperty(), obj)
     return actor
 
 

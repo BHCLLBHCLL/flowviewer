@@ -165,6 +165,9 @@ def _points_actor(polydata, obj) -> Optional[vtk.vtkActor]:
     prop.SetPointSize(int(max(1, obj.size_px)))
     prop.SetColor(*_rgb(obj.mono_color))
     prop.SetOpacity(0.5 if obj.transparent else 1.0)
+    from .material import apply_sheen
+    apply_sheen(prop, getattr(obj, "luster", False),
+                getattr(obj, "water", False))
     return actor
 
 
@@ -206,6 +209,9 @@ def _sphere_actor(polydata, obj) -> Optional[vtk.vtkActor]:
     prop = actor.GetProperty()
     prop.SetColor(*_rgb(obj.mono_color))
     prop.SetOpacity(0.5 if obj.transparent else 1.0)
+    from .material import apply_sheen
+    apply_sheen(prop, getattr(obj, "luster", False),
+                getattr(obj, "water", False))
     return actor
 
 
@@ -274,6 +280,9 @@ def _cloth_actor(polydata, obj):
     prop.SetLineWidth(max(1, int(getattr(obj, "size_px", 1) or 1)))
     if getattr(obj, "transparent", False):
         prop.SetOpacity(0.5)
+    from .material import apply_sheen
+    apply_sheen(prop, getattr(obj, "luster", False),
+                getattr(obj, "water", False))
     return actor
 
 

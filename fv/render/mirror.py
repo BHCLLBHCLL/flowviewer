@@ -100,6 +100,9 @@ def build_mirror_actors(ff: FieldFile, obj, siblings=None) -> dict:
                 actor.GetProperty().SetColor(0.4, 0.4, 0.4)
         if getattr(obj, "transparent", False):
             actor.GetProperty().SetOpacity(0.5)
+        from .material import apply_sheen
+        apply_sheen(actor.GetProperty(), getattr(obj, "luster", False),
+                    getattr(obj, "water", False))
         key = "mirror" if len(sources) == 1 else "mirror_" + str(i)
         out[key] = actor
     return out

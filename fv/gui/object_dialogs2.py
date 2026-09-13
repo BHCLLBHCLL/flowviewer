@@ -139,6 +139,16 @@ class IsosurfaceDialog(ObjectSettingsPanel):
         lay.addWidget(self.mono)
         self.mono_rgb = _ColorButton(self.sc.contour_mono_rgb, page)
         lay.addWidget(self.mono_rgb)
+        sheen_row = QHBoxLayout()
+        sheen_row.addWidget(QLabel("Sheen:"))
+        self.c_luster = QCheckBox("Luster", page)
+        self.c_luster.setChecked(bool(self.sc.contour_luster))
+        sheen_row.addWidget(self.c_luster)
+        self.c_water = QCheckBox("Water", page)
+        self.c_water.setChecked(bool(self.sc.contour_water))
+        sheen_row.addWidget(self.c_water)
+        sheen_row.addStretch(1)
+        lay.addLayout(sheen_row)
         lay.addStretch(1)
         return page
 
@@ -173,6 +183,8 @@ class IsosurfaceDialog(ObjectSettingsPanel):
         obj.contour_line = self.line.isChecked()
         obj.contour_mono_color = self.mono.isChecked()
         obj.contour_mono_rgb = self.mono_rgb.rgb()
+        obj.contour_luster = self.c_luster.isChecked()
+        obj.contour_water = self.c_water.isChecked()
         obj.show_vector = self.vector_display.isChecked()
         obj.vector_var = self.vector_var.currentData() or ""
         obj.vector_scale_length = float(self.vector_scale.value())
@@ -352,6 +364,16 @@ class StreamlineDialog(ObjectSettingsPanel):
         self.transparent = QCheckBox("Transparent", page)
         self.transparent.setChecked(bool(self.sl.transparent))
         lay.addWidget(self.transparent)
+        sheen_row = QHBoxLayout()
+        sheen_row.addWidget(QLabel("Sheen:"))
+        self.c_luster = QCheckBox("Luster", page)
+        self.c_luster.setChecked(bool(self.sl.luster))
+        sheen_row.addWidget(self.c_luster)
+        self.c_water = QCheckBox("Water", page)
+        self.c_water.setChecked(bool(self.sl.water))
+        sheen_row.addWidget(self.c_water)
+        sheen_row.addStretch(1)
+        lay.addLayout(sheen_row)
         lay.addStretch(1)
         return page
 
@@ -379,6 +401,8 @@ class StreamlineDialog(ObjectSettingsPanel):
         obj.draw_type = self.draw_type.currentData() or "Line"
         obj.thickness = float(self.thickness.value())
         obj.transparent = self.transparent.isChecked()
+        obj.luster = self.c_luster.isChecked()
+        obj.water = self.c_water.isChecked()
 
 
 class VolumeDialog(ObjectSettingsPanel):
@@ -428,6 +452,16 @@ class VolumeDialog(ObjectSettingsPanel):
         lay.addWidget(self.mono)
         self.mono_rgb = _ColorButton(self.vobj.scalar_mono_rgb, page)
         lay.addWidget(self.mono_rgb)
+        sheen_row = QHBoxLayout()
+        sheen_row.addWidget(QLabel("Sheen:"))
+        self.c_luster = QCheckBox("Luster", page)
+        self.c_luster.setChecked(bool(self.vobj.luster))
+        sheen_row.addWidget(self.c_luster)
+        self.c_water = QCheckBox("Water", page)
+        self.c_water.setChecked(bool(self.vobj.water))
+        sheen_row.addWidget(self.c_water)
+        sheen_row.addStretch(1)
+        lay.addLayout(sheen_row)
         lay.addStretch(1)
         return page
 
@@ -459,6 +493,8 @@ class VolumeDialog(ObjectSettingsPanel):
         obj.draw_type = self.draw.currentData() or "Solid"
         obj.scalar_mono_color = self.mono.isChecked()
         obj.scalar_mono_rgb = self.mono_rgb.rgb()
+        obj.luster = self.c_luster.isChecked()
+        obj.water = self.c_water.isChecked()
         obj.show_vector = self.vector_display.isChecked()
         obj.vector_var = self.vector_var.currentData() or ""
         obj.vector_scale_length = float(self.vector_scale.value())
@@ -641,6 +677,16 @@ class PathlineDialog(ObjectSettingsPanel):
         lay = QVBoxLayout(page)
         lay.addLayout(form)
         lay.addWidget(self.transp)
+        sheen_row = QHBoxLayout()
+        sheen_row.addWidget(QLabel("Sheen:"))
+        self.c_luster = QCheckBox("Luster", page)
+        self.c_luster.setChecked(bool(self.pl.luster))
+        sheen_row.addWidget(self.c_luster)
+        self.c_water = QCheckBox("Water", page)
+        self.c_water.setChecked(bool(self.pl.water))
+        sheen_row.addWidget(self.c_water)
+        sheen_row.addStretch(1)
+        lay.addLayout(sheen_row)
         lay.addStretch(1)
         return page
 
@@ -658,6 +704,8 @@ class PathlineDialog(ObjectSettingsPanel):
         obj.thickness = float(self.thick.value())
         obj.mono_color = self.color.rgb()
         obj.transparent = self.transp.isChecked()
+        obj.luster = self.c_luster.isChecked()
+        obj.water = self.c_water.isChecked()
 
 class CylinderDialog(ObjectSettingsPanel):
     """Cylinder — Coordinate / Contour / Vector / Mesh (P2.1)."""
@@ -707,6 +755,16 @@ class CylinderDialog(ObjectSettingsPanel):
         self.transp = QCheckBox("Transparent", page)
         self.transp.setChecked(bool(self.obj.contour_transparent))
         lay.addWidget(self.transp)
+        sheen_row = QHBoxLayout()
+        sheen_row.addWidget(QLabel("Sheen:"))
+        self.c_luster = QCheckBox("Luster", page)
+        self.c_luster.setChecked(bool(self.obj.contour_luster))
+        sheen_row.addWidget(self.c_luster)
+        self.c_water = QCheckBox("Water", page)
+        self.c_water.setChecked(bool(self.obj.contour_water))
+        sheen_row.addWidget(self.c_water)
+        sheen_row.addStretch(1)
+        lay.addLayout(sheen_row)
         lay.addStretch(1)
         return page
 
@@ -735,6 +793,12 @@ class CylinderDialog(ObjectSettingsPanel):
         self.mthick = QSpinBox(page); self.mthick.setRange(1, 10)
         self.mthick.setValue(int(self.obj.mesh_thickness))
         form.addRow("Thickness:", self.mthick)
+        self.m_luster = QCheckBox("Luster", page)
+        self.m_luster.setChecked(bool(self.obj.mesh_luster))
+        form.addRow("", self.m_luster)
+        self.m_water = QCheckBox("Water", page)
+        self.m_water.setChecked(bool(self.obj.mesh_water))
+        form.addRow("", self.m_water)
         lay.addLayout(form)
         lay.addStretch(1)
         return page
@@ -750,12 +814,16 @@ class CylinderDialog(ObjectSettingsPanel):
         obj.show_contour = self.contour.check.isChecked()
         obj.contour_var = self.contour.var_name()
         obj.contour_transparent = self.transp.isChecked()
+        obj.contour_luster = self.c_luster.isChecked()
+        obj.contour_water = self.c_water.isChecked()
         obj.show_vector = self.vector.check.isChecked()
         obj.vector_var = self.vector.var_name()
         obj.vector_scale_length = float(self.scale.value())
         obj.show_mesh = self.mesh.isChecked()
         obj.mesh_color = self.mcolor.rgb()
         obj.mesh_thickness = int(self.mthick.value())
+        obj.mesh_luster = self.m_luster.isChecked()
+        obj.mesh_water = self.m_water.isChecked()
 
 
 class CircleDialog(ObjectSettingsPanel):
@@ -803,6 +871,16 @@ class CircleDialog(ObjectSettingsPanel):
         self.contour = _VarRow("Display", self.scalars, self.obj.contour_var)
         self.contour.check.setChecked(bool(self.obj.show_contour))
         lay.addWidget(self.contour)
+        sheen_row = QHBoxLayout()
+        sheen_row.addWidget(QLabel("Sheen:"))
+        self.c_luster = QCheckBox("Luster", page)
+        self.c_luster.setChecked(bool(self.obj.contour_luster))
+        sheen_row.addWidget(self.c_luster)
+        self.c_water = QCheckBox("Water", page)
+        self.c_water.setChecked(bool(self.obj.contour_water))
+        sheen_row.addWidget(self.c_water)
+        sheen_row.addStretch(1)
+        lay.addLayout(sheen_row)
         lay.addStretch(1)
         return page
 
@@ -824,6 +902,12 @@ class CircleDialog(ObjectSettingsPanel):
         form = QFormLayout()
         self.mcolor = _ColorButton(self.obj.mesh_color, page)
         form.addRow("Color:", self.mcolor)
+        self.m_luster = QCheckBox("Luster", page)
+        self.m_luster.setChecked(bool(self.obj.mesh_luster))
+        form.addRow("", self.m_luster)
+        self.m_water = QCheckBox("Water", page)
+        self.m_water.setChecked(bool(self.obj.mesh_water))
+        form.addRow("", self.m_water)
         lay.addLayout(form)
         lay.addStretch(1)
         return page
@@ -838,10 +922,14 @@ class CircleDialog(ObjectSettingsPanel):
         obj.radius = float(self.radius.value())
         obj.show_contour = self.contour.check.isChecked()
         obj.contour_var = self.contour.var_name()
+        obj.contour_luster = self.c_luster.isChecked()
+        obj.contour_water = self.c_water.isChecked()
         obj.show_vector = self.vector.check.isChecked()
         obj.vector_var = self.vector.var_name()
         obj.show_mesh = self.mesh.isChecked()
         obj.mesh_color = self.mcolor.rgb()
+        obj.mesh_luster = self.m_luster.isChecked()
+        obj.mesh_water = self.m_water.isChecked()
 
 class TextDialog(ObjectSettingsPanel):
     """Text annotation — Content / Position / Font (P2.3)."""
@@ -1031,7 +1119,17 @@ class MirrorCopyDialog(ObjectSettingsPanel):
         form.addRow("Color:", self.color)
         self.transp = QCheckBox("Transparent", page)
         self.transp.setChecked(bool(getattr(obj, "transparent", False)))
-        lay = QVBoxLayout(page); lay.addLayout(form); lay.addWidget(self.transp); lay.addStretch(1)
+        lay = QVBoxLayout(page); lay.addLayout(form); lay.addWidget(self.transp)
+        sheen_row = QHBoxLayout()
+        sheen_row.addWidget(QLabel("Sheen:"))
+        self.c_luster = QCheckBox("Luster", page)
+        self.c_luster.setChecked(bool(getattr(obj, "luster", False)))
+        sheen_row.addWidget(self.c_luster)
+        self.c_water = QCheckBox("Water", page)
+        self.c_water.setChecked(bool(getattr(obj, "water", False)))
+        sheen_row.addWidget(self.c_water)
+        sheen_row.addStretch(1)
+        lay.addLayout(sheen_row); lay.addStretch(1)
         self.tabs.addTab(page, "Mirror")
 
     def apply_to(self, obj) -> None:
@@ -1044,6 +1142,8 @@ class MirrorCopyDialog(ObjectSettingsPanel):
         obj.mirror_plane = self.plane.currentData() or "YZ"
         obj.color = self.color.rgb()
         obj.transparent = self.transp.isChecked()
+        obj.luster = self.c_luster.isChecked()
+        obj.water = self.c_water.isChecked()
 
 class TimeSeriesDialog(ObjectSettingsPanel):
     """Time Series — CSV import + table (P2.10)."""
@@ -1302,6 +1402,16 @@ class CurveDialog(ObjectSettingsPanel):
         self.thick.setValue(int(getattr(obj, "thickness", 2)))
         form.addRow("Thickness:", self.thick)
         lay.addLayout(form)
+        sheen_row = QHBoxLayout()
+        sheen_row.addWidget(QLabel("Sheen:"))
+        self.c_luster = QCheckBox("Luster", page)
+        self.c_luster.setChecked(bool(getattr(obj, "luster", False)))
+        sheen_row.addWidget(self.c_luster)
+        self.c_water = QCheckBox("Water", page)
+        self.c_water.setChecked(bool(getattr(obj, "water", False)))
+        sheen_row.addWidget(self.c_water)
+        sheen_row.addStretch(1)
+        lay.addLayout(sheen_row)
         lay.addStretch(1)
         self.tabs.addTab(page, "Curve")
 
@@ -1330,6 +1440,8 @@ class CurveDialog(ObjectSettingsPanel):
         obj.samples = int(self.samples.value())
         obj.color = self.color.rgb()
         obj.thickness = int(self.thick.value())
+        obj.luster = self.c_luster.isChecked()
+        obj.water = self.c_water.isChecked()
 
 class PeriodicalCopyDialog(ObjectSettingsPanel):
     """Periodical Copy — Source / Axis / Copies (A2)."""
@@ -1368,7 +1480,17 @@ class PeriodicalCopyDialog(ObjectSettingsPanel):
         form.addRow("Color:", self.color)
         self.transp = QCheckBox("Transparent", page)
         self.transp.setChecked(bool(getattr(obj, "transparent", False)))
-        lay = QVBoxLayout(page); lay.addLayout(form); lay.addWidget(self.transp); lay.addStretch(1)
+        lay = QVBoxLayout(page); lay.addLayout(form); lay.addWidget(self.transp)
+        sheen_row = QHBoxLayout()
+        sheen_row.addWidget(QLabel("Sheen:"))
+        self.c_luster = QCheckBox("Luster", page)
+        self.c_luster.setChecked(bool(getattr(obj, "luster", False)))
+        sheen_row.addWidget(self.c_luster)
+        self.c_water = QCheckBox("Water", page)
+        self.c_water.setChecked(bool(getattr(obj, "water", False)))
+        sheen_row.addWidget(self.c_water)
+        sheen_row.addStretch(1)
+        lay.addLayout(sheen_row); lay.addStretch(1)
         self.tabs.addTab(page, "Periodical")
 
     def apply_to(self, obj) -> None:
@@ -1382,6 +1504,8 @@ class PeriodicalCopyDialog(ObjectSettingsPanel):
         obj.copies = int(self.copies.value())
         obj.color = self.color.rgb()
         obj.transparent = self.transp.isChecked()
+        obj.luster = self.c_luster.isChecked()
+        obj.water = self.c_water.isChecked()
 
 class MeasureDialog(ObjectSettingsPanel):
     """Measure — Distance / Angle between points (C2) + ratio (9)."""
@@ -1515,7 +1639,17 @@ class BarDialog(ObjectSettingsPanel):
         form.addRow("Samples:", self.samples)
         self.color = _ColorButton(getattr(obj, "color", (0.2, 0.4, 0.9)), page)
         form.addRow("Color:", self.color)
-        lay = QVBoxLayout(page); lay.addLayout(form); lay.addStretch(1)
+        lay = QVBoxLayout(page); lay.addLayout(form)
+        sheen_row = QHBoxLayout()
+        sheen_row.addWidget(QLabel("Sheen:"))
+        self.c_luster = QCheckBox("Luster", page)
+        self.c_luster.setChecked(bool(getattr(obj, "luster", False)))
+        sheen_row.addWidget(self.c_luster)
+        self.c_water = QCheckBox("Water", page)
+        self.c_water.setChecked(bool(getattr(obj, "water", False)))
+        sheen_row.addWidget(self.c_water)
+        sheen_row.addStretch(1)
+        lay.addLayout(sheen_row); lay.addStretch(1)
         self.tabs.addTab(page, "Bar")
 
     def apply_to(self, obj) -> None:
@@ -1526,6 +1660,8 @@ class BarDialog(ObjectSettingsPanel):
         obj.variable = self.var.currentData() or ""
         obj.samples = int(self.samples.value())
         obj.color = self.color.rgb()
+        obj.luster = self.c_luster.isChecked()
+        obj.water = self.c_water.isChecked()
 
 class RegionBCDialog(ObjectSettingsPanel):
     """Region BC — boundary region name list (A5)."""
@@ -1894,6 +2030,16 @@ class UFODialog(ObjectSettingsPanel):
         lay.addWidget(QLabel("field-file variable at nodes/cells.", page))
         lay.addWidget(QLabel("Surface mode: triangle mesh from data", page))
         lay.addWidget(QLabel("cells or the neutral FieldFile faces.", page))
+        sheen_row = QHBoxLayout()
+        sheen_row.addWidget(QLabel("Sheen:"))
+        self.c_luster = QCheckBox("Luster", page)
+        self.c_luster.setChecked(bool(getattr(obj, "luster", False)))
+        sheen_row.addWidget(self.c_luster)
+        self.c_water = QCheckBox("Water", page)
+        self.c_water.setChecked(bool(getattr(obj, "water", False)))
+        sheen_row.addWidget(self.c_water)
+        sheen_row.addStretch(1)
+        lay.addLayout(sheen_row)
         lay.addStretch(1)
         self.tabs.addTab(page, "UFO")
 
@@ -1904,6 +2050,8 @@ class UFODialog(ObjectSettingsPanel):
         obj.variable = self.variable.currentData() or ""
         obj.point_size = float(self.psize.value())
         obj.color = self.color.rgb()
+        obj.luster = self.c_luster.isChecked()
+        obj.water = self.c_water.isChecked()
 
 
 class DrawWindowDialog(ObjectSettingsPanel):

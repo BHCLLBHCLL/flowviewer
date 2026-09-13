@@ -989,3 +989,49 @@ gate on push/PR.
   classes unchanged, report_context still four keys), and the HTTP edges field
   (default order, following sort and content ranking, and still populated when context
   is null).
+- R104 - Luster/Water sheen for the cylinder and circle objects (P1.4):
+  the P1.4 "Luster/Water unification" pass had routed the sheen helper
+  fv/render/material.apply_sheen through the surface and plane paths, but the
+  Cylinder / Circle objects lagged behind: their contour_luster / contour_water
+  fields existed on the dataclass yet the mesh side carried no sheen fields at
+  all, and neither CylinderDialog nor CircleDialog exposed the toggles, so the
+  flags were unreachable from the GUI and the mesh sheen was silently dead.
+  R104 closes that gap. fv/model/objects.py gains mesh_luster / mesh_water on
+  both CylinderObject and CircleObject (defaulting False, mirroring the other
+  object kinds), and fv/gui/object_dialogs2.py adds a "Sheen:" Luster / Water row
+  to the contour page and Luster / Water checkboxes to the mesh page of both
+  dialogs, with apply_to writing contour_luster / contour_water / mesh_luster /
+  mesh_water back onto the object. No change was needed in
+  fv/render/cylinder.py: build_cylinder_actors and build_circle_actors pass the
+  object straight into plane.contour_actor and plane.mesh_lines_actor, which
+  already route through apply_sheen, so the new fields are consumed at render
+  time and round-trip through the reflective .sta serializer for free (older
+  status files load the new flags with their False defaults). Tests
+  (tests/test_gui.py) cover the render consumption -- default specular 0.0,
+  Luster 0.5, Water 0.9, all with Phong interpolation, checked independently for
+  the contour and mesh actor of each object kind -- and the dialog wiring
+  (checkbox state seeded from the object, apply_to writing back, and a re-opened
+  dialog reflecting the stored values).
+- R105 - Luster/Water sheen for the remaining ten object classes (P1.4):
+  R104 finished the cylinder / circle mesh sheen, but ten further object kinds
+  still carried the P1.4 fields without any render or GUI wiring: volume,
+  isosurface, particle, streamline, pathline, ufo, curve, bar, mirror and
+  periodical. Their luster / water (contour_luster / contour_water for
+  isosurface) fields existed on the dataclasses yet no renderer consumed them and
+  no dialog exposed them, so the flags were silently dead. R105 wires the whole
+  set. fv/render/material.apply_sheen is hardened for the vtkVolumeProperty
+  subset (SetInterpolationToPhong / SetSpecularColor guarded by hasattr, so the
+  specular intensity and power still land); fv/render/volume.py gains
+  _apply_volume_sheen wrapping the helper and calls it from the raycast,
+  resampled and plain volume actors; and the curve, bar, mirror, periodical, ufo,
+  streamline, pathline, particle and isosurface builders each call apply_sheen on
+  their actor property. Every dialog for these kinds (object_dialogs2 for all but
+  ParticleDialog in object_dialogs) gains a "Sheen:" Luster / Water row whose
+  checkboxes seed from the object and whose apply_to writes luster / water (or
+  contour_luster / contour_water) back. No serializer change was needed: the new
+  fields round-trip through the reflective .sta writer, and older status files
+  load them with their False defaults. Tests (tests/test_gui.py) cover the fields
+  and defaults, the render consumption for the synthetic streamline / volume /
+  ufo paths, the on-disk curve / bar / mirror / periodical / particle and
+  isosurface paths (default specular 0.0, Luster 0.5, Water 0.9, Phong), and the
+  dialog wiring (checkbox seeding plus apply_to round-trips).

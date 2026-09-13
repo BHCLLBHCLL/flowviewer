@@ -98,4 +98,7 @@ def build_curve_actors(ff: FieldFile, obj) -> dict:
     except (TypeError, IndexError):
         prop.SetColor(0.9, 0.2, 0.2)
     prop.SetLineWidth(max(1, int(getattr(obj, "thickness", 2) or 2)))
+    from .material import apply_sheen
+    apply_sheen(prop, getattr(obj, "luster", False),
+                getattr(obj, "water", False))
     return {"curve": actor}

@@ -61,4 +61,7 @@ def build_bar_actors(ff: FieldFile, obj) -> dict:
     except (TypeError, IndexError):
         actor.GetProperty().SetColor(0.2, 0.4, 0.9)
     actor.GetProperty().SetLineWidth(max(1, int(getattr(obj, "thickness", 2) or 2)))
+    from .material import apply_sheen
+    apply_sheen(actor.GetProperty(), getattr(obj, "luster", False),
+                getattr(obj, "water", False))
     return {"bar": actor}

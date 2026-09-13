@@ -277,6 +277,8 @@ class ParticleObject(PostObject):
     particle_type: str = "Points"      # Points | Sphere | Specify | Actual
     size_px: float = 7.0
     transparent: bool = False
+    luster: bool = False                       # P1.4 specular highlight
+    water: bool = False                        # P1.4 wet look
     # Vector tab
     show_vector: bool = False
     vector_var: str = ""
@@ -317,6 +319,8 @@ class IsosurfaceObject(PostObject):
     contour_line: bool = False                 # surface mesh lines on iso
     contour_mono_color: bool = False
     contour_mono_rgb: tuple[float, float, float] = (0.8, 0.3, 0.5)
+    contour_luster: bool = False               # P1.4 specular highlight
+    contour_water: bool = False                # P1.4 wet look
     # Vector tab
     show_vector: bool = False
     vector_var: str = ""
@@ -383,6 +387,8 @@ class StreamlineObject(PostObject):
     color_var: str = ""                        # scalar var to color by
     mono_color: tuple[float, float, float] = (0.2, 0.4, 0.9)
     transparent: bool = False
+    luster: bool = False                       # P1.4 specular highlight
+    water: bool = False                        # P1.4 wet look
     thickness: float = 1.0
     # Font
     font_name: str = "MS Gothic"
@@ -405,6 +411,8 @@ class VolumeObject(PostObject):
     scalar_mono_color: bool = False
     scalar_mono_rgb: tuple[float, float, float] = (0.6, 0.7, 0.8)
     transparent: bool = False
+    luster: bool = False                       # P1.4 specular highlight
+    water: bool = False                        # P1.4 wet look
     show_vector: bool = False
     vector_var: str = ""
     vector_scale_length: float = 1.0
@@ -508,6 +516,8 @@ class UFOObject(PostObject):
     mode: str = "points"                        # "points" (scatter) | "surface" (triangles)
     point_size: float = 3.0
     color: tuple = (0.2, 0.2, 0.8)
+    luster: bool = False
+    water: bool = False
 
 @dataclass
 class TurboObject(PostObject):
@@ -547,6 +557,8 @@ class BarObject(PostObject):
     samples: int = 32
     color: tuple = (0.2, 0.4, 0.9)
     thickness: int = 2
+    luster: bool = False
+    water: bool = False
     font_name: str = "MS Gothic"
     font_size: int = 9
 
@@ -563,6 +575,8 @@ class CurveObject(PostObject):
     show_values: bool = False
     color: tuple = (0.9, 0.2, 0.2)
     thickness: int = 2
+    luster: bool = False                       # P1.4 specular highlight
+    water: bool = False                        # P1.4 wet look
     font_name: str = "MS Gothic"
     font_size: int = 9
 
@@ -666,6 +680,8 @@ class PeriodicalCopyObject(PostObject):
     keep_original: bool = True
     color: tuple = (0.4, 0.4, 0.4)
     transparent: bool = False
+    luster: bool = False                       # P1.4 specular highlight
+    water: bool = False                        # P1.4 wet look
 
 @dataclass
 class MirrorCopyObject(PostObject):
@@ -679,7 +695,8 @@ class MirrorCopyObject(PostObject):
     keep_original: bool = True
     color: tuple = (0.4, 0.4, 0.4)
     transparent: bool = False
-
+    luster: bool = False
+    water: bool = False
 
 @dataclass
 class MeasureObject(PostObject):
@@ -760,6 +777,8 @@ class CylinderObject(PostObject):
     mesh_color: tuple = (0.1, 0.1, 0.1)
     mesh_thickness: int = 1
     mesh_transparent: bool = False
+    mesh_luster: bool = False
+    mesh_water: bool = False
     display_mats: list = field(default_factory=list)
     display_volume_regions: list = field(default_factory=list)
     font_name: str = "MS Gothic"
@@ -793,6 +812,8 @@ class CircleObject(PostObject):
     mesh_color: tuple = (0.1, 0.1, 0.1)
     mesh_thickness: int = 1
     mesh_transparent: bool = False
+    mesh_luster: bool = False
+    mesh_water: bool = False
     display_mats: list = field(default_factory=list)
     display_volume_regions: list = field(default_factory=list)
     font_name: str = "MS Gothic"
@@ -822,6 +843,8 @@ class PathlineObject(PostObject):
     thickness: float = 1.0
     mono_color: tuple = (0.1, 0.1, 0.8)
     transparent: bool = False
+    luster: bool = False
+    water: bool = False
     font_name: str = "MS Gothic"
     font_size: int = 9
     font_float: float = 100.0

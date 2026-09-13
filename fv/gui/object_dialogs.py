@@ -1919,6 +1919,16 @@ class ParticleDialog(_PinnedDialog):
         self.chk_transparent.setChecked(bool(getattr(self.particle,
                                                      "transparent", False)))
         lay.addWidget(self.chk_transparent)
+        sheen_row = QHBoxLayout()
+        sheen_row.addWidget(QLabel("Sheen:"))
+        self.c_luster = QCheckBox("Luster", scalar)
+        self.c_luster.setChecked(bool(getattr(self.particle, "luster", False)))
+        sheen_row.addWidget(self.c_luster)
+        self.c_water = QCheckBox("Water", scalar)
+        self.c_water.setChecked(bool(getattr(self.particle, "water", False)))
+        sheen_row.addWidget(self.c_water)
+        sheen_row.addStretch(1)
+        lay.addLayout(sheen_row)
         lay.addStretch(1)
         return scalar
 
@@ -2070,6 +2080,8 @@ class ParticleDialog(_PinnedDialog):
         particle.mono_color = self.color_btn.rgb()
         particle.size_px = float(self.size.value())
         particle.transparent = self.chk_transparent.isChecked()
+        particle.luster = self.c_luster.isChecked()
+        particle.water = self.c_water.isChecked()
         btn = self.type_group.checkedButton()
         if btn is not None:
             particle.particle_type = btn.text()

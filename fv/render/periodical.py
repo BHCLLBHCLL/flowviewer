@@ -67,6 +67,9 @@ def build_periodical_actors(ff: FieldFile, obj, siblings=None) -> dict:
                     actor.GetProperty().SetColor(0.4, 0.4, 0.4)
             if getattr(obj, "transparent", False):
                 actor.GetProperty().SetOpacity(0.5)
+            from .material import apply_sheen
+            apply_sheen(actor.GetProperty(), getattr(obj, "luster", False),
+                        getattr(obj, "water", False))
             prefix = str(si) + "_" if len(sources) > 1 else ""
             out[prefix + "copy" + str(k)] = actor
     return out

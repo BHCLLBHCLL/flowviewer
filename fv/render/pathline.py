@@ -322,4 +322,7 @@ def _line_actor(pd, obj) -> Optional[vtk.vtkActor]:
         mapper.ScalarVisibilityOff()
     if getattr(obj, "transparent", False):
         prop.SetOpacity(0.5)
+    from .material import apply_sheen
+    apply_sheen(prop, getattr(obj, "luster", False),
+                getattr(obj, "water", False))
     return actor

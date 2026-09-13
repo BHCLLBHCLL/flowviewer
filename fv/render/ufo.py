@@ -208,4 +208,7 @@ def build_ufo_actors(ff, obj) -> dict:
         actor.GetProperty().SetColor(0.2, 0.2, 0.8)
     if getattr(obj, "transparent", False):
         actor.GetProperty().SetOpacity(0.5)
+    from .material import apply_sheen
+    apply_sheen(actor.GetProperty(), getattr(obj, "luster", False),
+                getattr(obj, "water", False))
     return {"ufo": actor}

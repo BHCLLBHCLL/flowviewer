@@ -1657,6 +1657,83 @@ def test_cylinder_circle_dialogs(qapp):
     assert abs(cir.coordinate - 0.5) < 1e-9
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+def test_cylinder_circle_sheen_p14():
+    """Cylinder/Circle sheen fields reach apply_sheen via plane actors (P1.4)."""
+    import vtk
+    from fv.model.objects import CircleObject, CylinderObject
+    from fv.render import plane as rp
+
+    def sample():
+        pd = vtk.vtkPolyData()
+        pts = vtk.vtkPoints()
+        for p in ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)):
+            pts.InsertNextPoint(*p)
+        pd.SetPoints(pts)
+        tri = vtk.vtkTriangle()
+        for i in range(3):
+            tri.GetPointIds().SetId(i, i)
+        cells = vtk.vtkCellArray()
+        cells.InsertNextCell(tri)
+        pd.SetPolys(cells)
+        scal = vtk.vtkFloatArray()
+        scal.SetName("PRES")
+        for v in (1.0, 2.0, 3.0):
+            scal.InsertNextValue(v)
+        pd.GetPointData().AddArray(scal)
+        return pd
+
+    for cls in (CylinderObject, CircleObject):
+        obj = cls(index=1)
+        c = rp.contour_actor(sample(), "PRES", obj)
+        assert abs(c.GetProperty().GetSpecular() - 0.0) < 1e-6
+        obj.contour_luster = True
+        c = rp.contour_actor(sample(), "PRES", obj)
+        assert abs(c.GetProperty().GetSpecular() - 0.5) < 1e-6
+        assert c.GetProperty().GetInterpolation() == 2  # VTK_PHONG
+        obj.contour_luster = False
+        obj.contour_water = True
+        c = rp.contour_actor(sample(), "PRES", obj)
+        assert abs(c.GetProperty().GetSpecular() - 0.9) < 1e-6
+        assert abs(rp.mesh_lines_actor(sample(), obj)
+                   .GetProperty().GetSpecular() - 0.0) < 1e-6
+        obj.mesh_water = True
+        assert abs(rp.mesh_lines_actor(sample(), obj)
+                   .GetProperty().GetSpecular() - 0.9) < 1e-6
+        obj.mesh_water = False
+        assert abs(rp.mesh_lines_actor(sample(), obj)
+                   .GetProperty().GetSpecular() - 0.0) < 1e-6
+        obj.mesh_luster = True
+        assert abs(rp.mesh_lines_actor(sample(), obj)
+                   .GetProperty().GetSpecular() - 0.5) < 1e-6
+
+def test_cylinder_circle_sheen_dialogs(qapp):
+    """Cylinder/Circle dialogs expose Luster/Water checkboxes (P1.4)."""
+    from fv.gui.object_dialogs2 import CircleDialog, CylinderDialog
+    from fv.model.objects import CircleObject, CylinderObject
+    cyl = CylinderObject(index=1)
+    d1 = CylinderDialog(cyl)
+    assert d1.c_luster.isChecked() is False
+    d1.c_water.setChecked(True)
+    d1.m_luster.setChecked(True)
+    d1.apply_to(cyl)
+    assert cyl.contour_water is True
+    assert cyl.mesh_luster is True
+    assert cyl.contour_luster is False
+    cir = CircleObject(index=1)
+    d2 = CircleDialog(cir)
+    d2.c_luster.setChecked(True)
+    d2.m_water.setChecked(True)
+    d2.apply_to(cir)
+    assert cir.contour_luster is True
+    assert cir.mesh_water is True
+    assert cir.mesh_luster is False
+    cir.contour_luster = True
+    cir.mesh_water = True
+    d3 = CircleDialog(cir)
+    assert d3.c_luster.isChecked() is True
+    assert d3.m_water.isChecked() is True
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 def test_text_bitmap_actors():
     """Text actor + bitmap texture quad build (P2.3)."""
     import struct
@@ -5477,3 +5554,264 @@ def test_r13_draw_window_settings(qapp):
     labels = _tree_texts(w.object_tree)
     assert any(t.startswith("Draw Window : Immediate") for t in labels)
 
+
+def test_sheen_fields_remaining_p14():
+    """P1.4: the remaining object classes carry Luster/Water fields."""
+    from fv.model.objects import (
+        BarObject,
+        CurveObject,
+        IsosurfaceObject,
+        MirrorCopyObject,
+        ParticleObject,
+        PathlineObject,
+        PeriodicalCopyObject,
+        StreamlineObject,
+        UFOObject,
+        VolumeObject,
+    )
+    for cls in (BarObject, CurveObject, MirrorCopyObject, ParticleObject,
+                PathlineObject, PeriodicalCopyObject, StreamlineObject,
+                UFOObject, VolumeObject):
+        obj = cls(index=1)
+        assert obj.luster is False and obj.water is False
+        obj.luster = True
+        assert obj.luster is True
+    iso = IsosurfaceObject(index=1)
+    assert iso.contour_luster is False and iso.contour_water is False
+    iso.contour_water = True
+    assert iso.contour_water is True
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+def test_sheen_render_wiring_synthetic_p14():
+    """P1.4: streamline/volume/ufo actors honour Luster/Water.
+
+    Synthetic polyline/grid inputs avoid the vtk 9.6 cutter/tracer path.
+    """
+    import numpy as np
+    import vtk
+    from fv.model.objects import StreamlineObject, UFOObject, VolumeObject
+    from fv.render.streamline import _render_actor
+    from fv.render.ufo import build_ufo_actors
+    from fv.render.volume import _apply_volume_sheen, _plain_volume_actor, _raycast_volume_actor
+
+    def line_pd():
+        pd = vtk.vtkPolyData()
+        pts = vtk.vtkPoints()
+        for p in ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)):
+            pts.InsertNextPoint(*p)
+        pd.SetPoints(pts)
+        ln = vtk.vtkPolyLine()
+        ln.GetPointIds().SetNumberOfIds(2)
+        for i in range(2):
+            ln.GetPointIds().SetId(i, i)
+        cells = vtk.vtkCellArray()
+        cells.InsertNextCell(ln)
+        pd.SetLines(cells)
+        return pd
+
+    def hex_grid():
+        ug = vtk.vtkUnstructuredGrid()
+        pts = vtk.vtkPoints()
+        for p in ((0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0),
+                  (0, 0, 1), (1, 0, 1), (1, 1, 1), (0, 1, 1)):
+            pts.InsertNextPoint(*p)
+        ug.SetPoints(pts)
+        hx = vtk.vtkHexahedron()
+        for i in range(8):
+            hx.GetPointIds().SetId(i, i)
+        cells = vtk.vtkCellArray()
+        cells.InsertNextCell(hx)
+        ug.SetCells(vtk.VTK_HEXAHEDRON, cells)
+        arr = vtk.vtkFloatArray()
+        arr.SetName("PRES")
+        arr.InsertNextValue(1.0)
+        ug.GetCellData().AddArray(arr)
+        return ug
+
+    sl = StreamlineObject(index=1)
+    pd = line_pd()
+    assert abs(_render_actor(pd, "streamline", sl)
+               .GetProperty().GetSpecular()) < 1e-6
+    sl.luster = True
+    a = _render_actor(pd, "streamline", sl)
+    assert abs(a.GetProperty().GetSpecular() - 0.5) < 1e-6
+    assert a.GetProperty().GetInterpolation() == 2  # VTK_PHONG
+    sl.luster = False
+    sl.water = True
+    assert abs(_render_actor(pd, "streamline", sl)
+               .GetProperty().GetSpecular() - 0.9) < 1e-6
+
+    ug = hex_grid()
+    vol = VolumeObject(index=1)
+    assert abs(_plain_volume_actor(ug, "PRES", vol, 0.5)
+               .GetProperty().GetSpecular()) < 1e-6
+    vol.water = True
+    assert abs(_plain_volume_actor(ug, "PRES", vol, 0.5)
+               .GetProperty().GetSpecular() - 0.9) < 1e-6
+    vol.water = False
+    vol.luster = True
+    assert abs(_raycast_volume_actor(ug, "PRES", vol, 0.5)
+               .GetProperty().GetSpecular() - 0.5) < 1e-6
+    vp = vtk.vtkVolumeProperty()
+    _apply_volume_sheen(vp, vol)
+    assert abs(vp.GetSpecular() - 0.5) < 1e-6
+
+    u = UFOObject(index=1)
+    u.data = {"points": np.array(
+        [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]], dtype=np.float64),
+        "cells": [[0, 1, 2], [0, 2, 3]]}
+    u.mode = "surface"
+    assert abs(build_ufo_actors(None, u)["ufo"]
+               .GetProperty().GetSpecular()) < 1e-6
+    u.water = True
+    assert abs(build_ufo_actors(None, u)["ufo"]
+               .GetProperty().GetSpecular() - 0.9) < 1e-6
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
+def test_sheen_render_wiring_field_p14():
+    """P1.4: curve/bar/mirror/periodical/particle actors honour sheen."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import (
+        BarObject,
+        CurveObject,
+        MirrorCopyObject,
+        ParticleObject,
+        PeriodicalCopyObject,
+        SurfaceObject,
+    )
+    from fv.render.bar import build_bar_actors
+    from fv.render.curve import build_curve_actors
+    from fv.render.mirror import build_mirror_actors
+    from fv.render.particle import build_particle_actors
+    from fv.render.periodical import build_periodical_actors
+
+    ff = load_file(FPH)
+    lo = ff.vertices.min(axis=0)
+    hi = ff.vertices.max(axis=0)
+
+    cur = CurveObject(index=1)
+    cur.points = [tuple(lo), tuple(hi)]
+    cur.variable = "PRES"
+    assert abs(build_curve_actors(ff, cur)["curve"]
+               .GetProperty().GetSpecular()) < 1e-6
+    cur.water = True
+    assert abs(build_curve_actors(ff, cur)["curve"]
+               .GetProperty().GetSpecular() - 0.9) < 1e-6
+
+    bar = BarObject(index=1)
+    bar.point1 = tuple(lo)
+    bar.point2 = tuple(hi)
+    bar.variable = "PRES"
+    assert abs(build_bar_actors(ff, bar)["bar"]
+               .GetProperty().GetSpecular()) < 1e-6
+    bar.luster = True
+    assert abs(build_bar_actors(ff, bar)["bar"]
+               .GetProperty().GetSpecular() - 0.5) < 1e-6
+
+    surf = SurfaceObject(index=1)
+    mir = MirrorCopyObject(index=1)
+    mir.source_label = "Surface (1)"
+    assert abs(build_mirror_actors(ff, mir, siblings=[surf])["mirror"]
+               .GetProperty().GetSpecular()) < 1e-6
+    mir.water = True
+    assert abs(build_mirror_actors(ff, mir, siblings=[surf])["mirror"]
+               .GetProperty().GetSpecular() - 0.9) < 1e-6
+
+    per = PeriodicalCopyObject(index=1)
+    per.source_label = "Surface (1)"
+    per.copies = 4
+    out = build_periodical_actors(ff, per, siblings=[surf])
+    assert abs(next(iter(out.values())).GetProperty().GetSpecular()) < 1e-6
+    per.luster = True
+    out = build_periodical_actors(ff, per, siblings=[surf])
+    assert abs(next(iter(out.values())).GetProperty().GetSpecular()
+               - 0.5) < 1e-6
+
+    par = ParticleObject(index=1)
+    par.particle_type = "Points"
+    assert abs(build_particle_actors(par, ff)["particle"]
+               .GetProperty().GetSpecular()) < 1e-6
+    par.water = True
+    assert abs(build_particle_actors(par, ff)["particle"]
+               .GetProperty().GetSpecular() - 0.9) < 1e-6
+
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+@pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
+def test_isosurface_sheen_render_p14():
+    """P1.4: isosurface contour actor honours contour_luster/water."""
+    from fv.model.dataset import load_file
+    from fv.model.objects import IsosurfaceObject
+    from fv.render import isosurface as iso_render
+    ff = load_file(FLD)
+    obj = IsosurfaceObject(index=1)
+    obj.contour_var = "TEMP"
+    obj.contour_number = 4
+    assert abs(iso_render.build_isosurface_actors(ff, obj)["contour"]
+               .GetProperty().GetSpecular()) < 1e-6
+    obj.contour_water = True
+    assert abs(iso_render.build_isosurface_actors(ff, obj)["contour"]
+               .GetProperty().GetSpecular() - 0.9) < 1e-6
+    obj.contour_water = False
+    obj.contour_luster = True
+    a = iso_render.build_isosurface_actors(ff, obj)["contour"]
+    assert abs(a.GetProperty().GetSpecular() - 0.5) < 1e-6
+    assert a.GetProperty().GetInterpolation() == 2  # VTK_PHONG
+
+
+def test_sheen_dialogs_remaining_p14(qapp):
+    """P1.4: the remaining dialogs expose Luster/Water and write back."""
+    from fv.gui.object_dialogs import ParticleDialog
+    from fv.gui.object_dialogs2 import (
+        BarDialog,
+        CurveDialog,
+        IsosurfaceDialog,
+        MirrorCopyDialog,
+        PathlineDialog,
+        PeriodicalCopyDialog,
+        StreamlineDialog,
+        UFODialog,
+        VolumeDialog,
+    )
+    from fv.model.objects import (
+        BarObject,
+        CurveObject,
+        IsosurfaceObject,
+        MirrorCopyObject,
+        ParticleObject,
+        PathlineObject,
+        PeriodicalCopyObject,
+        StreamlineObject,
+        UFOObject,
+        VolumeObject,
+    )
+
+    pairs = ((BarDialog, BarObject), (CurveDialog, CurveObject),
+             (MirrorCopyDialog, MirrorCopyObject),
+             (ParticleDialog, ParticleObject),
+             (PathlineDialog, PathlineObject),
+             (PeriodicalCopyDialog, PeriodicalCopyObject),
+             (StreamlineDialog, StreamlineObject),
+             (UFODialog, UFOObject), (VolumeDialog, VolumeObject))
+    for dlg_cls, obj_cls in pairs:
+        obj = obj_cls(index=1)
+        d = dlg_cls(obj)
+        assert d.c_luster.isChecked() is False
+        assert d.c_water.isChecked() is False
+        d.c_luster.setChecked(True)
+        d.apply_to(obj)
+        assert obj.luster is True and obj.water is False
+        d.c_luster.setChecked(False)
+        d.c_water.setChecked(True)
+        d.apply_to(obj)
+        assert obj.water is True and obj.luster is False
+
+    iso = IsosurfaceObject(index=1)
+    d = IsosurfaceDialog(iso)
+    assert d.c_luster.isChecked() is False
+    d.c_water.setChecked(True)
+    d.apply_to(iso)
+    assert iso.contour_water is True and iso.contour_luster is False
