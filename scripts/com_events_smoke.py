@@ -23,7 +23,7 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-from fv.com import EVENTS_IID, FlowviewerApplication, register_server
+from fv.com import EVENTS_IID, FlowviewerApplication, register_server  # noqa: E402
 
 
 class Sink:
@@ -55,8 +55,8 @@ def run_inproc(path):
     through SimpleConnection (QI IConnectionPointContainer ->
     FindConnectionPoint -> Advise), exercising the genuine COM path.
     """
-    import win32com.client.dynamic
     import win32com.client.connect
+    import win32com.client.dynamic
     import win32com.server.util
     app = FlowviewerApplication()
     server = win32com.client.dynamic.Dispatch(

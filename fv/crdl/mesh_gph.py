@@ -810,6 +810,25 @@ def parse_element_centers(data, n_cells: int) -> Optional[np.ndarray]:
         return None
     return np.column_stack(comps).astype(np.float64)
 
+def validate_face_nodes(face_nodes, n_vertices: int) -> None:
+    """Refuse a mesh whose face-node ids point outside the vertex array.
+
+    R111: this used to clamp out-of-range ids to n_vertices - 1, which
+    silently collapsed distinct nodes onto the last vertex and corrupted the
+    geometry (wrong distances, cut areas and gradients) with no diagnostic.
+    A face reference outside the declared vertex range means the file was
+    mis-parsed or truncated, so raise instead of guessing.
+    """
+    fn = np.asarray(face_nodes)
+    if fn.size == 0:
+        return
+    bad = fn >= n_vertices
+    if bad.any():
+        raise ValueError(
+            "corrupt mesh: %d of %d face-node references are out of range "
+            "(max id %d but the file declares %d vertices)"
+            % (int(bad.sum()), int(fn.size), int(fn.max()), int(n_vertices)))
+
 def parse_gph_mesh(filepath: str, data=None) -> dict:
     """Extract mesh data (vertices, faces, parts) from a GPH / FPH file.
 
@@ -859,12 +878,7 @@ def parse_gph_mesh(filepath: str, data=None) -> dict:
     if xyz is None or n_vertices == 0 or link_data is None:
         return result
 
-    fn = link_data["face_nodes"]
-    bad = fn >= n_vertices
-    if bad.any():
-        fn = fn.copy()
-        fn[bad] = n_vertices - 1
-        link_data["face_nodes"] = fn
+    validate_face_nodes(link_data["face_nodes"], n_vertices)
 
     perm = _renumber_by_first_use(link_data["face_nodes"], n_vertices)
     inv_perm = np.argsort(perm)

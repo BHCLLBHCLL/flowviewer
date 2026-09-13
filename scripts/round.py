@@ -68,7 +68,8 @@ def _run(label, *cmd, capture=False):
 def gate_fast():
     """ruff + mypy + the test suite minus the slow GUI module."""
     steps = [
-        ("lint", (sys.executable, "-m", "ruff", "check", "fv/", "tests/")),
+        ("lint", (sys.executable, "-m", "ruff", "check", "fv/", "tests/",
+                  "scripts/")),
         ("types", (sys.executable, "-m", "mypy",
                    *[str(ROOT / m) for m in _TYPED_MODULES])),
         ("test-fast", (sys.executable, "-m", "pytest", "tests", "-q",

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -20,6 +22,8 @@ from ..crdl import (
 
 FIELD_KIND_SCALAR = "scalar"
 FIELD_KIND_VECTOR = "vector"
+
+_LOG = logging.getLogger(__name__)
 
 
 @dataclass
@@ -168,6 +172,73 @@ class FieldFile:
 
 def _looks_like_fld(data) -> bool:
     return find_section(data, "LS_Elements") >= 0 or find_section(data, "LS_MatOfElements") >= 0
+
+
+def _looks_like_gph(data) -> bool:
+    """FPH/GPH meshes always carry both LS_Nodes and LS_Links."""
+    return find_section(data, "LS_Nodes") >= 0 and find_section(data, "LS_Links") >= 0
+
+
+#: Every Cradle result container (FLD/FPH/GPH/iFLD/EMT/RPH) starts with this.
+CONTAINER_MAGIC = b"CRDL-FLD"
+
+
+def _container_magic(data) -> bytes:
+    """First 16 bytes of the file, for diagnostics."""
+    return bytes(data[:16])
+
+
+#: How far into an unrecognised container the section-name probe looks.
+_PROBE_BYTES = 4 << 20
+
+
+def _section_names(data, limit: int = _PROBE_BYTES) -> list:
+    """Section names found in the first *limit* bytes (R111 diagnostics).
+
+    CRDL sections are an I4 length word (32) followed by a 32-byte
+    space-padded ASCII name, so names can be recovered without knowing them
+    in advance -- which is what lets an unsupported layout be described
+    (e.g. an RPH container full of Ph_R* sections) instead of only rejected.
+    """
+    import re
+
+    chunk = bytes(data[:limit])
+    names = []
+    for m in re.finditer(rb"\x00\x00\x00\x20([ -~]{4,32})", chunk):
+        names.append(m.group(1).decode("ascii", "replace").rstrip())
+    return names
+
+
+def _unrecognised_container(path, data) -> ValueError:
+    """Build the error raised when no known section layout is found (R111).
+
+    Before R111 load_file fell through to the GPH parser and returned a
+    FieldFile with 0 vertices, 0 cells and no variables, so a wrong or
+    unsupported file looked like a successfully opened empty model (a 1.1 GB
+    RPH took ~10 s to scan and then produced an empty viewport with no
+    message).  RPH is a CRDL-FLD container too -- it carries Ph_R* result
+    sections instead of LS_Nodes/LS_Links -- so it is named explicitly.
+    """
+    head = _container_magic(data)
+    # The magic sits after an I4 section-length word, i.e. at offset 4 in
+    # "\x00\x00\x00\x08CRDL-FLD\x00\x00\x00\x08", so probe the header.
+    has_magic = CONTAINER_MAGIC in head
+    names = _section_names(data)
+    rph = [n for n in names if n.startswith("Ph_R")]
+    if not has_magic:
+        detail = ("not a Cradle CRDL-FLD container (first bytes %r)"
+                  % head[:12])
+    elif rph:
+        detail = ("CRDL-FLD container carrying Ph_R* result sections "
+                  "(%s%s) -- this is an RPH phase/result file and no RPH "
+                  "parser is implemented"
+                  % (", ".join(rph[:3]), ", ..." if len(rph) > 3 else ""))
+    else:
+        detail = ("CRDL-FLD container, but none of LS_Elements / "
+                  "LS_MatOfElements (FLD) or LS_Nodes + LS_Links (FPH/GPH) "
+                  "were found -- unsupported section layout (sections seen: "
+                  "%s)" % (", ".join(names[:6]) or "none"))
+    return ValueError("cannot read %s: %s" % (path, detail))
 
 
 
@@ -673,7 +744,17 @@ def load_file(filepath: str, lazy_vars: bool = False) -> FieldFile:
             _fld_cycle_meta(str(path), ff, data=data)
             return ff
 
+        if not _looks_like_gph(data):
+            raise _unrecognised_container(path, data)
         mesh = mesh_gph.parse_gph_mesh(str(path), data=data)
+        # NB: vertices is an ndarray -- ``not mesh["vertices"]`` raises
+        # "truth value of an array ... is ambiguous".
+        verts = mesh["vertices"]
+        n_verts = int(mesh["n_vertices"] or 0)
+        if verts is None or n_verts == 0:
+            raise ValueError(
+                "cannot read %s: CRDL-FLD mesh container without LS_Nodes "
+                "coordinates (found %d vertices)" % (path, n_verts))
         ff = FieldFile(path=str(path), kind="gph" if path.suffix.lower() == ".gph" else "fph")
         ff.vertices = mesh["vertices"]
         ff.n_vertices = mesh["n_vertices"]
@@ -714,9 +795,24 @@ def load_file(filepath: str, lazy_vars: bool = False) -> FieldFile:
             )
         ff.cycle, ff.time = fld_fields.parse_cycle_meta(data)
         ff.has_particles = fld_fields.has_particle_results(data)
+        if not ff.variables:
+            # R111: a GPH is geometry only; the mesh is usable but there is
+            # nothing to contour.  Say so instead of leaving the user with an
+            # empty variable list and no explanation.
+            ff.meta["no_fields"] = True
+            _warn(
+                "%s contains a mesh but no field variables (GPH is geometry "
+                "only); rendering works, contouring has nothing to show"
+                % path.name)
     if ff.cycle is None:
         ff.cycle = _cycle_from_filename(path)
     return ff
+
+
+def _warn(message: str) -> None:
+    """Emit a load-time warning through logging and the warnings module."""
+    _LOG.warning("%s", message)
+    warnings.warn(message, RuntimeWarning, stacklevel=3)
 
 
 def _cycle_from_filename(path: Path) -> Optional[int]:

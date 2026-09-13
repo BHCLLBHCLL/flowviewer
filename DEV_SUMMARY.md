@@ -363,3 +363,46 @@ P0 完成后实际可用完整度预计提升至 80–85%。
 
 > 注：`test_gui.py` 的偶发无响应为本轮新发现，已登记为 R118 前置项（体渲染路径 + VTK 9.6 兼容）。
 
+---
+
+## 13. R111：加载失败必须响亮（2026-09-13）
+
+> 问题：`load_file` 对无法识别的容器**静默返回空 FieldFile**（0 顶点 / 0 单元 / 0 变量），
+> 与“合法但空”的模型无法区分。实测 1.1 GB `.rph` 扫描 10.3 s 后给出空白视口且无任何提示。
+
+### 13.1 容器与节布局识别
+
+- 新增 `_looks_like_gph`（FPH/GPH 必有 `LS_Nodes` + `LS_Links`）。
+- 都不匹配时抛 `ValueError`，并在消息里说明**看到了什么**：
+  - 非 CRDL-FLD 容器 → 打印前 12 字节；
+  - CRDL-FLD 但带 `Ph_R*` 节 → 明确指认“这是 RPH 相/结果文件，尚无解析器”；
+  - 其他未知布局 → 列出实际扫到的节名。
+- 实测真实 `.rph`（1.1 GB）消息：CRDL-FLD container carrying Ph_R* result sections (Ph_R1_BasicData1) -- this is an RPH phase/result file and no RPH parser is implemented
+
+### 13.2 网格与场缺失
+
+- CRDL-FLD 网格容器缺 `LS_Nodes` → 抛错（而非返回空模型）。
+- GPH 载入后若无场变量：`meta['no_fields']=True` + `RuntimeWarning`（GPH 只有几何，可渲染但无可等值面的量）。
+
+### 13.3 越界连接不再被钳位
+
+- `mesh_gph` 原先把越界面-节点 id **钳到 `n_vertices-1`**，把不同节点塌陷到同一顶点 → 几何静默损坏（距离、切面面积、梯度全错且无诊断）。
+- 改为提取 `validate_face_nodes()` 并**抛错**（含越界计数与最大 id）。
+
+### 13.4 静默吞错收敛
+
+- `mesh_fld._build_face_list_and_bcs`：保留“网格仍可载入”的降级，但**记录日志**说明面/BC 重建失败（空面表曾与“该文件没有 BC”无法区分）。
+- `cgns._read_flow_solution`：不可读字段不再无声消失，记录 `__skipped__` 并逐条 warning。
+
+### 13.5 顺带修正的 SIDS 表错误
+
+`_CODE_CELLS` 的 13/14 与 SIDS 相反（cgnslib：`PYRA_5=12, PYRA_14=13, PENTA_6=14`）：旧表把 PENTA_6 当 5 节点金字塔消费 → **MIXED 流错位、后续单元丢失**。已修正并加注释。
+
+### 13.6 门禁扩展到 scripts/
+
+`scripts/round.py` 的 lint 阶段纳入 `scripts/`，并修掉其中既有的 3 处 lint 问题（此前不在门禁范围内）。
+
+### 13.7 测试与回归
+
+- 新增 `tests/test_r111_errors.py`（8 项）：非容器抛错、未知节布局抛错、RPH 被点名、**绝不返回空 FieldFile**、GPH 无场告警、越界 face-node 抛错、FPH 有场不误报、SIDS 码表。
+- 回归：105 个非 GUI 模块全通过。

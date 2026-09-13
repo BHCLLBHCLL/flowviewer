@@ -113,6 +113,7 @@ def bench(path: str) -> list:
     # R26-S2: multi-zone CGNS load, serial vs process-pool worker count
     try:
         import tempfile
+
         from fv.crdl.cgns import read_cgns
         multi = Path(tempfile.gettempdir()) / "flowviewer_bench_multi.cgns"
         if _ensure_multi_zone_cgns(multi):

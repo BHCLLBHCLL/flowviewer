@@ -11,10 +11,13 @@ into one mesh with vertex indices offset per zone.
 
 from __future__ import annotations
 
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 import numpy as np
+
+_LOG = logging.getLogger(__name__)
 
 try:
     import h5py
@@ -29,14 +32,22 @@ _CODE_TO_NAME = {
     12: "PYRA_5", 14: "PENTA_6", 17: "HEXA_8", 20: "MIXED",
 }
 
-# SIDS element code -> (vtk cell type, n_nodes) for MIXED streams (P2.1)
+# SIDS element code -> (vtk cell type, n_nodes) for MIXED streams (P2.1).
+#
+# R111: 13/14 were swapped against the SIDS table (cgnslib.h: PYRA_5=12,
+# PYRA_14=13, PENTA_6=14).  With the old mapping a PENTA_6 element was
+# consumed as a 5-node pyramid, so the stream desynchronised and every later
+# element in that section was lost or mis-typed.  Codes 22/23 (NGON_n /
+# NFACE_n polyhedra) are carried through with n_nodes = -1: their size is
+# per element and must be read from the stream, which _decode_mixed does not
+# implement yet (R124).
 _CODE_CELLS = {
     5: (5, 3),     # TRI_3
     7: (9, 4),     # QUAD_4
     10: (10, 4),   # TETRA_4
     12: (14, 5),   # PYRA_5
-    13: (13, 6),   # PENTA_6
-    14: (14, 5),   # PYRA_5 alt code (some writers)
+    13: (14, 5),   # PYRA_14 -> rendered as its 5 base nodes
+    14: (13, 6),   # PENTA_6
     17: (12, 8),   # HEXA_8
 }
 
@@ -269,6 +280,7 @@ def _read_flow_solution(zone, n_nodes: int, lazy: bool = False):
     touches field payloads.
     """
     out = {}
+    skipped: list = []
     fs = zone.get("FlowSolution")
     if fs is None:
         return out
@@ -290,12 +302,23 @@ def _read_flow_solution(zone, n_nodes: int, lazy: bool = False):
             continue
         try:
             arr = np.asarray(ds[()], dtype=np.float64)
-        except Exception:
+        except Exception as exc:
+            # R111: an unreadable field used to vanish from the variable
+            # list with no trace at all.  Keep the load going (one bad
+            # array must not fail the whole file) but record it.
+            skipped.append((name, "%s: %s" % (type(exc).__name__, exc)))
             continue
         if arr.ndim != 1 or arr.size == 0:
             continue
         loc = "node" if arr.size == n_nodes else "cell"
         out[name] = (arr, loc)
+    if skipped:
+        # R111: surface the fields that could not be read instead of letting
+        # them disappear from the variable list silently.  Callers merge this
+        # into FieldFile.meta["skipped_fields"].
+        for fname, why in skipped:
+            _LOG.warning("CGNS field %r skipped: %s", fname, why)
+        out["__skipped__"] = skipped
     return out
 
 

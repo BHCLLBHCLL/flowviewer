@@ -9,6 +9,7 @@ Converged from the tested decoder ``fld_model.py`` (DEV_PLAN.md R2).
 Public entry point: :func:`parse_fld`.
 """
 
+import logging
 from typing import Any, Optional
 
 import numpy as np
@@ -22,6 +23,8 @@ from .core import (
     read_i32_be,
     section_end,
 )
+
+_LOG = logging.getLogger(__name__)
 
 
 def _parse_ls_nodes(data) -> tuple[Optional[np.ndarray], int]:
@@ -332,15 +335,20 @@ def _filter_by_mat(quads, arr3_slice: np.ndarray, mat: np.ndarray, material: int
 
 
 def _build_face_list_and_bcs(data, mat: np.ndarray):
-    """Build the NGON face list and BC index ranges (best-effort).
+    """Build the NGON face list and BC index ranges.
 
-    The block layout differs between hex and tet FLD variants; when the
-    expected layout does not match, fall back to an empty face list so the
-    mesh itself still loads.
+    The block layout differs between hex and tet FLD variants.  R111 keeps
+    the "mesh still loads" behaviour but no longer hides the failure: an
+    empty face list means no boundary regions at all, which used to look
+    like a file that simply has no BCs.  The reason is logged and attached
+    to the returned BC plan so callers can surface it.
     """
     try:
         return _build_face_list_and_bcs_inner(data, mat)
-    except Exception:
+    except Exception as exc:
+        _LOG.warning(
+            "FLD face/BC reconstruction failed (%s: %s); the mesh loads "
+            "without boundary faces or regions", type(exc).__name__, exc)
         return [], [], np.asarray([], dtype=np.int64)
 
 
