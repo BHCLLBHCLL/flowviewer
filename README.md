@@ -1035,3 +1035,16 @@ gate on push/PR.
   ufo paths, the on-disk curve / bar / mirror / periodical / particle and
   isosurface paths (default specular 0.0, Luster 0.5, Water 0.9, Phong), and the
   dialog wiring (checkbox seeding plus apply_to round-trips).
+- R106 - Luster/Water sheen for the Oil Flow lines (P1.5):
+  the P1.5 oil-flow feature (fv/render/oilflow.py) coloured its traced streamlines
+  by an oilflow_color_var scalar but left the actor property untouched, so Oil Flow
+  lines ignored Luster / Water while every other plane actor honoured them. R106
+  closes that gap: PlaneObject carries oilflow_luster / oilflow_water, and both
+  actor-construction sites -- build_oilflow_actor (the vtkStreamTracer path) and
+  _render_actor (the FLD numeric RK4 fallback) -- call material.apply_sheen on the
+  actor property, so Luster drives specular 0.5 / Phong and Water 0.9. The Plane
+  dialog Oil Flow tab gains a "Luster / Water" sheen row whose checkboxes seed from
+  the object and whose apply_to writes oilflow_luster / oilflow_water back. No
+  serializer change was needed (reflective .sta round-trip, older files load with
+  the False defaults). Tests cover the render wiring (default specular 0.0, Water
+  0.9 + Phong, Luster 0.5) and the dialog round-trip.

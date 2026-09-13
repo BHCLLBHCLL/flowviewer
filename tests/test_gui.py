@@ -797,6 +797,65 @@ def test_plane_oilflow_color_var_p15():
     assert abs(mrng[0] - rng[0]) < 1e-9 and abs(mrng[1] - rng[1]) < 1e-9
 
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+def test_oilflow_actor_sheen_p15():
+    """P1.5: the oilflow actor factory applies Luster/Water sheen."""
+    import vtk
+    from fv.model.objects import PlaneObject
+    from fv.render.oilflow import _make_oilflow_actor
+    mapper = vtk.vtkPolyDataMapper()
+    obj = PlaneObject(index=1)
+    a = _make_oilflow_actor(mapper, False, obj)
+    assert abs(a.GetProperty().GetSpecular()) < 1e-6
+    obj.oilflow_water = True
+    a = _make_oilflow_actor(mapper, False, obj)
+    p = a.GetProperty()
+    assert abs(p.GetSpecular() - 0.9) < 1e-6
+    assert p.GetInterpolation() == 2  # VTK_PHONG
+    obj.oilflow_water = False
+    obj.oilflow_luster = True
+    a = _make_oilflow_actor(mapper, False, obj)
+    assert abs(a.GetProperty().GetSpecular() - 0.5) < 1e-6
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
+def test_plane_oilflow_sheen_p15(monkeypatch):
+    """P1.5: build_oilflow_actor applies Luster/Water sheen (FLD branch)."""
+    import vtk
+    from fv.model.objects import PlaneObject
+    from fv.render import oilflow as of
+
+    class _FldFF:
+        kind = "fld"
+
+    poly = vtk.vtkPolyData()
+    pts = vtk.vtkPoints()
+    pts.InsertNextPoint(0.0, 0.0, 0.0)
+    pts.InsertNextPoint(1.0, 0.0, 0.0)
+    poly.SetPoints(pts)
+    monkeypatch.setattr(of, "_numeric_trace_fld", lambda ff, obj: poly)
+
+    obj = PlaneObject(index=1)
+    obj.oilflow_display = True
+    obj.oilflow_var = "VECT"
+    obj.oilflow_water = True
+    actor = of.build_oilflow_actor(_FldFF(), obj, ugrid=object())
+    assert actor is not None
+    assert abs(actor.GetProperty().GetSpecular() - 0.9) < 1e-6
+
+def test_plane_oilflow_sheen_dialog_p15(qapp):
+    """P1.5: Oil Flow tab Luster/Water round-trip through apply_to."""
+    from fv.gui.object_dialogs import PlaneDialog
+    from fv.model.objects import PlaneObject
+    p = PlaneObject(index=1)
+    d = PlaneDialog(p)
+    assert not d.oil_luster.isChecked()
+    assert not d.oil_water.isChecked()
+    d.oil_luster.setChecked(True)
+    d.oil_water.setChecked(True)
+    d.apply_to(p)
+    assert p.oilflow_luster is True
+    assert p.oilflow_water is True
+
+@pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_plane_clip_region():
     """Clip tab X/Y region clips the cut and draws its frame (P2.5)."""

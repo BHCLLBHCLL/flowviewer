@@ -213,6 +213,8 @@ class PlaneObject(PostObject):
     oilflow_steps: int = 10
     oilflow_accuracy: int = 1
     oilflow_color_var: str = ""             # scalar to colour lines (P1.5)
+    oilflow_luster: bool = False             # sheen (P1.5)
+    oilflow_water: bool = False              # sheen (P1.5)
     # ── Clip tab ──────────────────────────────────────────────────────
     clip_enabled: bool = False
     clip_xmin: float = 0.0

@@ -1073,6 +1073,15 @@ class PlaneDialog(_PinnedDialog):
             self.oil_color.setCurrentIndex(ci)
         color_row.addWidget(self.oil_color, 1)
         lay.addLayout(color_row)
+        sheen_row = QHBoxLayout()
+        self.oil_luster = QCheckBox("Luster", page)
+        self.oil_luster.setChecked(bool(self.plane.oilflow_luster))
+        sheen_row.addWidget(self.oil_luster)
+        self.oil_water = QCheckBox("Water", page)
+        self.oil_water.setChecked(bool(self.plane.oilflow_water))
+        sheen_row.addWidget(self.oil_water)
+        sheen_row.addStretch(1)
+        lay.addLayout(sheen_row)
 
         form = QFormLayout()
         self.oil_transp = QCheckBox("Transparent", page)
@@ -1730,6 +1739,8 @@ class PlaneDialog(_PinnedDialog):
         plane.oilflow_integration_method = self.oil_int.currentData() or "Runge-Kutta"
         plane.oilflow_steps = int(self.oil_steps.value())
         plane.oilflow_accuracy = int(self.oil_acc.value())
+        plane.oilflow_luster = self.oil_luster.isChecked()
+        plane.oilflow_water = self.oil_water.isChecked()
 
         # Trim
         plane.trim_objects = self.trim_tree.checked()

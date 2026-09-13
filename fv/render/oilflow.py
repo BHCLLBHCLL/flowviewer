@@ -23,6 +23,22 @@ except Exception:  # pragma: no cover - headless / no vtk
 
 from ..model.dataset import FieldFile
 from ..render.plane import attach_vector
+from .material import apply_sheen
+
+
+def _make_oilflow_actor(mapper, use_color: bool, obj) -> "vtk.vtkActor":
+    """Build the oil-flow actor around a mapper (shared by both paths)."""
+    actor = vtk.vtkActor()
+    actor.SetMapper(mapper)
+    prop = actor.GetProperty()
+    prop.SetLineWidth(max(1, int(getattr(obj, "oilflow_thickness", 1.0))))
+    apply_sheen(prop, bool(getattr(obj, "oilflow_luster", False)),
+                bool(getattr(obj, "oilflow_water", False)))
+    if not use_color:
+        mapper.ScalarVisibilityOff()
+    if getattr(obj, "oilflow_transparent", False):
+        prop.SetOpacity(0.5)
+    return actor
 
 
 def build_oilflow_actor(ff: FieldFile, obj, ugrid=None,
@@ -128,15 +144,7 @@ def build_oilflow_actor(ff: FieldFile, obj, ugrid=None,
         mapper.SetScalarRange(
             out.GetPointData().GetArray(color_var).GetRange())
 
-    actor = vtk.vtkActor()
-    actor.SetMapper(mapper)
-    prop = actor.GetProperty()
-    prop.SetLineWidth(max(1, int(getattr(obj, "oilflow_thickness", 1.0))))
-    if not use_color:
-        mapper.ScalarVisibilityOff()
-    if getattr(obj, "oilflow_transparent", False):
-        prop.SetOpacity(0.5)
-    return actor
+    return _make_oilflow_actor(mapper, use_color, obj)
 
 
 def _seed_grid(ugrid, obj) -> Optional["vtk.vtkPolyData"]:
@@ -329,12 +337,4 @@ def _render_actor(poly, base: str, obj) -> Optional["vtk.vtkActor"]:
         mapper.SelectColorArray(color_var)
         mapper.SetScalarRange(
             poly.GetPointData().GetArray(color_var).GetRange())
-    actor = vtk.vtkActor()
-    actor.SetMapper(mapper)
-    prop = actor.GetProperty()
-    prop.SetLineWidth(max(1, int(getattr(obj, "oilflow_thickness", 1.0))))
-    if not use_color:
-        mapper.ScalarVisibilityOff()
-    if getattr(obj, "oilflow_transparent", False):
-        prop.SetOpacity(0.5)
-    return actor
+    return _make_oilflow_actor(mapper, use_color, obj)

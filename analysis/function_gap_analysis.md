@@ -118,7 +118,7 @@
 | 1.2 | FLD 流线回 VTK | vtkStaticCellLocator 替代崩溃定位器，或 numpy 路径升级 RK4；pathline 步长参数化 + color_var |
 | 1.3 | Turbo 云图化 | 散点→规则栅格插值热力图 + polar 渲染出口 + PS/SS 分侧 blade loading |
 | 1.4 | Luster/Water 统一 ✅（R104/R105 收尾） | 全对象（含 volume/isosurface/particle/streamline/pathline/ufo/curve/bar/mirror/periodical，R105）已走 material.apply_sheen；plane 内联重复实现已删除 |
-| 1.5 | oilflow 变量着色 + camera spline 插值 | |
+| 1.5 | oilflow 变量着色 + camera spline 插值 | oilflow 线条 sheen 已接线（R106）：`fv/render/oilflow.py` 两处 actor 均调 `material.apply_sheen`，`PlaneObject.oilflow_luster/oilflow_water` + Oil Flow 选项卡复选框 + 测试；camera spline 插值待办 |
 
 ### P2 数据/格式深度
 
