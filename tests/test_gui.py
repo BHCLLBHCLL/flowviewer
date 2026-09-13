@@ -3794,6 +3794,45 @@ def test_camera_spline_keyframes_p15():
     u = p[1]["view_up"]
     assert abs((u[0] ** 2 + u[1] ** 2 + u[2] ** 2) ** 0.5 - 1.0) < 1e-9
 
+def test_camera_interp_mode_p15():
+    """P1.5: explicit linear/spline mode selection for camera keyframes."""
+    from fv.render.camera import capture_camera_sequence, keyframe_poses
+    kf = [{"position": (0, 0, 0), "focal_point": (0, 0, 0),
+           "view_up": (0, 1, 0), "parallel": False},
+          {"position": (1, 1, 0), "focal_point": (0, 0, 0),
+           "view_up": (0, 1, 0), "parallel": False},
+          {"position": (2, 0, 0), "focal_point": (0, 0, 0),
+           "view_up": (0, 1, 0), "parallel": False}]
+    # frame index 1 is the midpoint of the first segment
+    lin = keyframe_poses(kf, 5, mode="linear")
+    assert abs(lin[1]["position"][1] - 0.5) < 1e-9
+    spl = keyframe_poses(kf, 5, mode="spline")
+    assert spl[1]["position"][1] > 0.5          # overshoots the chord
+    auto = keyframe_poses(kf, 5, mode="auto")
+    assert abs(auto[1]["position"][1] - spl[1]["position"][1]) < 1e-12
+    # a forced spline with two keyframes has no neighbourhood -> linear
+    two = keyframe_poses(kf[:2], 5, mode="spline")
+    assert abs(two[2]["position"][1] - 0.5) < 1e-9
+    # mode is forwarded through the capture entry point (headless -> 0)
+    assert capture_camera_sequence(None, kf, 3, "tmp", mode="linear") == 0
+
+def test_camera_interp_dialog_p15(qapp):
+    """P1.5: Sequence tab exposes an interpolation-mode combo."""
+    from fv.gui.object_dialogs2 import CameraDialog
+    from fv.model.objects import CameraObject
+    c = CameraObject(index=1)
+    d = CameraDialog(c, scene=None)
+    assert d.kf_interp.currentIndex() == 0                # default Auto
+    d.kf_interp.setCurrentIndex(2)                        # Catmull-Rom
+    d.apply_to(c)
+    assert c.keyframe_interp == "spline"
+    d.kf_interp.setCurrentIndex(1)                        # Linear
+    d.apply_to(c)
+    assert c.keyframe_interp == "linear"
+    c.keyframe_interp = "spline"
+    d2 = CameraDialog(c, scene=None)
+    assert d2.kf_interp.currentIndex() == 2
+
 @pytest.mark.skipif(not _VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
 def test_region_object():

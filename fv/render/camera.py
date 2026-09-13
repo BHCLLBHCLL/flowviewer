@@ -5,9 +5,13 @@ A keyframe is a camera pose dict::
     {"position": (x, y, z), "focal_point": (x, y, z),
      "view_up": (x, y, z), "parallel": bool}
 
-``keyframe_poses`` linearly interpolates between consecutive keyframes and
-``capture_camera_sequence`` drives a renderer through those poses, writing
-one PNG per frame via the export snapshot helper (SaveBmp equivalent).
+``keyframe_poses`` expands the keyframes into evenly spaced poses: with two
+keyframes it interpolates linearly (with a SLERP on ``view_up``), while three
+or more use C1-continuous Catmull-Rom splines through every keyframe.  The
+``mode`` argument (``"auto"`` / ``"linear"`` / ``"spline"``) selects the
+interpolation explicitly.  ``capture_camera_sequence`` drives a renderer
+through those poses, writing one PNG per frame via the export snapshot helper
+(SaveBmp equivalent).
 """
 
 from __future__ import annotations
@@ -93,13 +97,18 @@ def _spline_pose(km1, k0, k1, k2, t):
     }
 
 
-def keyframe_poses(keyframes, n_frames):
+def keyframe_poses(keyframes, n_frames, mode="auto"):
     """Expand keyframes into n_frames evenly spaced camera poses.
 
     With a single keyframe every frame repeats it.  Two keyframes
     interpolate linearly (no neighbourhood for a spline); three or more
     use Catmull-Rom splines through every keyframe (C1-continuous, P1.5).
     The last frame is always the final keyframe.
+
+    ``mode`` selects the interpolation explicitly: ``"auto"`` (spline when at
+    least three keyframes are available), ``"linear"`` or ``"spline"``.  A
+    forced spline still degrades to linear below three keyframes because there
+    is no neighbouring keyframe to shape the end segment.
     """
     n_frames = max(1, int(n_frames))
     if not keyframes:
@@ -109,7 +118,11 @@ def keyframe_poses(keyframes, n_frames):
     if len(keyframes) == 1:
         return [dict(keyframes[0]) for _ in range(n_frames)]
     segs = len(keyframes) - 1
-    spline = len(keyframes) >= 3
+    m = str(mode or "auto").lower()
+    if m == "linear":
+        spline = False
+    else:
+        spline = len(keyframes) >= 3
     poses = []
     for i in range(n_frames):
         u = i * segs / float(n_frames - 1)
@@ -146,15 +159,16 @@ def apply_pose(renderer, pose) -> bool:
 
 
 def capture_camera_sequence(renderer, keyframes, n_frames, out_dir,
-                            base="cam") -> int:
+                            base="cam", mode="auto") -> int:
     """Drive the camera through keyframes and write PNG frames.
 
-    Returns the number of frames written (0 when VTK is unavailable).
-    Frames are named base_0000.png, base_0001.png, ...
+    ``mode`` is forwarded to :func:`keyframe_poses` (``"auto"`` / ``"linear"``
+    / ``"spline"``).  Returns the number of frames written (0 when VTK is
+    unavailable).  Frames are named base_0000.png, base_0001.png, ...
     """
     if renderer is None:
         return 0
-    poses = keyframe_poses(keyframes, n_frames)
+    poses = keyframe_poses(keyframes, n_frames, mode)
     if not poses:
         return 0
     os.makedirs(out_dir, exist_ok=True)

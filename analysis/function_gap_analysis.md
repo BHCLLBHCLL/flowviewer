@@ -74,7 +74,7 @@
 | 2.2 | **FLD 流线/迹线降级**：numpy 最近点欧拉（注释自承规避 VTK cell-locator 在 FLD hex 上崩溃）；UI "Runge-Kutta" 实为 RK2 非 RK4；pathline 非 FLD 路径步长硬编码 0.001、无 color_var | `fv/render/streamline.py` L118–175 `_euler_trace_fld`；`pathline.py` L46–48 | vtkStreamTracer 全格式 + RK4 |
 | 2.3 | **Turbo 仅 2D 散点**：`polar_view_points` 已实现（API + 测试）但 `build_turbo_actors` 不调用（无渲染出口）；blade_loading 用每 span 桶 max−min 近似非压力面/吸力面分侧；周向平均/Cp 结果无云图渲染 | `fv/render/turbo.py` L46–72、L154–163 | Meridional/B2B 热力图 + 叶片加载图 |
 | 2.4 | **Luster/Water 已全对象统一（R104 + R105）**：surface（contour+mesh）、plane mesh/contour、**cylinder/circle（contour+mesh，R104）** 已走 `material.apply_sheen`；plane 早期内联（Gouraud）实现已删除，统一经 material.apply_sheen（Phong）；volume/isosurface/particle/streamline/pathline/ufo/curve/bar/mirror/periodical 共 10 类对象（R105）也已统一走 `material.apply_sheen`，随对象 luster/water 字段即时生效 | `material.py` L8–21；`plane.py` L325–366；`fv/render/cylinder.py` L69/L77/L134/L141（经 plane helper 消费）；objects.py 中 VolumeObject/IsosurfaceObject 等确有 contour_luster/water 字段 | Luster/Water 光照特效全对象 |
-| 2.5 | **oilflow 无变量着色**（仅线宽/透明度）；camera 关键帧纯线性插值（无 spline/四元数，parallel 在 t=0.5 阶跃） | `oilflow.py` L66–82；`camera.py` interpolate_pose | 油流变量着色；相机平滑动画 |
+| 2.5 | **oilflow 无变量着色**（仅线宽/透明度）；camera 关键帧已支持 spline（Catmull-Rom ≥3 关键帧直通，view_up SLERP；P1.5 起显式 linear/spline 模式） | `oilflow.py` L66–82；`camera.py` keyframe_poses(mode=...) | 油流变量着色；相机平滑动画 |
 
 ### 梯队三：数据/格式深度
 
@@ -118,7 +118,7 @@
 | 1.2 | FLD 流线回 VTK | vtkStaticCellLocator 替代崩溃定位器，或 numpy 路径升级 RK4；pathline 步长参数化 + color_var |
 | 1.3 | Turbo 云图化 | 散点→规则栅格插值热力图 + polar 渲染出口 + PS/SS 分侧 blade loading |
 | 1.4 | Luster/Water 统一 ✅（R104/R105 收尾） | 全对象（含 volume/isosurface/particle/streamline/pathline/ufo/curve/bar/mirror/periodical，R105）已走 material.apply_sheen；plane 内联重复实现已删除 |
-| 1.5 | oilflow 变量着色 + camera spline 插值 | oilflow 线条 sheen 已接线（R106）：`fv/render/oilflow.py` 两处 actor 均调 `material.apply_sheen`，`PlaneObject.oilflow_luster/oilflow_water` + Oil Flow 选项卡复选框 + 测试；camera spline 插值待办 |
+| 1.5 | oilflow 变量着色 + camera spline 插值 | oilflow 线条 sheen 已接线（R106）：`fv/render/oilflow.py` 两处 actor 均调 `material.apply_sheen`，`PlaneObject.oilflow_luster/oilflow_water` + Oil Flow 选项卡复选框 + 测试；camera spline 插值已接线（R107）：keyframe_poses(mode=) 支持 auto/linear/spline，CameraDialog Sequence 选项卡新增 Interpolation 下拉并写入 CameraObject.keyframe_interp，capture 序列按模式转发 |
 
 ### P2 数据/格式深度
 

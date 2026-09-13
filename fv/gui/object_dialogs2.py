@@ -1770,6 +1770,11 @@ class CameraDialog(ObjectSettingsPanel):
         sf = QFormLayout()
         self.frames = _dspin(getattr(obj, "frame_count", 24), 1, 100000, 0)
         sf.addRow("Frames:", self.frames)
+        self.kf_interp = QComboBox(seq)
+        self.kf_interp.addItems(["Auto", "Linear", "Catmull-Rom"])
+        _interp = str(getattr(obj, "keyframe_interp", "auto") or "auto").lower()
+        self.kf_interp.setCurrentIndex({"linear": 1, "spline": 2}.get(_interp, 0))
+        sf.addRow("Interpolation:", self.kf_interp)
         self.kf_label = QLabel("Keyframes: " + str(len(getattr(obj, "keyframes", []) or [])), seq)
         sf.addRow(self.kf_label)
         self.add_kf = QPushButton("Add Current Pose", seq)
@@ -1823,6 +1828,9 @@ class CameraDialog(ObjectSettingsPanel):
         obj.position = (float(self.posx.value()), float(self.posy.value()), float(self.posz.value()))
         obj.focal_point = (float(self.fx.value()), float(self.fy.value()), float(self.fz.value()))
         obj.parallel_projection = self.parallel.isChecked()
+        if hasattr(self, "kf_interp"):
+            idx = max(0, min(2, self.kf_interp.currentIndex()))
+            obj.keyframe_interp = ("auto", "linear", "spline")[idx]
 
     def _current_pose(self) -> dict:
         self.apply_to(self.obj)
@@ -1860,8 +1868,9 @@ class CameraDialog(ObjectSettingsPanel):
         if not kf:
             kf = [self._current_pose()]
         from ..render.camera import capture_camera_sequence
+        mode = str(getattr(self.obj, "keyframe_interp", "auto") or "auto")
         out = os.path.join(os.getcwd(), "cam_frames")
-        written = capture_camera_sequence(renderer, kf, n, out)
+        written = capture_camera_sequence(renderer, kf, n, out, mode=mode)
         if hasattr(self, "message_win"):
             self.message_win.log(
                 f"Camera sequence: {written} frames -> {out}")

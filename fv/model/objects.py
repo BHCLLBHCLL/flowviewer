@@ -482,6 +482,7 @@ class CameraObject(PostObject):
     parallel_projection: bool = True
     keyframes: list = field(default_factory=list)   # [pose, ...] for sequences
     frame_count: int = 24                            # frames per keyframe run
+    keyframe_interp: str = "auto"                    # auto/linear/spline (P1.5)
 
 @dataclass
 class GradationObject(PostObject):

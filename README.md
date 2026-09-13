@@ -1048,3 +1048,16 @@ gate on push/PR.
   serializer change was needed (reflective .sta round-trip, older files load with
   the False defaults). Tests cover the render wiring (default specular 0.0, Water
   0.9 + Phong, Luster 0.5) and the dialog round-trip.
+- R107 - Camera keyframe spline interpolation mode (P1.5):
+  the Catmull-Rom camera-spline path (fv/render/camera.py) already existed but was
+  selected implicitly and could not be controlled. R107 exposes it: keyframe_poses
+  and capture_camera_sequence take a mode argument (auto / linear / spline) that
+  forces the interpolation, with auto keeping the previous behaviour (spline when at
+  least three keyframes are available, otherwise linear; a forced spline with fewer
+  than three keyframes still degrades to linear because it has no neighbourhood). The
+  mode is persisted as CameraObject.keyframe_interp ("auto" default) and surfaced in
+  the CameraDialog Sequence tab as an Interpolation combo (Auto / Linear /
+  Catmull-Rom) that seeds from the object, writes back through apply_to, and is
+  forwarded by Capture Sequence. No serializer change was needed. Tests cover the
+  mode selection (linear sits on the chord, spline overshoots, auto matches spline,
+  two-keyframe spline degrades) and the dialog round-trip.
