@@ -5465,16 +5465,22 @@ def test_r12p0_viewpoint_viewport():
 
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
-def test_r12p0_scene_export_honest_fail():
-    """r12 P0-1: SaveVRML/SaveGLTF need a GUI; real exports succeed."""
+def test_r12p0_scene_export_honest_fail(tmp_path):
+    """r12 P0-1: SaveVRML/SaveGLTF need a GUI; real exports succeed.
+
+    R110: the exports used bare relative names, so every run dropped
+    out.wrl/out.gltf/out.fbx/out.cvw into the repository root.  They now
+    write into the per-test temp dir.
+    """
     from fv.com import FlowviewerApplication
     app = FlowviewerApplication()
     app.open_file(FPH)
-    assert app.SaveVRML("out.wrl") is None and app.ErrorCode != 0
-    assert app.SaveGLTF("out.gltf") is None and app.ErrorCode != 0
+    assert app.SaveVRML(str(tmp_path / "out.wrl")) is None and app.ErrorCode != 0
+    assert app.SaveGLTF(str(tmp_path / "out.gltf")) is None and app.ErrorCode != 0
     # r15: SaveFBX real (ASCII FBX); r17-T4b: SaveCradleViewer real (CVFF).
-    assert app.SaveFBX("out.fbx") is True
-    assert app.SaveCradleViewer("out.cvw") is True
+    fbx, cvw = tmp_path / "out.fbx", tmp_path / "out.cvw"
+    assert app.SaveFBX(str(fbx)) is True and fbx.is_file()
+    assert app.SaveCradleViewer(str(cvw)) is True and cvw.is_file()
 
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")

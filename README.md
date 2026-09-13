@@ -11,10 +11,14 @@ with a CradleViewer (`cvw`) byte-faithful export path.
 - `vtk>=9.3` (plane-cut/ugrid features)
 - `PyQt5>=5.15` (GUI)
 
-> **VTK version note:** VTK 9.4.2 and newer trigger an access violation
-> (`0xC0000005`) in `vtkCutter` for `vtkConvexPointSet` grids.
-> Install `pip install --user vtk==9.3.1` if plane-cut tests crash.
-> Check `python -c "import vtk; print(vtk.VTK_VERSION)"` first.
+> **VTK version note (corrected in R110).** Earlier revisions warned that
+> VTK >= 9.4.2 crashed `vtkCutter` on `vtkConvexPointSet` grids and advised
+> pinning `vtk==9.3.1`. That attribution was wrong: the cells were malformed
+> on our side. FPH polyhedra were built from owner faces only, so every shell
+> was non-watertight, and the convex-hull tessellation path segfaulted
+> (`0xC0000005`) or silently cut 57 of 4685 cells. R109 now builds true
+> `VTK_POLYHEDRON` cells from the full owner+neighbour shell, so cutting is
+> correct and stable on VTK 9.6.x. Any VTK >= 9.3 works; no pin is needed.
 
 ## Installation
 

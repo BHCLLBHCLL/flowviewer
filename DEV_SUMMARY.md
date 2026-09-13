@@ -310,3 +310,56 @@ P0 完成后实际可用完整度预计提升至 80–85%。
   NASTRAN 官方示例）：231 节点/200 CQUAD4/10 阶模态实测全通。
 - Marc .t16/.t19 维持不做（零样例+无库，plan_r31_r35.md 已记录立项前提）。
 
+---
+
+## 12. R110：测试基线可信化与归因更正（2026-09-13）
+
+> 背景：`analysis/code_state_review_20260913.md`（全量审计）发现"13xx 项全绿"并不可信。
+> 计划：`analysis/improvement_plan_r110_r132.md`（R110–R132 逐轮）。
+
+### 12.1 测试夹具隔离（`tests/conftest.py`）
+
+- **根因**：`tmp_path_factory` 用 `{request.node.name}{counter}` 命名，counter 每次会话从 1 开始
+  → 重复运行落到**同名目录**并看到上次遗留文件。`tests/pytest_tmp` 累积到
+  **2.4 GB / 14,853 文件**；`test_persists_to_file_and_reloads` 因 `assert not p.exists()` 必然失败。
+  这解释了"单独跑通过、全量跑失败"的顺序依赖假失败。
+- **修复**：会话唯一根目录 `session-<pid>-<uuid>` + 每测试目录先清空；会话结束删除根目录。
+- **验证**：原先失败的 `test_r68_presets` + `test_r72_report_bundle` 连续两次运行
+  **28 passed**；会话结束后 `tests/pytest_tmp` 残留 **0 文件**。
+
+### 12.2 R109 遗留收尾
+
+- `tests/test_r19.py`：`test_fph_grid_handles_degenerate_cells` 的"0 点单元"期望已过时
+  （R109 用 owner∪neighbour 完整壳后，实测 63,697 单元**全部为闭合多面体、零个无面单元**）。
+  改名为 `test_fph_grid_is_closed_polyhedra_with_1to1_cell_indexing`，断言
+  VTK_POLYHEDRON 类型 + 1:1 单元索引 + 每单元 ≥4 面。
+- `README.md`：更正 VTK 归因 —— 不是"VTK ≥9.4.2 上游缺陷、需锁 9.3.1"，而是
+  **自己构造的凸包单元非法**（仅 owner 面、壳不闭合）；R109 后 VTK ≥9.3 均可，无需锁版本。
+
+### 12.3 VTK 9.6 迁移风险（记录为 R118 前置）
+
+`vtkCellArray.SetCells` 在 VTK ≥9.6 已弃用，文档建议换 `ImportLegacyFormat`。
+本轮实测：在本机 9.6.2 上替换后，重放 `tests/test_gui.py` 前 66 个测试会出现
+**原生堆损坏（0xCFFFFFFF）**，位置在体渲染相关测试；回退后即恢复。
+**保留弃用但稳定的调用**，并在 `fv/render/plane.py` 就地写明复现方式，迁移留待 R118。
+
+### 12.4 测试产物泄漏
+
+`test_r12p0_scene_export_honest_fail` 用相对路径 `out.fbx/out.cvw` 导出，
+每次运行都往仓库根目录丢文件。改为写入 `tmp_path` 并断言文件存在。
+
+### 12.5 轮次门禁脚本（`scripts/round.py`）
+
+固化每轮流程：`--check`（ruff + mypy + 去掉 test_gui 的 pytest）、`--commit "R<n>: …" --push`
+（**快层不绿拒绝提交**；强制 `R<num>:` subject；强制 main 分支；推送后回读分支状态）。
+
+### 12.6 回归数字（本机实测）
+
+| 层级 | 命令 | 结果 |
+|---|---|---|
+| 快层（每轮门禁） | `python scripts/round.py --check` | **1037 passed / 0 failed / 3 skipped**，310 s |
+| 非 GUI 全量（105 模块） | `pytest tests --ignore=tests/test_gui.py` | **1037 passed / 0 failed**，345 s |
+| 全量 | `pytest tests -q` | `test_gui.py` 内部存在**偶发无响应**（原生层，位置漂移）；其余模块全绿 |
+
+> 注：`test_gui.py` 的偶发无响应为本轮新发现，已登记为 R118 前置项（体渲染路径 + VTK 9.6 兼容）。
+

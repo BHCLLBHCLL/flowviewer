@@ -269,6 +269,17 @@ def _build_fld_ugrid(ff: FieldFile, rows=None):
         return ug
     # P2-2: batch-insert the whole grid through one vtkIdTypeArray
     # (legacy ``[npts, id0..]`` per cell) instead of a per-cell Python loop.
+    #
+    # NOTE (R110): vtkCellArray.SetCells is deprecated in VTK >= 9.6 and
+    # ``ImportLegacyFormat(arr)`` is its documented replacement, but swapping
+    # it in here is NOT safe on 9.6.2: with the deprecated call the suite is
+    # green, with ImportLegacyFormat the interpreter dies with a native heap
+    # corruption (0xCFFFFFFF) a few dozen GUI tests later, in the volume
+    # render path (``test_volume_render_pipeline_fph``/``test_volume_raycast_fld``).
+    # Reproduced deterministically by replaying the first 66 tests of
+    # tests/test_gui.py, and gone again when only this call is reverted.
+    # Keep the deprecated-but-stable call until a safe migration is worked
+    # out under R118.  See analysis/improvement_plan_r110_r132.md.
     if sel_types is None:
         cnt = np.full((n, 1), 8, dtype=np.int64)
         flat = np.column_stack([cnt, sel]).ravel()

@@ -79,20 +79,42 @@ def test_ugrid_mask_produces_distinct_subset_grid():
 
 @pytest.mark.skipif(not _HAS_VTK, reason="vtk unavailable")
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
-def test_fph_grid_handles_degenerate_cells():
-    """Degenerate (empty owner-face) cells stay as 0-point cells, preserving
-    1:1 cell indexing (the cutter and probe tolerate them)."""
+def test_fph_grid_is_closed_polyhedra_with_1to1_cell_indexing():
+    """R110: every FPH cell is a closed VTK_POLYHEDRON, 1:1 with the field data.
+
+    R19 kept degenerate (owner-face-only) cells as 0-*point* cells; R109 then
+    switched to true VTK_POLYHEDRON cells built from the full owner+neighbour
+    shell.  Measuring the face stream on the real sample shows the shells are
+    now closed, so no defective cell remains: the old "0 in seen_npts"
+    expectation described a defect that no longer exists.
+
+    What must hold now:
+      * one cell per FieldFile cell, in order (cell-centred fields index it);
+      * every cell is a polyhedron;
+      * every cell carries a closed shell (>= 4 faces, 0 is impossible).
+    """
     import vtk
     from fv.model.dataset import load_file
+
     ff = load_file(FPH)
     ug, _ = build_ugrid(ff)
     assert ug.GetNumberOfCells() == ff.n_cells
-    it = ug.GetCells(); it.InitTraversal()
-    idl = vtk.vtkIdList()
-    seen_npts = set()
-    while it.GetNextCell(idl):
-        seen_npts.add(idl.GetNumberOfIds())
-    assert 0 in seen_npts  # degenerate cells present as 0-point cells
+
+    zero_face = 0
+    min_faces = None
+    for cid in range(ug.GetNumberOfCells()):
+        assert ug.GetCellType(cid) == vtk.VTK_POLYHEDRON
+        stream = vtk.vtkIdList()
+        ug.GetFaceStream(cid, stream)  # empty stream <=> no faces at all
+        n = stream.GetNumberOfIds()
+        if n == 0:
+            zero_face += 1
+            continue
+        faces = stream.GetId(0)  # the stream starts with the face count
+        min_faces = faces if min_faces is None else min(min_faces, faces)
+
+    assert zero_face == 0, "defective (face-less) cells: %d" % zero_face
+    assert min_faces is not None and min_faces >= 4
 
 
 @pytest.mark.skipif(not _HAS_VTK, reason="vtk unavailable")
