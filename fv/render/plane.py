@@ -134,7 +134,7 @@ def build_ugrid(ff: FieldFile, cell_mask: Optional[np.ndarray] = None):
     """Return ``(ugrid, cell_centered: bool)`` for cutting.
 
     FPH: cell-centred fields → build cells from ``LS_Links`` owner/neighbour
-    faces (``vtkConvexPointSet`` for general polyhedra). Returns
+    faces (``vtkPolyhedron`` for general polyhedra). Returns
     ``cell_centered=True`` so scalar data is attached as CellData.
 
     FLD: hexahedra from ``LS_Elements``; node fields → PointData
@@ -174,6 +174,7 @@ def _build_fph_ugrid(ff: FieldFile, rows=None):
     verts = np.asarray(ff.vertices, dtype=np.float64)
     n_cells = int(np.asarray(ld["n_cells"]).item())
     cell_owner_faces = ld["cell_owner_faces"]
+    cell_neighbour_faces = ld.get("cell_neighbour_faces")
     face_nodes = np.asarray(ld["face_nodes"], dtype=np.int64)
     face_offsets = np.asarray(ld["face_offsets"], dtype=np.int64)
 
@@ -182,42 +183,59 @@ def _build_fph_ugrid(ff: FieldFile, rows=None):
     ug = vtk.vtkUnstructuredGrid()
     ug.SetPoints(points)
 
-    # R19: build all ConvexPointSet cells through one packed vtkIdTypeArray
-    # (legacy [npts, id0..] per cell) and deduplicate each cell's node set,
-    # instead of a per-cell vtkConvexPointSet Python loop.
-    counts = []
-    blocks = []
+    # R109: build true VTK_POLYHEDRON cells from each cell's full closed
+    # shell (owner *and* neighbour faces). Two problems this fixes at once:
+    #  * the previous vtkConvexPointSet encoding crashed vtkCutter /
+    #    vtkGeometryFilter / vtkPlaneCutter with a native access violation
+    #    while tessellating real FPH topology (the convex-hull path);
+    #  * using only owner faces left every shell non-watertight, so a cut
+    #    returned 57 of the 4685 cells it should have.
+    # The polyhedron carries the exact face list, so no convex-hull
+    # triangulation is needed. Cell order is preserved 1:1 so the attached
+    # cell-centred field data still indexes correctly; cells with no faces
+    # stay as 0-face cells.
+    conn: list = []
+    faces: list = []
+    locs: list = [0]
     keep = range(n_cells) if rows is None else rows
     for c in keep:
+        flist = list(cell_owner_faces[c])
+        if cell_neighbour_faces is not None:
+            flist.extend(cell_neighbour_faces[c])
         seen = set()
         ids = []
-        for fi in cell_owner_faces[c]:
+        fstream = []
+        nf = 0
+        for fi in flist:
             lo, hi = int(face_offsets[fi]), int(face_offsets[fi + 1])
-            for k in range(lo, hi):
-                vid = int(face_nodes[k])
+            fids = [int(v) for v in face_nodes[lo:hi]]
+            if not fids:
+                continue
+            fstream.append(len(fids))
+            fstream.extend(fids)
+            nf += 1
+            for vid in fids:
                 if vid not in seen:
                     seen.add(vid)
                     ids.append(vid)
-        # Some FPH cells legitimately have no owner faces (empty node set).
-        # Keep them as 0-point cells: they carry no geometry, never intersect
-        # the cut plane, and keep cell indexing 1:1 with the attached
-        # cell-centred field data. (vtkCutter tolerates them; a 1-point cell
-        # instead crashes vtkProbeFilter/its cell-to-point pass - R19)
-        counts.append(len(ids))
-        blocks.append(ids)
-    total = sum(counts)
-    flat = np.empty(total + len(counts), dtype=np.int64)
-    off = 0
-    for c_n, block in zip(counts, blocks):
-        flat[off] = c_n
-        off += 1
-        m = len(block)
-        flat[off:off + m] = block
-        off += m
-    arr = _vns.numpy_to_vtkIdTypeArray(flat, deep=True)
+        conn.append(len(ids))
+        conn.extend(ids)
+        faces.append(nf)
+        faces.extend(fstream)
+        locs.append(len(faces))
+
+    n_kept = len(locs) - 1
     cells = vtk.vtkCellArray()
-    cells.SetCells(len(counts), arr)
-    ug.SetCells(vtk.VTK_CONVEX_POINT_SET, cells)
+    cells.ImportLegacyFormat(
+        _vns.numpy_to_vtkIdTypeArray(np.array(conn, dtype=np.int64), deep=True))
+    face_arr = _vns.numpy_to_vtkIdTypeArray(
+        np.array(faces, dtype=np.int64), deep=True)
+    loc_arr = _vns.numpy_to_vtkIdTypeArray(
+        np.array(locs, dtype=np.int64), deep=True)
+    cell_types = _vns.numpy_to_vtk(
+        np.full(n_kept, vtk.VTK_POLYHEDRON, dtype=np.uint8),
+        deep=True, array_type=vtk.VTK_UNSIGNED_CHAR)
+    ug.SetCells(cell_types, cells, loc_arr, face_arr)
     return ug
 
 
