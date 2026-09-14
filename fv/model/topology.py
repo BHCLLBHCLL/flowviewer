@@ -158,10 +158,21 @@ def _fld_cell_faces(cell, cell_type):
 
 
 def faces_of_cell(ff, cell_id) -> list:
-    """Faces of a cell: FPH face ids, or FLD face vertex groups."""
+    """Faces of a cell: FPH face ids, or FLD face vertex groups.
+
+    R113: an FPH cell owns some faces and is the neighbour of the rest, so
+    the closed shell is owner + neighbour faces.  Returning owner faces only
+    made volume_of_element integrate over an open surface: measured against
+    the face-based divergence volume it came out at a median of 0.424x (0.40x
+    for the whole mesh sum).  Boundary cells have no neighbour faces, so both
+    sides are needed for every cell.
+    """
     if getattr(ff, "poly", False):
         ld = ff.link_data
-        return [int(x) for x in ld["cell_owner_faces"].get(int(cell_id), [])]
+        cid = int(cell_id)
+        owner = ld["cell_owner_faces"].get(cid, [])
+        neigh = ld.get("cell_neighbour_faces", {}).get(cid, [])
+        return [int(x) for x in owner] + [int(x) for x in neigh]
     conn = getattr(ff, "cell_conn", None)
     if conn is None or int(cell_id) >= len(conn):
         return []
@@ -184,7 +195,10 @@ def nodes_of_element(ff, cell_id) -> list:
         fn = np.asarray(ld["face_nodes"], dtype=np.int64)
         off = np.asarray(ld["face_offsets"], dtype=np.int64)
         out = set()
-        for fi in ld["cell_owner_faces"].get(int(cell_id), []):
+        cid = int(cell_id)
+        shell = list(ld["cell_owner_faces"].get(cid, []))
+        shell += list(ld.get("cell_neighbour_faces", {}).get(cid, []))
+        for fi in shell:
             lo, hi = int(off[fi]), int(off[fi + 1])
             out.update(int(x) for x in fn[lo:hi])
         return sorted(out)
@@ -285,7 +299,12 @@ def area_of_face(ff, face_id) -> float:
 
 
 def volume_of_element(ff, cell_id) -> float:
-    """Volume of a cell (GetVolumeOfElement) via face-pyramid sum."""
+    """Volume of a cell (GetVolumeOfElement) via a closed-shell pyramid sum.
+
+    R113: the shell must be closed (owner + neighbour faces); see
+    :func:`faces_of_cell`.  This now agrees with the face-based divergence
+    volume the gradient kernel uses.
+    """
     v = _verts(ff)
     faces = faces_of_cell(ff, int(cell_id))
     if not faces:

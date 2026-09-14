@@ -573,19 +573,19 @@ def _cell_centers_fph(ff):
 # ── extended variables (scPOST CreateVar family, P1.1) ──────────────────
 
 def _wall_points(ff, surface_regions=None):
-    """(m, 3) coordinates of wall-face vertices for DST/NORMAL fields."""
+    """(m, 3) coordinates of the wall-face vertices (fallback path).
+
+    R113: DST now measures to the wall SURFACE through
+    :func:`fv.model.wallgeom.implicit_distance`; this helper survives only as
+    the no-vtk fallback.  It also serves FLD files now, whose boundaries live
+    in bc_plan rather than surface_regions.
+    """
+    from .wallgeom import wall_face_node_ids
+
     verts = np.asarray(ff.vertices, dtype=np.float64)
-    ids: set[int] = set()
-    for name, face_ids in ff.surface_regions:
-        if surface_regions and name not in surface_regions:
-            continue
-        if getattr(ff, "poly", False):
-            ld = ff.link_data
-            fn = np.asarray(ld["face_nodes"], dtype=np.int64)
-            off = np.asarray(ld["face_offsets"], dtype=np.int64)
-            for f in face_ids:
-                lo, hi = int(off[f]), int(off[f + 1])
-                ids.update(int(x) for x in fn[lo:hi])
+    ids: set = set()
+    for face in wall_face_node_ids(ff, surface_regions):
+        ids.update(int(x) for x in face)
     if not ids:
         return None
     return verts[sorted(ids)]
@@ -598,26 +598,31 @@ def register_dst(ff, name="DST", surface_regions=None):
     (FLD) to the wall-face vertices.  FPH cells give a cell-located field;
     FLD falls back to a node-located field.
     """
-    wall = _wall_points(ff, surface_regions)
-    if wall is None or len(wall) == 0:
-        raise ValueError("no wall faces for DST")
-    try:
-        from scipy.spatial import cKDTree
-    except ImportError:
-        raise ValueError("scipy required for DST") from None
-    tree = cKDTree(wall)
+    from .wallgeom import implicit_distance
+
     if getattr(ff, "poly", False):
         centers = _cell_centers_fph(ff)
         if centers is None or centers.shape[0] != ff.n_cells:
             raise ValueError("cannot compute cell centres for DST")
-        dist, _ = tree.query(centers)
-        vi = VarInfo(name=name, kind=FIELD_KIND_SCALAR,
-                     location="cell", array=dist)
+        points, location = centers, "cell"
     else:
-        verts = np.asarray(ff.vertices, dtype=np.float64)
-        dist, _ = tree.query(verts)
-        vi = VarInfo(name=name, kind=FIELD_KIND_SCALAR,
-                     location="node", array=dist)
+        points = np.asarray(ff.vertices, dtype=np.float64)
+        location = "node"
+
+    dist = implicit_distance(ff, surface_regions, points)
+    if dist is None:
+        # vtk unavailable: fall back to the old vertex-cloud distance.
+        wall = _wall_points(ff, surface_regions)
+        if wall is None or len(wall) == 0:
+            raise ValueError("no wall faces for DST")
+        try:
+            from scipy.spatial import cKDTree
+        except ImportError:
+            raise ValueError("scipy required for DST") from None
+        dist, _ = cKDTree(wall).query(points)
+
+    vi = VarInfo(name=name, kind=FIELD_KIND_SCALAR,
+                 location=location, array=np.asarray(dist, dtype=np.float64))
     ff.variables[name] = vi
     return vi
 

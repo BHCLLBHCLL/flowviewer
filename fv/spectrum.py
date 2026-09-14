@@ -81,20 +81,63 @@ def analyze_series(cycles, values) -> dict:
     det = v - mean
     S = np.fft.rfft(det, n=n)
     freqs = np.fft.rfftfreq(n, d=dt)
-    psd = (np.abs(S) ** 2) / n
+    # R113 convention.  What the old code called "psd" is a periodogram
+    # POWER per bin: |S|^2 / n.  The number is right (for A*sin(2*pi*f*t) the
+    # peak bin is exactly A^2*n/4, so sum(power) == var*n/2 and
+    # A = sqrt(4*power_peak/n) recovers A exactly), but the name promised a
+    # density and the scaling was undocumented, so cross-record comparisons
+    # silently did not line up.  Both readings are now reported explicitly:
+    #   power   -- |S|^2/n, the raw per-bin power (unchanged, so existing
+    #              consumers and stored reports keep their numbers)
+    #   density -- power / (n*df), the one-sided power spectral DENSITY, so
+    #              sum(density) * df == variance and levels compare across
+    #              record lengths regardless of n
+    #   psd     -- kept as an alias of power (the historical meaning), because
+    #              the mode/energy-share consumers treat it as relative bin
+    #              energy and only ratios matter to them
+    #   amplitude -- sqrt(2 * power * 2 / n) for the interior bins, the
+    #              amplitude of the sinusoid at that frequency;
+    #              sqrt(2*2*power/n) reproduces A for an exact-bin tone
+    power = (np.abs(S) ** 2) / n
+    df = float(freqs[1] - freqs[0]) if freqs.size > 1 else 0.0
+    # A one-sided density must satisfy sum(density) * df == variance.  power
+    # is |S|^2/n, whose sum over the full two-sided spectrum is var*n; the
+    # one-sided rfft already carries the mirror energy, so the density is
+    # power / (n * df).
+    density = 2.0 * power / (n * df) if df > 0 else np.zeros_like(power)
+    psd = power
+    amp = np.zeros_like(power)
+    if power.size:
+        interior = np.zeros(power.size, dtype=bool)
+        interior[1:] = True
+        if n % 2 == 0 and power.size:
+            interior[-1] = False          # Nyquist bin is not a sinusoid
+        amp[interior] = np.sqrt(2.0 * power[interior] * 2.0 / n)
     nyquist = float(0.5 / dt)
     pos = np.flatnonzero(freqs > 0)
     dom_freq = 0.0
-    dom_psd = 0.0
+    dom_power = 0.0
+    dom_amp = 0.0
+    dom_density = 0.0
     if pos.size:
-        i = int(pos[np.argmax(psd[pos])])
+        i = int(pos[np.argmax(power[pos])])
         dom_freq = float(freqs[i])
-        dom_psd = float(psd[i])
+        dom_power = float(power[i])
+        dom_amp = float(amp[i])
+        dom_density = float(density[i])
+    total_power = float(power.sum())
     return {
         "n": n, "dt": dt, "ymin": float(v.min()), "ymax": float(v.max()),
         "mean": mean, "std": float(det.std(ddof=1)) if n > 1 else 0.0,
         "nyquist": nyquist, "dominant_freq": dom_freq,
-        "dominant_psd": dom_psd, "dc_energy": float(mean ** 2),
+        "dominant_psd": dom_power, "dominant_density": dom_density,
+        "dominant_amplitude": dom_amp, "df": df,
+        "total_power": total_power,
+        # sum(power) == var*n/2; sum(psd)*df == var
+        "power": [float(x) for x in power],
+        "amplitude": [float(x) for x in amp],
+        "density": [float(x) for x in density],
+        "dc_energy": float(mean ** 2),
         "freq": [float(x) for x in freqs], "psd": [float(x) for x in psd],
     }
 

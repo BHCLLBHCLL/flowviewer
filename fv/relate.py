@@ -58,11 +58,32 @@ def cross_correlate(x, y, max_lag: Optional[int] = None) -> dict:
         return _empty_cross()
     mx, my = float(x.mean()), float(y.mean())
     dx, dy = x - mx, y - my
-    denom = float(np.sqrt((dx @ dx) * (dy @ dy)))
-    full = np.correlate(dx, dy, mode="full")          # length 2n-1
-    rho = (full / denom) if denom > 0 else \
-        np.full(full.shape, np.nan)
+    # Correlation at lag L, with the documented convention "positive L means
+    # x leads y": x leads y by L when y[n] == x[n - L], so the overlapping
+    # product is sum_n x[n + L] * y[n] for L >= 0 (and the mirrored window for
+    # L < 0).  The previous version used the opposite window -- it computed
+    # sum_n x[n - L] * y[n] -- which both mis-signed the peak (a 30-sample
+    # lead reported -30) and made the curve itself wrong, not just its label.
+    # Each lag is normalised on its own overlap, which is what makes rho a
+    # genuine Pearson coefficient away from lag 0 (using the full-series norms
+    # reported rho 0.9985 at a lag of -5 for a 20-sample shift).
     lags = np.arange(-(n - 1), n, dtype=np.int64)
+    rho = np.full(lags.shape, np.nan)
+    for idx, lag in enumerate(lags):
+        lag_i = int(lag)
+        # Compare the overlapping windows as x[i + L] against y[i] for L >= 0:
+        # x[:n-L] against y[L:] pairs x[i] with y[i+L], i.e. y = x shifted by L.
+        if lag_i >= 0:
+            a, b = dx[:n - lag_i], dy[lag_i:]
+        else:
+            a, b = dx[-lag_i:], dy[:n + lag_i]
+        if a.size < 2:
+            continue
+        da = a - a.mean()
+        db = b - b.mean()
+        den = float(np.sqrt((da @ da) * (db @ db)))
+        if den > 0:
+            rho[idx] = float((da @ db) / den)
     if max_lag is not None and max_lag >= 0:
         keep = np.abs(lags) <= max_lag
         lags, rho = lags[keep], rho[keep]
@@ -70,9 +91,20 @@ def cross_correlate(x, y, max_lag: Optional[int] = None) -> dict:
     best_lag = float("nan")
     best_rho = float("nan")
     if finite.any():
-        i = int(np.argmax(rho[finite]))
-        best_lag = int(lags[finite][i])
-        best_rho = float(rho[finite][i])
+        idx = np.flatnonzero(finite)
+        vals = rho[idx]
+        peak = float(vals.max())
+        # R113: periodic signals tie at rho ~ 1 across every period multiple
+        # (an identical sine produced a "best lag" of -98 instead of 0), and
+        # argmax returned whichever extreme came first.  Report the smallest
+        # lag that is within rounding of the peak instead: that is the
+        # physically meaningful alignment, and for non-degenerate signals the
+        # peak is unique so nothing changes.
+        tol = 1e-9 * max(1.0, abs(peak))
+        tied = idx[vals >= peak - tol]
+        i = int(tied[np.argmin(np.abs(lags[tied]))])
+        best_lag = int(lags[i])
+        best_rho = float(rho[i])
     return {
         "n": n, "best_lag": best_lag, "best_rho": best_rho,
         "lags": [int(v) for v in lags], "rho": [float(v) for v in rho],
@@ -117,6 +149,20 @@ def coherence(x, y, nperseg: Optional[int] = None, dt: float = 1.0,
     segs_x = list(_segments(x, nperseg, overlap))
     segs_y = list(_segments(y, nperseg, overlap))
     nseg = len(segs_x)
+    if nseg < 2:
+        # R113: with one segment the cross-spectrum is divided by its own
+        # magnitude, so mscoh == 1.0 at EVERY bin for ANY two signals --
+        # unrelated white noise reported "perfect coherence" (measured
+        # mean/peak 1.0000 for n = 50/100/256).  That is an artefact, not a
+        # result: coherence needs at least two segments to be estimated.
+        out = _empty_coherence(n)
+        out.update({
+            "nseg": nseg,
+            "reason": ("coherence needs at least 2 segments; got %d "
+                       "(n=%d, nperseg=%d) -- try a shorter nperseg"
+                       % (nseg, n, nperseg)),
+        })
+        return out
     fn = nperseg // 2 + 1
     pxx = np.zeros(fn)
     pyy = np.zeros(fn)
