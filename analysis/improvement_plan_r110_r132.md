@@ -17,7 +17,7 @@
 | ↳ **R111b** | 测试基线加固（并入 R111） | `test_gui.py` 体渲染路径偶发原生无响应（位置漂移）定位与隔离；全量回归恢复可重复 | 并入 R111 提交 | R111 |
 | **R113** | 数值正确性 | 面积/体积/壁距/谱幅值/相干/lag 符号/邻居选择统一修正 | `fix(numeric): Newell areas, owner∪neighbour volumes, wall-surface DST, one-sided PSD` | R112 |
 | **R114** ✅ | golden 语料 | `tests/data/golden_*.npz/json` 入仓 + CI 不再静默 skip | `test(data): in-repo golden corpus so numeric tests run in CI` | R113 |
-| **R115** | 解析解金标 | 22 项解析金标 × 三类网格（结构化/FPH/FLD） | `test(numeric): analytic ground-truth suite across structured, FPH and FLD meshes` | R114 |
+| **R115** ✅ | 解析解金标 | 22 项解析金标 × 三类网格（结构化/FPH/FLD） | `test(numeric): analytic ground-truth suite across structured, FPH and FLD meshes` | R114 |
 | **R116** | 门禁与字段矩阵 | 真值断言占比门禁 + 字段消费矩阵测试 | `feat(tools): golden-assertion density gate and field-consumption matrix` | R115 |
 | **R117** | scPOST 数值交叉验证 | 同变量双端导出 + 逐点比对（容差 1e-6） | `test(scpost): cross-validate decoded fields against scPOST COM export` | R116 |
 | **R118** | 渲染输出正确性 | 体渲染 hex 路径、表面 Trim、粒子 Points、信息探针、glyph 长度 | `fix(render): volume hex path, surface trim, particle points, probe location` | R117 |
