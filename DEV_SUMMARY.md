@@ -527,3 +527,37 @@ FPH 单元一部分面是 owner、其余是 neighbour，只有两者合起来才
 新增 `tests/test_r113_numeric.py`（8 项）：谱幅值/频率、跨记录长度幅值可比、
 Parseval 密度、短序列相干拒绝、lag 符号、并列峰取最小 lag、FPH 单元体积对独立实现、
 DST 对表面真值、FLD DST 可用。
+---
+
+## 16. R114：把 golden 语料放进仓库（2026-09-13）
+
+### 16.1 问题：CI 上数值测试实际上不执行
+
+测试套件里有 **302 处 `skipif`**，真实参考数据（`D:\training\cgns\examples\*`）
+全部在仓库外，本地路径不存在就跳过。结果是：**核心数值断言在 CI 上是空跑的**，
+"全绿"只代表结构性测试通过。
+
+### 16.2 方案：可复现的生成器 + 提交的小型语料
+
+新增 `scripts/make_golden.py`（**从真实样例生成**，不是手写常量）：
+
+| 资产 | 内容 | 大小 |
+|---|---|---|
+| `tests/data/golden/fld_small.npz` | ex1_100.fld：顶点、hex 连接、去重后的边界面前 64 个、一个场、逐变量 min/max/mean | 391 KiB |
+| `tests/data/golden/fph_small.npz` | tr03_9.fph：顶点、4000 单元切片的 owner∪neighbour 面表与节点、单元中心、**闭壳参考体积** | 3.1 MiB |
+| `tests/data/golden/meta.json` | 每个文件的来源、采样规则、参考统计量 | 4.8 KiB |
+
+`tests/golden.py` 提供加载/统计辅助，`tests/conftest.py` 提供 `fld_golden` / `fph_golden`
+会话级 fixture（缺语料时给出"运行 make_golden.py"的可操作提示，而不是静默跳过）。
+
+### 16.3 测试：让语料真正承重
+
+新增 `tests/test_r114_golden.py`（8 项，**全部不依赖外部样例**）：
+语料存在且被描述、FLD 形状与逐变量统计一致、**FLD 面 id 0-based（R112 回归）**、
+**FLD 边界面面积对 VTK（R112 回归）**、**FPH 闭壳体积可重算（R113 回归）**、
+单元中心落在包围盒内、FPH 场统计一致、语料体积上限（防止仓库膨胀）。
+
+实测：`pytest tests/test_r114_golden.py -q -rs` → **8 passed，0 skipped**。
+
+> 注：生成器顺带纠正了我一个错误假设 —— ex1_100.fld 的场是**节点中心**（21,145）
+> 而非单元中心（18,240）；测试改为断言不变量而非猜测。

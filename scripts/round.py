@@ -40,6 +40,9 @@ ROOT = Path(__file__).resolve().parents[1]
 #: pytest module(s) excluded from the fast tier because they dominate runtime.
 _SLOW_TEST_TARGETS = ["--ignore=tests/test_gui.py"]
 
+#: committed numeric reference corpus (R114) -- see scripts/make_golden.py
+GOLDEN_DIR = ROOT / "tests" / "data" / "golden"
+
 _TYPED_MODULES = [
     "fv/model/varreg.py",
     "fv/model/derived.py",

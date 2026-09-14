@@ -86,3 +86,36 @@ def tmp_path_factory():
 def tmp_path(tmp_path_factory, request) -> Path:
     """Per-test temp dir with default (sandbox-accessible) permissions."""
     return tmp_path_factory.mktemp(request.node.name)
+
+# ── in-repo golden corpus (R114) ──────────────────────────────────────────
+#
+# The numeric reference assets live under tests/data/golden and are committed,
+# so these fixtures resolve on any checkout instead of skipping for want of a
+# multi-hundred-megabyte sample.  See scripts/make_golden.py.
+
+_GOLDEN = Path(__file__).resolve().parent / "data" / "golden"
+
+
+@pytest.fixture(scope="session")
+def golden_dir() -> Path:
+    if not (_GOLDEN / "meta.json").is_file():
+        pytest.skip("golden corpus missing (run scripts/make_golden.py)")
+    return _GOLDEN
+
+
+@pytest.fixture(scope="session")
+def fld_golden(golden_dir) -> dict:
+    """ex1_100.fld distilled to a committable subset."""
+    import numpy as np
+
+    with np.load(golden_dir / "fld_small.npz") as data:
+        return {k: data[k] for k in data.files}
+
+
+@pytest.fixture(scope="session")
+def fph_golden(golden_dir) -> dict:
+    """tr03_9.fph distilled to a committable subset."""
+    import numpy as np
+
+    with np.load(golden_dir / "fph_small.npz") as data:
+        return {k: data[k] for k in data.files}

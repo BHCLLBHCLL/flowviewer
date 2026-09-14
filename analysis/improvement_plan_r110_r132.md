@@ -16,7 +16,7 @@
 | **R112** | FLD 几何忠实 | 面表去重（6.3×）+ FLD 表面 0-based 索引 + 表面积分用全顶点（Newell） | `fix(fld): de-duplicate face table and use 0-based surface node ids` | R111 |
 | ↳ **R111b** | 测试基线加固（并入 R111） | `test_gui.py` 体渲染路径偶发原生无响应（位置漂移）定位与隔离；全量回归恢复可重复 | 并入 R111 提交 | R111 |
 | **R113** | 数值正确性 | 面积/体积/壁距/谱幅值/相干/lag 符号/邻居选择统一修正 | `fix(numeric): Newell areas, owner∪neighbour volumes, wall-surface DST, one-sided PSD` | R112 |
-| **R114** | golden 语料 | `tests/data/golden_*.npz/json` 入仓 + CI 不再静默 skip | `test(data): in-repo golden corpus so numeric tests run in CI` | R113 |
+| **R114** ✅ | golden 语料 | `tests/data/golden_*.npz/json` 入仓 + CI 不再静默 skip | `test(data): in-repo golden corpus so numeric tests run in CI` | R113 |
 | **R115** | 解析解金标 | 22 项解析金标 × 三类网格（结构化/FPH/FLD） | `test(numeric): analytic ground-truth suite across structured, FPH and FLD meshes` | R114 |
 | **R116** | 门禁与字段矩阵 | 真值断言占比门禁 + 字段消费矩阵测试 | `feat(tools): golden-assertion density gate and field-consumption matrix` | R115 |
 | **R117** | scPOST 数值交叉验证 | 同变量双端导出 + 逐点比对（容差 1e-6） | `test(scpost): cross-validate decoded fields against scPOST COM export` | R116 |
