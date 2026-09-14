@@ -47,7 +47,8 @@ _TYPED_MODULES = [
 ]
 
 #: subjects look like "R110: fix(plane): ..." — a round number is mandatory.
-_SUBJECT_RE = re.compile(r"^R\d+\b.*\S")
+#: Sub-rounds carry a letter suffix (R113b), so allow one.
+_SUBJECT_RE = re.compile(r"^R\d+[a-z]?\b.*\S")
 
 
 def _run(label, *cmd, capture=False):
