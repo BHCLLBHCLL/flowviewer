@@ -643,3 +643,56 @@ FPH 上 d/dy(y 线性场) **精确等于 1**（沿轴方向正确）；但 d/dx(
 
 `scripts/round.py` 的快层门禁加入 `gates.py all`（静态分析，秒级），
 因此**每轮提交前都会跑**；`scripts/check.py` 亦可单独调用。
+---
+
+## 19. R117：跨格式交叉验证（2026-09-13）
+
+### 19.1 scPOST COM 路径：已探明，但被服务端阻断
+
+**可行性结论（实测）**：
+
+| 步骤 | 结果 |
+|---|---|
+| COM 注册 | `scPOST_Dx64net.Application.2025` 存在（`scPOST_Dx64net.exe` 12.7 MB） |
+| 连接 | **成功**（`win32com` Dispatch，6.7 s） |
+| 打开文件 | **成功**（`CreateObjectFLD(ex1_100.fld)`，2.3 s） |
+| 读取几何/数据 | **失败** ---- `GetNodeXYZ` → `0x80010105`（RPC_E_SERVERFAULT）、`GetBoundingBox` → 参数不匹配、`GetNodeCount(1)` → **0**、`GetScalarArray` → False |
+
+已尝试：`CoInitialize`、`Visible=False`、有无 ByRef 输出参数两种调用形式。
+**结论**：对象需要未在 VB 手册中说明的服务端状态（很可能是 draw window / 数据激活），
+在无交互环境下无法取得数值。**不以"修 bug"方式硬凑**，逐字记录为立项前提。
+
+### 19.2 实际交付：同源双格式的跨解码器验证（强度等价、可复现）
+
+发现 `D:\training\cgns\flddecoding\tests\` 下同一算例被写成两份：
+`ex1_e_from_sxemt_run.fld`（flowviewer 的 FLD 解码器读取）与 `.cgns`
+（**直接用 h5py 读，绕过 `fv.crdl.cgns`**）。两个**互相独立**的解码器读**同一份物理数据**。
+
+**实测（全量 21,145 节点）**：
+
+| 项 | 结果 |
+|---|---|
+| 坐标 max abs diff | **0.000e+00** |
+| 15 个共有变量（ATMS/CN01/HTFX/HTRC/HVECX/HVECY/HVECZ/PRES/SURT/TEMP/TEPS/TURK/VECTX/VECTY/VECTZ） | **全部 max abs diff 0.000e+00** |
+| 变量集合差异 | CGNS-only 空、FLD-only 空 |
+
+### 19.3 过程中纠正的一个自身错误
+
+我先用"最近邻 + 取重复坐标的第一个"做匹配，得出 TEMP 差 80.0（疑似 C→K）——
+**这是我自己脚本的缺陷**：该网格有 439 个**重合节点**（21,145 节点只有 20,706 个互异坐标），
+重合节点上 TEMP 取值为 20 与 100 两种，取第一个就错配了。
+改为按文件顺序直接逐元素比对后差值**精确为 0**。教训：近似匹配会**制造**假缺陷。
+
+### 19.4 交付物
+
+- `scripts/scpost_export.py`：scPOST COM 参考值导出器（连接/打开已验证，数值导出待服务端状态明确）；
+- `scripts/make_golden.py` 新增 `cross_format.npz`（14.4 KiB，600 节点**跨全域采样**）；
+- `tests/test_r117_crossformat.py`（4 项）：语料已入仓、坐标逐点相等、**每个共有变量精确相等**、
+  **参考非常数**（防止退化为空洞检查 ---- 这条测试当场抓出了我的首个切片版本 600 个节点全常值）。
+
+### 19.5 阶段 B 结论
+
+阶段 B（R114-R117）交付了：入仓 golden 语料、三类网格金标、可失败的门禁、
+以及**跨解码器逐值验证（坐标 + 15 变量，误差 0）**。
+**scPOST 逐点对标仍未完成**，原因在服务端 API 而非本项目；该项保持未闭合，
+后续需在交互环境下先探明 `GetNodeXYZ` 所需状态，或改用 scPOST 的批量导出路径。

@@ -28,7 +28,11 @@ def test_corpus_is_present_and_described():
     assert golden.available(), "scripts/make_golden.py was never run"
     m = golden.meta()
     assert "fld_small.npz" in m["files"] and "fph_small.npz" in m["files"]
-    for info in m["files"].values():
+    # Only the two mesh corpora carry a cell/vertex count and variable stats;
+    # R117 added a cross-format excerpt whose manifest shape is different, so
+    # assert per expected file rather than over every entry.
+    for name in ("fld_small.npz", "fph_small.npz"):
+        info = m["files"][name]
         assert info["n_cells"] > 0 and info["n_vertices"] > 0
         assert info["var_stats"], "no reference statistics recorded"
 

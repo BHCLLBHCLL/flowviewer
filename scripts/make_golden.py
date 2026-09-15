@@ -174,13 +174,75 @@ def _fph_payload():
         "faces_kept": len(face_ids), "field": var, "var_stats": stats}
 
 
+# ── cross-format reference corpus (R117) ──────────────────────────────────
+#
+# ex1_e_from_sxemt_run is the same solver run written twice: the .fld our FLD
+# decoder reads, and a .cgns written by the solver.  Reading the CGNS side
+# straight from HDF5 (not through fv.crdl.cgns) gives a decoder-independent
+# reference for the same physical data, so the two independent decoders can be
+# compared value by value.
+
+CROSS_CGNS = Path(r"D:\training\cgns\flddecoding\tests\ex1_e_from_sxemt_run.cgns")
+CROSS_FLD = Path(r"D:\training\cgns\flddecoding\tests\ex1_e_from_sxemt_run.fld")
+#: nodes kept in the committed corpus (identical on both sides)
+CROSS_NODES = 600
+
+
+def _cross_payload():
+    import h5py
+
+    sys.path.insert(0, str(ROOT))
+    from fv.model import dataset
+
+    with h5py.File(CROSS_CGNS, "r") as f:
+        zone = f["Base/FluidZone"]
+        gc = zone["GridCoordinates"]
+        cg_xyz = np.column_stack([
+            np.asarray(gc["Coordinate" + a][" data"], dtype=np.float64)
+            for a in "XYZ"])
+        fs = zone["FlowSolution"]
+        cg = {n: np.asarray(fs[n][" data"], dtype=np.float64)
+              for n in fs if isinstance(fs[n], h5py.Group)}
+
+    ff = dataset.load_file(str(CROSS_FLD))
+    fld_xyz = np.asarray(ff.vertices, dtype=np.float64)
+    shared = sorted(set(cg) & set(ff.variables))
+    if not shared:
+        raise SystemExit("no shared variables between the two formats")
+
+    # Sample ACROSS the mesh, not the first n nodes: the opening block of this
+    # case is uniform in every variable, so a contiguous excerpt would let the
+    # cross-check pass even for a badly broken decoder (the "not trivially
+    # constant" test catches exactly that).
+    total = int(cg_xyz.shape[0])
+    n = min(CROSS_NODES, total)
+    sel = np.unique(np.linspace(0, total - 1, n).astype(np.int64))
+    payload = {"cgns_vertices": cg_xyz[sel],
+               "fld_vertices": fld_xyz[sel],
+               "indices": sel,
+               "variables": np.asarray(json.dumps(shared))}
+    for name in shared:
+        payload["cgns__" + name] = cg[name][sel]
+        payload["fld__" + name] = np.asarray(
+            ff.variable_array(name), dtype=np.float64)[sel]
+
+    info = {"cgns": str(CROSS_CGNS), "fld": str(CROSS_FLD),
+            "nodes_total": total, "nodes_kept": int(sel.size),
+            "sampling": "linspace over all nodes",
+            "variables": shared}
+    return payload, info
+
 def build() -> dict:
     OUT.mkdir(parents=True, exist_ok=True)
     written = {}
     meta = {"generator": "scripts/make_golden.py", "files": {}}
 
-    for name, fn in (("fld_small.npz", _fld_payload),
-                     ("fph_small.npz", _fph_payload)):
+    builders = [("fld_small.npz", _fld_payload), ("fph_small.npz", _fph_payload)]
+    if CROSS_CGNS.exists() and CROSS_FLD.exists():
+        builders.append(("cross_format.npz", _cross_payload))
+    else:
+        print("cross-format samples absent; keeping the existing corpus entry")
+    for name, fn in builders:
         payload, info = fn()
         path = OUT / name
         np.savez_compressed(path, **payload)

@@ -1,5 +1,29 @@
 {
   "files": {
+    "cross_format.npz": {
+      "cgns": "D:\\training\\cgns\\flddecoding\\tests\\ex1_e_from_sxemt_run.cgns",
+      "fld": "D:\\training\\cgns\\flddecoding\\tests\\ex1_e_from_sxemt_run.fld",
+      "nodes_kept": 600,
+      "nodes_total": 21145,
+      "sampling": "linspace over all nodes",
+      "variables": [
+        "ATMS",
+        "CN01",
+        "HTFX",
+        "HTRC",
+        "HVECX",
+        "HVECY",
+        "HVECZ",
+        "PRES",
+        "SURT",
+        "TEMP",
+        "TEPS",
+        "TURK",
+        "VECTX",
+        "VECTY",
+        "VECTZ"
+      ]
+    },
     "fld_small.npz": {
       "faces_kept": 64,
       "field": "PRES",
