@@ -75,6 +75,15 @@ def build_particle_actors(obj: ParticleObject,
 
     polydata = vtk.vtkPolyData()
     polydata.SetPoints(points)
+    # R118: a vtkPolyData of loose points has NOTHING to render -- vtkPolyData
+    # draws cells, and points alone are not cells.  The default display style is
+    # Points, so the particle cloud was invisible (measured 50 points, 0 verts,
+    # 0 non-black pixels).  One vertex cell per point makes it drawable.
+    verts = vtk.vtkCellArray()
+    for i in range(positions.shape[0]):
+        verts.InsertNextCell(1)
+        verts.InsertCellPoint(i)
+    polydata.SetVerts(verts)
 
     # Point id scalars: index 0..N-1 (used for "Display particle No."-style
     # scalar colouring and as a default scalar for glyph scaling)

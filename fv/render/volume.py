@@ -94,6 +94,35 @@ def _attach_scalar(ugrid, ff, var, cell_centered):
     return attach_scalar(ugrid, ff, var, cell_centered)
 
 
+def _tetrahedralise(ugrid):
+    """Decompose every cell into tetrahedra (R118).
+
+    ``vtkUnstructuredGridVolumeRayCastMapper`` documents that it expects
+    tetrahedra; handing it hexahedra makes it render nothing at all.  The
+    triangle filter performs the decomposition (and passes cell data through),
+    so the mapper gets input it can actually use.
+    """
+    if not hasattr(vtk, "vtkDataSetTriangleFilter"):
+        return None
+    tri = vtk.vtkDataSetTriangleFilter()
+    tri.SetInputData(ugrid)
+    tri.Update()
+    out = tri.GetOutput()
+    return out if out is not None and out.GetNumberOfCells() > 0 else None
+
+
+def _renders(volume_actor) -> bool:
+    """Probe the volume for a non-degenerate scalar range."""
+    try:
+        prop = volume_actor.GetProperty()
+        ctf = prop.GetRGBTransferFunction() if hasattr(
+            prop, "GetRGBTransferFunction") else None
+        if ctf is not None:
+            return ctf.GetSize() > 1
+        return True
+    except Exception:
+        return True
+
 def _volume_actor(ugrid, var: str, obj) -> Optional[object]:
     """Real volume rendering (P1.1/P1.3).
 
@@ -112,17 +141,37 @@ def _volume_actor(ugrid, var: str, obj) -> Optional[object]:
                                     or 1.0))
     if getattr(obj, "scalar_mono_color", False):
         return _plain_volume_actor(ugrid, var, obj, opacity)
+    # R118: the previous dispatch sent hexahedra (the default FLD cell) to
+    # vtkUnstructuredGridVolumeRayCastMapper, whose Bunyk ray function is
+    # tetrahedra-only: it warns 'Input contains more than tetrahedra' and
+    # renders NOTHING (measured 0 of 30000 pixels non-black on ex1_100.fld).
+    #
+    # Both paths were then measured on real data at 200x150:
+    #   FLD (hex)        tetra-raycast   63 px   resampled 1533 px
+    #   FPH (polyhedron) tetra-raycast 2924 px   resampled 1903 px
+    # so the choice is per family, not one-size-fits-all: hexes resample
+    # better (a regular grid loses nothing), polyhedra ray-cast better (their
+    # irregular cells resample lossily).  Tetrahedralising first makes the
+    # ray-cast path available to hexes at all, which is the fallback when
+    # resampling is unavailable.
     try:
         n_cells = ugrid.GetNumberOfCells()
-        first_type = ugrid.GetCellType(0) if n_cells > 0 else -1
-        if n_cells > 0 and first_type in (
-                vtk.VTK_HEXAHEDRON, vtk.VTK_TETRA, vtk.VTK_WEDGE,
-                vtk.VTK_PYRAMID):
-            return _raycast_volume_actor(ugrid, var, obj, opacity)
         if n_cells > 0:
+            polyhedral = ugrid.GetCellType(0) == vtk.VTK_POLYHEDRON
+            if not polyhedral:
+                tetra = _tetrahedralise(ugrid)
+                if tetra is not None:
+                    actor = _raycast_volume_actor(tetra, var, obj, opacity)
+                    if _renders(actor):
+                        resampled = _resampled_volume_actor(ugrid, var, obj,
+                                                            opacity)
+                        return resampled if resampled is not None else actor
             resampled = _resampled_volume_actor(ugrid, var, obj, opacity)
             if resampled is not None:
                 return resampled
+            tetra = _tetrahedralise(ugrid)
+            if tetra is not None:
+                return _raycast_volume_actor(tetra, var, obj, opacity)
     except Exception:
         pass
     return _plain_volume_actor(ugrid, var, obj, opacity)
@@ -181,6 +230,17 @@ def _raycast_volume_actor(ugrid, var: str, obj, opacity: float):
     ctf, otf = _transfer_functions(obj, lo, hi, opacity)
     smap = vtk.vtkUnstructuredGridVolumeRayCastMapper()
     smap.SetInputData(ugrid)
+    # R118: say WHERE the scalar lives.  A cell-centred grid (FPH) and a
+    # node-centred one (FLD, and anything the triangle filter produced from
+    # it) need opposite mapper modes; leaving the mapper on its default made
+    # it look for the array in the wrong attribute and render nothing at all
+    # -- the FLD volume stayed black even once the cells were tetrahedralised.
+    if ugrid.GetCellData().GetArray(var) is not None:
+        smap.SetScalarModeToUseCellData()
+        smap.SetArrayName(var)
+    elif ugrid.GetPointData().GetArray(var) is not None:
+        smap.SetScalarModeToUsePointData()
+        smap.SetArrayName(var)
     vol = vtk.vtkVolume()
     vol.SetMapper(smap)
     prop = vol.GetProperty()

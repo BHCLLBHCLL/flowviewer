@@ -1,0 +1,53 @@
+R118: render-output correctness (pixels, not just pipelines)
+
+Four defects, each re-verified as still present before being fixed, and each
+pinned by a test that fails on the old behaviour.
+
+1. FLD volume rendered ZERO pixels, with two root causes stacked:
+   * hexahedra (the default FLD cell) went to
+     vtkUnstructuredGridVolumeRayCastMapper, whose Bunyk ray function is
+     tetrahedra-only -- measured 0 of 30000 pixels lit;
+   * even after tetrahedralising, the volume stayed black because Cradle FLD
+     writes 1e20 as an "undefined" sentinel (1440 entries in PRES, 93% of
+     HVECX), so the scalar range was [-24.6, 1e20] and the transfer function
+     stretched over 1e20 left the real data at near-zero opacity.
+   Fixes: tetrahedralise before ray-casting, and normalise the sentinel to NaN
+   at decode time (FIELD_SENTINEL + normalise_field_sentinels), so ranges,
+   colour limits and volume transfer functions all see real data.
+   Both paths were then measured at 200x150 and the choice made per cell
+   family rather than one-size-fits-all:
+       FLD (hex)        raycast 63 px   resampled 1533 px
+       FPH (polyhedron) raycast 2924 px resampled 1903 px
+   so hexes resample (a regular grid loses nothing) and polyhedra ray-cast
+   (irregular cells resample lossily). FLD volume: 0 -> 1533 px.
+
+2. Surface trim clipped the surface away entirely (5556 -> 0 faces). Two
+   bugs: the guard was a truth test, so a bound of 0.0 -- an ordinary plane
+   position -- evaluated falsy and was skipped; and the clip plane sat on the
+   polydata's OWN bounding box, cutting wherever the geometry happened to end
+   rather than where the user asked. Now trim_xmin=0.045 keeps 1544 faces with
+   x >= 0.045, trim_xmax=0.045 keeps 4084, a 0.0 bound is honoured and unset
+   bounds are a no-op. Note the dataclass default for an unset bound is False,
+   not None, and bool is an int subclass, so the guard rejects bool explicitly.
+
+3. Particles were invisible: a vtkPolyData of loose points has no cells and
+   VTK draws cells, so the default Points display rendered nothing (measured
+   50 points, 0 verts, 0 pixels). One vertex cell per point fixes it.
+
+4. The Information probe returned {} over two thirds of the model: every array
+   was indexed with the nearest VERTEX index, so cell-centred arrays were
+   looked up in the wrong space and the 'len(a) > idx' guard silently skipped
+   them (11 variables at vertex 10 and 50000, 0 at vertex 200000). Variables
+   are now resolved in their own index space, node by nearest vertex and cell
+   by nearest cell centre.
+
+Tests: tests/test_r118_render_output.py (6 cases), including a guard that the
+polyhedral volume still renders so the dispatch change cannot regress it.
+
+Not consumed this round: the ~18 fields marked 'planned R118' in
+field_exemptions.json (texture projection, fonts, mesh painting, boundary line
+style). The budget went to the defects where output was wrong or absent; those
+entries keep their exemption and are re-aimed at R118b.
+
+Gates: assertions 693/1364 = 50.8% (core 74/111 = 66.7%), fields 0 unconsumed.
+Regression: 1112 passed / 6 skipped over the 105 non-GUI modules (412 s).

@@ -23,6 +23,33 @@ from ..crdl import (
 FIELD_KIND_SCALAR = "scalar"
 FIELD_KIND_VECTOR = "vector"
 
+#: Cradle FLD writes undefined field entries as this sentinel (R118).
+FIELD_SENTINEL = 1e20
+
+
+def normalise_field_sentinels(array):
+    """Replace FLD's 1e20 "undefined" sentinel with NaN (R118).
+
+    The decoder used to hand the sentinel straight through, so a field with a
+    few percent (HVECX: 93%) of undefined entries reported a range of
+    [-24.6, 1e20].  Every consumer that derives a range from min/max then
+    collapsed: the volume transfer function stretched over 1e20 so the real
+    data mapped to a near-zero opacity and the volume rendered BLACK (0 of
+    30000 pixels), and colour bars showed meaningless limits.
+
+    NaN is the honest representation, and the range helpers already ignore
+    non-finite values.
+    """
+    arr = np.asarray(array)
+    if arr.size == 0 or not np.issubdtype(arr.dtype, np.floating):
+        return array
+    big = np.abs(arr) >= FIELD_SENTINEL
+    if not big.any():
+        return array
+    out = arr.astype(np.float64, copy=True)
+    out[big] = np.nan
+    return out
+
 _LOG = logging.getLogger(__name__)
 
 
@@ -663,7 +690,9 @@ def _ff_from_fld_mesh(mesh, path) -> FieldFile:
             name=name,
             kind=_field_kind(name),
             location="node",
-            array=arr,
+            # R118: turn the FLD 1e20 "undefined" sentinel into NaN so ranges,
+            # colour limits and volume transfer functions see real data.
+            array=normalise_field_sentinels(arr),
         )
     # r15 lazy descriptors (parse_fld lazy_fields=True)
     for name, desc in (mesh.get("field_lazy") or {}).items():

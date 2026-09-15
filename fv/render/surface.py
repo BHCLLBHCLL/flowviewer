@@ -304,19 +304,33 @@ def mesh_lines_actor(pd, obj) -> vtk.vtkActor:
 
 
 def trim_surface(pd, obj) -> vtk.vtkPolyData:
-    """Clip the surface against Trim tab X/Y/Z min/max planes."""
+    """Clip the surface against the Trim tab's X/Y/Z min/max VALUES (R118).
+
+    Two bugs made this useless: the guard was a truth test, so a bound of 0.0
+    (a perfectly ordinary plane position) evaluated falsy and was skipped, and
+    the clip plane was placed on the polydata's OWN bounding box, i.e. it cut
+    wherever the surface happened to end rather than where the user asked --
+    leaving 0 of 5556 faces on the real FLD surface.  A bound is "set" when it
+    is not None, and the plane sits at that value.
+    """
     out = pd
-    for axis, key in (("X", "xmin"), ("X", "xmax"), ("Y", "ymin"),
-                      ("Y", "ymax"), ("Z", "zmin"), ("Z", "zmax")):
-        if not getattr(obj, f"trim_{key}", False):
+    for axis, key, keep_above in (("X", "xmin", True), ("X", "xmax", False),
+                                 ("Y", "ymin", True), ("Y", "ymax", False),
+                                 ("Z", "zmin", True), ("Z", "zmax", False)):
+        # A bound is set only when it is a real number: the dataclass default is
+        # False (not None), and bool is an int subclass, so a plain `is None`
+        # test or a truth test both mis-handle it -- the earlier truth test
+        # dropped a legitimate 0.0 and let the False defaults through as 0.0.
+        value = getattr(obj, f"trim_{key}", None)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
             continue
         i = {"X": 0, "Y": 1, "Z": 2}[axis]
-        bounds = out.GetBounds()
-        sign = -1.0 if key.endswith("min") else 1.0
         normal = [0.0, 0.0, 0.0]
-        normal[i] = sign
+        # vtkClipPolyData keeps the half-space on the NORMAL's side, so point
+        # the normal towards the region to keep.
+        normal[i] = 1.0 if keep_above else -1.0
         origin = [0.0, 0.0, 0.0]
-        origin[i] = bounds[2 * i + (0 if sign < 0 else 1)]
+        origin[i] = float(value)
         clip = vtk.vtkPlane()
         clip.SetOrigin(*origin)
         clip.SetNormal(*normal)
