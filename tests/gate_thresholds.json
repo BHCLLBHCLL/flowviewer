@@ -1,0 +1,11 @@
+{
+  "_comment": [
+    "Ratchet for scripts/gates.py. Raise these as coverage improves; never lower",
+    "them to make a run pass -- that is the failure mode these gates exist to",
+    "catch. The unconsumed-field count has no threshold: it must be 0, and every",
+    "tolerated field must be listed with a reason in field_exemptions.json."
+  ],
+  "assertion_min": 0.45,
+  "core_assertion_min": 0.6,
+  "unconsumed_max": 0
+}

@@ -78,6 +78,10 @@ def gate_fast():
                    *[str(ROOT / m) for m in _TYPED_MODULES])),
         ("test-fast", (sys.executable, "-m", "pytest", "tests", "-q",
                        * _SLOW_TEST_TARGETS)),
+        # R116 verification gates: assertion independence + field consumption.
+        # Cheap (static analysis), and they fail when a change quietly drops
+        # either property, which is exactly how the suite degraded before.
+        ("gates", (sys.executable, str(ROOT / "scripts" / "gates.py"), "all")),
     ]
     for label, cmd in steps:
         if _run(label, *cmd) != 0:

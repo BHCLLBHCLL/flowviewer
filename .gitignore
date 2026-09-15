@@ -6,6 +6,9 @@ tests/*
 !tests/tr03_9.fph
 !tests/data/
 !tests/data/*
+# R116 gate configuration: the exemptions list and the ratchet thresholds are
+# part of the gate, so they must be versioned (the gate reads them at run time).
+!tests/*.json
 .pytest_tmp/*.tlb
 
 .trae/
