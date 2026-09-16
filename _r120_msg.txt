@@ -1,0 +1,44 @@
+R120: install the drag chain (it had no caller) and correct an audit claim
+
+Correction first: the earlier audit said the Integrate tab had no call site.
+That is wrong. object_dialogs._on_integrate() really does call
+cut_with_fields -> integrate_cut -> write_integration_csv and renders the
+area / integral / average into the panel from the Run button. The feature is
+reachable and was already working, so it is NOT part of this round's fixes.
+
+The real defect: the object-drag chain was fully implemented and never
+installed. _setup_drag_handlers had no caller anywhere in the tree, so all of
+it was unreachable -- picking an object and moving a plane to the picked point
+(Scene.move_plane_to_pick), moving a cylinder/circle centre, moving a point,
+and the status/message feedback.
+
+Fix, with a single implementation and a clear owner:
+  * _install_drag_handlers(enabled) attaches OR detaches the observers and
+    tracks them in _drag_commands, so switching modes cannot accumulate
+    observers;
+  * _set_mouse_mode calls it on every switch and passes (mode == 'select'),
+    because drag must not compete with camera manipulation in the ordinary
+    modes -- Select is the mode where a click is meant to act on an object;
+  * a build without 3-D or without an interactor (including headless) takes
+    the detach branch and stays safe;
+  * _setup_drag_handlers is kept as the entry point but now delegates, so the
+    duplicated install logic is gone;
+  * __init__ declares _drag_commands and _drag_obj so every path can rely on
+    them existing.
+
+Tests: tests/test_r120_drag_wiring.py (5 cases) -- state exists before any
+mode change, a single install entry point that is a safe no-op headless, all
+four mouse modes switch without leaving stale observers, the installer is
+consulted on every switch and no camera mode asks for drag, and the 3-D path
+keys drag off Select mode.
+
+Honest scope note: the fields marked 'planned R120' in field_exemptions.json
+are NOT wired this round. The integrate_* entries describe run-time button
+options that the dialog reads straight from its widgets (making the model the
+single source of truth is a separate small change); the inter_* entries have
+no rendering semantics yet and overlap with trim_objects, so they need one
+design rather than per-field wiring; rotate_*/operate_object need an
+interaction state machine. The ratchet stays at 87 reserved / 0 unconsumed and
+no new unconsumed field was introduced.
+
+Regression: 1123 passed / 6 skipped over the 105 non-GUI modules (477 s).

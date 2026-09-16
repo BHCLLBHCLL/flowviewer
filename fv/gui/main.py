@@ -172,6 +172,11 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._load_workers = []             # keep LoadWorker/QThread alive (P0.6)
         self._undo_stack = []               # P2.8 deep-copied children lists
         self._redo_stack = []
+        # R120: drag observers + the object currently being dragged.  Declared
+        # here so every path (including a headless build, where the handlers are
+        # never installed) can rely on them existing.
+        self._drag_commands: list = []
+        self._drag_obj = None
         self._ts_lookup = {}                # cycle -> time from Time Series
         self._ts_data = None
         self._analysis_artifact = None      # R65: data source for Analysis reports
@@ -2221,19 +2226,15 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
     # ── drag handles (G1) ─────────────────────────────────────────────────
 
     def _setup_drag_handlers(self) -> None:
-        """Wire the Draw Window interactor for plane drag (G1)."""
-        self._drag_obj = None
-        if not self._enable_3d or self.vtk_widget is None:
-            return
-        iren = self.vtk_widget.GetRenderWindow().GetInteractor()
-        if iren is None:
-            return
-        import vtk
-        cmd = vtk.vtkCallbackCommand()
-        cmd.SetCallback(self._on_vtk_drag_event)
-        for ev in ("LeftButtonPressEvent", "MouseMoveEvent",
-                   "LeftButtonReleaseEvent"):
-            iren.AddObserver(ev, cmd)
+        """Install the object-drag observers (G1/E3).
+
+        R120: kept as the entry point, now delegated to
+        :meth:`_install_drag_handlers` so there is a single implementation and
+        the observers can also be detached when the mouse mode changes.
+        Callers must not install it unconditionally: it competes with camera
+        manipulation, which is why Select mode owns it.
+        """
+        self._install_drag_handlers(True)
 
     def _on_vtk_drag_event(self, caller, event, *args) -> None:
         """Interactor callback: dispatch by event name."""
@@ -2726,6 +2727,9 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             act.setChecked(mode == name or (
                 name == "trackball" and mode == "onebutton"))
         if not self._enable_3d or self.vtk_widget is None or not self._iren_ready:
+            # Still tell the drag installer about the mode: it owns the
+            # detach path, and a build without an interactor must stay safe.
+            self._install_drag_handlers(False)
             return
         iren = self.vtk_widget.GetRenderWindow().GetInteractor()
         if mode == "rubber":
@@ -2748,6 +2752,44 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self._set_trackball_style(iren)
             self.message_win.log(
                 "Mouse: 3-Button — L-rotate / M-pan / R-zoom")
+        # R120: the drag chain (G1/E3) was fully implemented but never
+        # installed -- _setup_drag_handlers had no caller anywhere, so plane /
+        # cylinder / circle / point dragging did not exist in the UI.  It is
+        # installed only in Select mode, because the observer should not
+        # compete with camera manipulation in the ordinary modes.
+        self._install_drag_handlers(mode == "select")
+
+    def _install_drag_handlers(self, enabled: bool) -> None:
+        """Attach/detach the object-drag observers (R120).
+
+        Select mode is the natural owner: it is the mode where a click is
+        meant to act on an object rather than on the camera.
+        """
+        if not self._enable_3d or self.vtk_widget is None or not self._iren_ready:
+            return
+        iren = self.vtk_widget.GetRenderWindow().GetInteractor()
+        if iren is None:
+            return
+        for cmd in getattr(self, "_drag_commands", []):
+            for ev in ("LeftButtonPressEvent", "MouseMoveEvent",
+                       "LeftButtonReleaseEvent"):
+                try:
+                    iren.RemoveObserver(cmd)
+                except Exception:
+                    pass
+        self._drag_commands = []
+        self._drag_obj = None
+        if not enabled:
+            return
+        import vtk
+        cmd = vtk.vtkCallbackCommand()
+        cmd.SetCallback(self._on_vtk_drag_event)
+        for ev in ("LeftButtonPressEvent", "MouseMoveEvent",
+                   "LeftButtonReleaseEvent"):
+            iren.AddObserver(ev, cmd)
+        self._drag_commands.append(cmd)
+        self.message_win.log(
+            "Select mode: drag a plane / cylinder / circle / point to move it")
 
     def _set_trackball_style(self, iren) -> None:
         try:

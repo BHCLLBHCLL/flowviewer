@@ -804,3 +804,48 @@ surface/particle actor 可被拾取解析、裸 kind 命中命名空间图层、
 ② 替换 `if self.enable_3d:` 时命中了 `__init__` 里的同名行而非 `add_actor` 内的。
 两次都用 `git checkout` 回退后改为**按函数锚点定位**再改。
 教训：批处理正则前先确认**匹配唯一性**，改完立即 `ast.parse` + `ruff` 验证。
+---
+
+## 22. R120：拖拽手柄接线（2026-09-13）
+
+### 22.1 先修正此前审计的一处夸大
+
+审计称"Integrate 页无任何调用点"。**实测不成立**：
+`object_dialogs.py:1462 _on_integrate()` 真实调用 `cut_with_fields` → `integrate_cut` →
+`write_integration_csv`，并在面板显示面积/积分/平均值，Run 按钮可达。
+**该功能是通的**，此前结论有误，已更正。
+
+### 22.2 真实缺陷：拖拽手柄整条链路从未被安装
+
+`_setup_drag_handlers` **全树无任何调用点**，因此下列已完整实现的能力**不可达**：
+拾取对象 → 平面移到拾取点（`Scene.move_plane_to_pick`）→ cylinder/circle 改中心 →
+point 改位置 → 状态栏与消息窗反馈。
+
+### 22.3 修复：Select 模式拥有拖拽，单一实现
+
+- 新增 `_install_drag_handlers(enabled)`：负责**挂载与摘除**观察者，并维护 `_drag_commands`，
+  避免模式切换时观察者累积；
+- `_set_mouse_mode` 在每次切换时调用它，**以 `mode == "select"` 决定挂载** ----
+  拖拽观察者不应在普通模式下与相机旋转竞争；
+- 无 3D/无交互器的构建（含无头）走 `False` 分支，仍然安全；
+- `_setup_drag_handlers` 保留为入口但**委托**给它，消除重复实现；
+- `__init__` 中显式初始化 `_drag_commands` / `_drag_obj`，任何路径都可依赖其存在。
+
+### 22.4 测试
+
+新增 `tests/test_r120_drag_wiring.py`（5 项）：拖拽状态在改模式前即存在、
+安装入口单一且无头下为安全 no-op、**四种鼠标模式均可切换且不累积观察者**、
+安装器每次切换都被征询（可摘除）且相机模式从不请求拖拽、3D 路径以 `mode == "select"` 决定挂载。
+
+### 22.5 本轮未消费的 planned 字段（诚实说明）
+
+`field_exemptions.json` 中标记 `planned R120` 的字段本轮**未接线**：
+
+- `integrate_*` 系列：它们描述的是**运行期按钮选项**，对话框直接从控件读取并执行，
+  不经过对象模型；让模型成为单一事实来源需要把 `_on_integrate` 改为读取模型字段，
+  属于独立小改；
+- `inter_*` 系列（Intersection 页）：尚无渲染消费逻辑，需要先定义语义（按兄弟对象裁剪），
+  与 `trim_objects` 有重叠，应合并设计而非逐个接线；
+- `rotate_axis`/`rotate_angle`/`operate_object`/`regions_mode` 等：需要交互状态机，非接线。
+
+棘轮仍为 87 项预留 / 0 未消费，未新增任何未消费字段。
