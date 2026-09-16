@@ -2623,9 +2623,18 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             loaded = next((ff for fs, ff in synced if fs is self.fileset), None)
             if loaded is not None and loaded is not self.dataset:
                 self.dataset = loaded
+                # R122: keep the user's viewpoint across frames.  scene.fit()
+                # calls ResetCamera, so fitting on every step threw the camera
+                # away several times a second during playback and a steady view
+                # was impossible to keep.  Fit once for a newly opened dataset,
+                # restore the pose for every later frame.
+                pose = self._capture_view_pose() if self._enable_3d else None
                 self.scene.build(loaded, main=self.main_object)
                 if self._enable_3d:
-                    self.scene.fit()
+                    if pose is None:
+                        self.scene.fit()
+                    else:
+                        self._restore_view_pose(pose)
                     self._refresh_gl()
                 self.timeline.edit_time.setText(
                     self.timeline.format_time(loaded.time))
@@ -2644,9 +2653,57 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             getattr(o, "kind", "") == "particle"
             for o in getattr(self.main_object, "children", []))
         if has_auto or has_particles:
-            self.scene.animate(step)
+            # R122: give automove the frame count, otherwise it cannot
+            # normalise the step index and the plane freezes (loop on) or
+            # jumps to the end pose (loop off).
+            self.scene.animate(step, frames=self._animation_frame_span())
             if self._enable_3d:
                 self._refresh_gl()
+
+    def _animation_frame_span(self) -> int:
+        """Frames an automove plane should sweep across (R122).
+
+        The sequence length is the natural span for an open FileSet; otherwise
+        each plane's own automove_frames applies.  The largest wins so no plane
+        is cut short, with a floor of 2 so a single frame can still move.
+        """
+        span = 0
+        try:
+            lo, hi = self._sync_range()
+            if hi > lo:
+                span = int(hi - lo + 1)
+        except Exception:
+            span = 0
+        for obj in getattr(self.main_object, "children", []) or []:
+            if getattr(obj, "automove_enabled", False):
+                span = max(span, int(getattr(obj, "automove_frames", 0) or 0))
+        return max(span, 2)
+
+    def _capture_view_pose(self):
+        """Camera pose of the primary renderer, or None (R122)."""
+        scene = getattr(self, "scene", None)
+        renderer = getattr(scene, "renderer", None) if scene is not None else None
+        if renderer is None:
+            return None
+        cam = renderer.GetActiveCamera()
+        return (tuple(cam.GetPosition()), tuple(cam.GetFocalPoint()),
+                tuple(cam.GetViewUp()), float(cam.GetParallelScale()),
+                tuple(cam.GetClippingRange()))
+
+    def _restore_view_pose(self, pose) -> None:
+        """Put back a pose captured by _capture_view_pose (R122)."""
+        if pose is None:
+            return
+        scene = getattr(self, "scene", None)
+        renderer = getattr(scene, "renderer", None) if scene is not None else None
+        if renderer is None:
+            return
+        cam = renderer.GetActiveCamera()
+        cam.SetPosition(pose[0])
+        cam.SetFocalPoint(pose[1])
+        cam.SetViewUp(pose[2])
+        cam.SetParallelScale(pose[3])
+        cam.SetClippingRange(pose[4])
 
     def _on_timeline_interp(self, frac_cycle: float) -> None:
         """Time mode: fractional cycle id -> interpolated FieldFile (R0.1)."""

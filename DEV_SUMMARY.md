@@ -846,39 +846,53 @@ point 改位置 → 状态栏与消息窗反馈。
   属于独立小改；
 ---
 
-## 23. R121：保存的会话必须能完整恢复（2026-09-13）
+---
 
-### 23.1 两处缺口（均已源码核实）
+## 24. R122：动画正确性（2026-09-13）
 
-| 缺口 | 事实 |
-|---|---|
-| **全局对象从不落盘** | `save_status` 只序列化 `main_object.children`；相机位姿/关键帧、灯光、Draw Window、全局 colorbar/gradation 都在 `GlobalWindow` 上，**不属于 children** → 精心调好的视角保存后一无所获 |
-| **GUI 能存不能读** | 有 `File → Save Status`，**没有 Load**；`load_status` 只能由 api/COM 调用 |
+### 24.1 Automove 平面实时回放**冻结**（循环开）/ 直接跳到终点（循环关）
 
-### 23.2 修复
+根因链条（已实测）：`frames` 从未传到 `automove_coordinate` → 归一化被跳过 →
+`t` 以**原始步进序号**继续 → 最终被 `clamp(0,1)`。于是循环模式下永远停在 `t=0`，
+非循环模式直接落到末态。
 
-- `save_status(..., global_objects=...)` 新增**可选** `globals` 段，版本 1 → 2；
-  不传即与旧行为完全一致（既有调用方与测试不受影响）；
-- `load_status_document()` 返回 `{children, globals, version}`，**保留** `load_status()` 的列表契约；
-- `instantiate_globals()` 按名字重建（camera/light/draw_window/colorbar/gradation），
-  **未知名字跳过而不抛错** —— 新版写的文件在旧版仍能读出已知部分；
-- GUI：`File → Load Status` + 工具栏按钮，`on_load_status()` 恢复 children 与全局对象、
-  重建场景、套用 Draw Window、刷新对象树，并**先做一次 undo 快照**；
-- `_global_objects()` 集中列出需要随文件走的全局对象。
+实测（起始 z=-0.02，参考 z=0.02）：
 
-### 23.3 实测往返
+| 传参 | z(t=0..5) | 互异值 |
+|---|---|---|
+| `frames=None`（旧） | −0.02, −0.02, −0.02, −0.02, −0.02, −0.02 | **1（冻结）** |
+| `frames=10`（新） | −0.02, −0.0156, −0.0111, −0.0067, −0.0022, +0.0022 | **6，单调递增** |
 
-| 项 | 结果 |
-|---|---|
-| 文件版本 / 段 | v2，`children` + `globals` |
-| 落盘的全局对象 | camera / colorbar / draw_window / gradation / light（5/5） |
-| 相机位置往返 | `(1.0, 2.0, 3.0)` 精确一致 |
-| 灯光亮度往返 | 0.5 精确一致 |
-| 旧 v1 文件（无 globals） | 正常载入，`globals == {}`，children 完整 |
-| `load_status()` 旧契约 | 仍返回列表 |
+修复：`Scene.animate(..., frames=...)` 转发帧数；GUI 用 `_animation_frame_span()` 计算
+（有序列时取序列长度，否则取各平面 `automove_frames` 的最大值，下限 2）。
 
-### 23.4 测试
+### 24.2 回放时相机被反复重置
 
-新增 `tests/test_r121_status_persistence.py`（7 项）：children 往返不回归、全局对象被持久化、
-**逐字段恢复**（位置/亮度）、v1 文件仍可载入、未知全局名跳过而非致命、
-非状态文件被拒绝、GUI 确实暴露 Load 入口且接线到 `instantiate_globals`。
+回放每一帧都调用 `scene.build()` + `scene.fit()`，而 `fit()` 结尾是 `ResetCamera()` →
+**每秒数次丢弃视角**。修复：重建前 `_capture_view_pose()`，重建后 `_restore_view_pose()`；
+只有新打开数据集（无既有位姿）才 `fit()`。
+
+### 24.3 顺带发现并修复的更严重缺陷：动画会**删掉其它对象**
+
+`animate` 的平面循环里调用 `_remove_layer_prefix("plane:")` ---- 该函数删除**所有** plane 图层，
+然后只重建**正在动的那一个**。后果：**只要有一个 automove 平面，其它所有平面在第一帧就消失**；
+粒子循环同理（`particle:`）。同时每帧无谓地重建整个图层。
+
+修复：改为 `remove_object_actors(obj)`（只移除该对象的 actor）；新 actor 经
+`add_actor(..., kind=..., obj=...)` 重新登记，**拾取映射在动画后依然有效**。
+`_remove_layer_prefix` 随之无调用点，已删除。
+
+### 24.4 测试
+
+新增 `tests/test_r122_animation.py`（7 项）：无帧数时确认冻结（把旧行为钉住以便溯源）、
+有帧数时 6 帧互异且单调递增、`Scene.animate` 确实转发帧数、`ResetCamera` 确实会移动相机
+（说明为何回放不能每帧 fit）、GUI 存在位姿捕获/恢复与帧跨度入口、
+**只动一个平面时另一个平面的 actor 数量不变**（正是 24.3 的回归护栏）、
+动画重建后平面仍可被拾取解析。
+
+### 24.5 过程中的自伤与教训
+
+我最初的最后一个测试在**独立进程**里构造 `FlowViewer` 部件，导致原生崩溃 `0xC0000409`，
+并让**整个非 GUI 回归在约 18% 处挂掉**。用二分定位到具体测试后，改为**场景级测试**
+（不需要构造部件），崩溃消失且新测试比原来更有价值（直接覆盖 24.3 的缺陷）。
+教训：新增测试若构造 Qt 部件，必须**先单独跑一遍**确认不崩，再并入长回归。

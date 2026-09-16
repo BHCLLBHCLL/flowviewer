@@ -445,18 +445,6 @@ class Scene:
 
     # ── Automove animation driver (P3.10) ────────────────────────────────
 
-    def _remove_layer_prefix(self, prefix: str) -> None:
-        """Remove actors whose layer key starts with ``prefix``."""
-        stale = [k for k in self._layer_actors if k.startswith(prefix)]
-        for k in stale:
-            for a in self._layer_actors.pop(k, []):
-                if self.enable_3d and not isinstance(a, str):
-                    for r in list(self.renderers()):
-                        try:
-                            r.RemoveActor(a)
-                        except Exception:
-                            pass
-
     def set_timeline(self, timeline) -> None:
         """Attach an optional R35 object-keyframe :class:`fv.timeline.Timeline`.
 
@@ -466,7 +454,7 @@ class Scene:
         """
         self._timeline = timeline
 
-    def animate(self, t: float, *, fps: int = 0) -> None:
+    def animate(self, t: float, *, fps: int = 0, frames: int = 0) -> None:
         """Advance automove-enabled Planes and particle frames to ``t``.
 
         ``t`` is a frame index (0-based); ``fps`` (if > 0) divides it to a
@@ -485,6 +473,13 @@ class Scene:
             return
         if self._main is None:
             return
+        # R122: the frame COUNT has to reach automove_coordinate.  It was never
+        # passed, so frames stayed falsy and the helper's normalisation was
+        # skipped: t fell through as the raw step index and then clamped to
+        # [0, 1], leaving a looping plane frozen at t = 0 for every step and a
+        # non-looping one snapped to the end pose.  fps is a frame count here
+        # (its name is historical); prefer an explicit frames value.
+        span = int(frames or fps or 0)
         planes = [o for o in getattr(self._main, "children", [])
                   if getattr(o, "kind", "") == "plane"
                   and getattr(o, "automove_enabled", False)]
@@ -501,7 +496,7 @@ class Scene:
             )
             ff = self._field_file
             for obj in planes:
-                point, normal = automove_coordinate(obj, t, frames=fps)
+                point, normal = automove_coordinate(obj, t, frames=span or None)
                 obj.point = tuple(point)
                 obj.normal = tuple(normal)
                 key = (id(ff), id(obj))
@@ -518,11 +513,17 @@ class Scene:
                     cache = (ugrid, cell_centered, rows)
                     self._plane_cut_cache[key] = cache
                 ugrid, cell_centered, rows = cache
-                self._remove_layer_prefix("plane:")
+                # R122: rebuild ONLY this plane.  This used to call
+                # _remove_layer_prefix("plane:"), which deleted every plane's
+                # actors -- so one animated plane made all the others disappear
+                # on the first frame, and re-created only itself.  It also
+                # churned the whole plane layer every frame, which is needless
+                # heap traffic during playback.
+                self.remove_object_actors(obj)
                 actors = recut_plane_actors(ff, obj, ugrid, cell_centered,
                                             rows)
                 for key, actor in actors.items():
-                    self.add_actor(f"plane:{key}", actor)
+                    self.add_actor(f"plane:{key}", actor, kind="plane", obj=obj)
             self._apply_global_colorbar_all()
         # Particle frames (P0.5): t selects the frame, looping over the
         # file's frames (count recorded by build_particle_actors in meta).
@@ -533,12 +534,15 @@ class Scene:
             for obj in particles:
                 if n_frames > 1:
                     obj.frame_index = int(t) % n_frames
-                self._remove_layer_prefix("particle:")
+                # R122: same defect as the plane loop -- one animated particle
+                # object used to delete every particle actor in the scene.
+                self.remove_object_actors(obj)
                 actors = build_particle_actors(
                     obj, self._field_file,
                     frame_index=obj.frame_index if n_frames else None)
                 for key, actor in actors.items():
-                    self.add_actor(f"particle:{key}", actor)
+                    self.add_actor(f"particle:{key}", actor, kind="particle",
+                                   obj=obj)
 
     # ── overlay (File / Cycle / Time) ─────────────────────────────────────
 
