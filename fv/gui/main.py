@@ -387,6 +387,8 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         m = mb.addMenu("File")
         add(m, "Open…", self.on_open_dialog, QKeySequence.Open)
         add(m, "Save Status", self.on_save_status)
+        # R121: the GUI could write a .sta but never read one back.
+        add(m, "Load Status", self.on_load_status)
         add(m, "Print", self.on_print)
         add(m, "Export PNG…", self.on_export_png)
         add(m, "Export STL…", self.on_export_stl)
@@ -607,6 +609,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         act(self.tb_file, "Open", "open", "Open Field File", self.on_open_dialog)
         act(self.tb_file, "Save", "save", "Save Status",
             self.on_save_status)
+        act(self.tb_file, "Open", "open", "Load Status", self.on_load_status)
         act(self.tb_file, "Print", "print", "Print", self.on_print)
         self.addToolBar(self.tb_file)
 
@@ -1366,12 +1369,78 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if not path:
             return
         from ..render.export import save_status
-        ok = save_status(self.main_object, path)
+        # R121: global objects (camera pose/keyframes, light, draw window,
+        # global colorbar/gradation) live outside main_object.children, so they
+        # were never saved at all.
+        ok = save_status(self.main_object, path,
+                         global_objects=self._global_objects())
         self.message_win.log(
             f"Save Status {'OK' if ok else 'failed'}: {path}",
             "" if ok else "ERROR")
         if ok:
             self.status.showMessage(f"Saved status → {Path(path).name}", 5000)
+
+    def _global_objects(self) -> dict:
+        """The scene-wide objects that a status file must carry (R121)."""
+        window = getattr(self, "global_window", None)
+        return {
+            "camera": self._global_camera,
+            "light": self._global_light,
+            "draw_window": self._draw_window,
+            "colorbar": getattr(window, "colorbar", None),
+            "gradation": getattr(window, "gradation", None),
+        }
+
+    def on_load_status(self) -> None:
+        """File → Load Status: restore a saved object tree (R121).
+
+        Before this the GUI could write a .sta but not read one: load_status was
+        reachable only from the script/COM facade, so a saved session could not
+        be reopened from the UI at all.
+        """
+        from PyQt5.QtWidgets import QFileDialog
+
+        if self.main_object is None:
+            self.message_win.log("Load Status: open a field file first", "WARN")
+            return
+        default = (f"{Path(self.dataset.path).stem}.sta"
+                   if self.dataset else "flowviewer.sta")
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Load Status", default, "Status files (*.sta)")
+        if not path:
+            return
+        from ..render.export import instantiate_globals, load_status_document
+
+        doc = load_status_document(path)
+        if doc is None:
+            self.message_win.log(
+                f"Load Status failed: {Path(path).name} is not a status file",
+                "ERROR")
+            return
+        self._snapshot_children()
+        self.main_object.children = doc["children"]
+        restored = instantiate_globals(doc["globals"])
+        if "camera" in restored:
+            self._global_camera = restored["camera"]
+        if "light" in restored:
+            self._global_light = restored["light"]
+        if "draw_window" in restored:
+            self._draw_window = restored["draw_window"]
+        window = getattr(self, "global_window", None)
+        if window is not None:
+            if "colorbar" in restored:
+                window.colorbar = restored["colorbar"]
+            if "gradation" in restored:
+                window.gradation = restored["gradation"]
+        self.scene.build(self.dataset, main=self.main_object)
+        self._apply_draw_window(self._draw_window)
+        self.object_tree.load_main(self.main_object)
+        self._refresh_gl()
+        self.message_win.log(
+            "Load Status: %d object(s), %d global setting(s) from %s"
+            % (len(doc["children"]), len(restored), Path(path).name))
+        self.status.showMessage(
+            f"Loaded status ← {Path(path).name}", 5000)
 
     def on_print(self) -> None:
         """File → Print: send the rendered scene to the printer."""

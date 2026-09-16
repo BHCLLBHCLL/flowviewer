@@ -133,18 +133,26 @@ def _from_json(value):
     return value
 
 
-def save_status(main_object, filepath: str) -> bool:
+def save_status(main_object, filepath: str, global_objects=None) -> bool:
     """Persist one MainObject (its children settings) as a JSON ``.sta``.
 
     Only declared dataclass fields are written, so new fields added later
     load with their defaults.
+
+    R121: ``global_objects`` (a mapping of name -> dataclass, e.g. camera,
+    light, draw window, global colorbar/gradation) is written to a separate
+    ``globals`` section.  These objects are NOT part of ``children``, so
+    before this they were simply never saved: a document could be saved with
+    a carefully framed camera, custom lighting and a gradient background, and
+    loading it back restored none of that.  The section is optional and
+    additive, so older status files still load and older readers still work.
     """
     if main_object is None:
         return False
     children = getattr(main_object, "children", []) or []
     payload = {
         "format": "flowviewer-sta",
-        "version": 1,
+        "version": 2,
         "display_name": getattr(main_object, "display_name", ""),
         "children": [_json_safe(o)
                      if dataclasses.is_dataclass(o)
@@ -152,9 +160,78 @@ def save_status(main_object, filepath: str) -> bool:
                            "fields": vars(o)}
                      for o in children],
     }
+    saved_globals = {}
+    for name, obj in (global_objects or {}).items():
+        if dataclasses.is_dataclass(obj):
+            saved_globals[str(name)] = _json_safe(obj)
+    if saved_globals:
+        payload["globals"] = saved_globals
     with open(filepath, "w", encoding="utf-8") as fh:
         json.dump(payload, fh, ensure_ascii=False, indent=2)
     return Path(filepath).exists()
+
+
+def load_status_document(filepath: str) -> Optional[dict]:
+    """Full .sta document as {"children": [...], "globals": {...}}.
+
+    R121: load_status keeps its list-only contract for existing callers, while
+    this exposes the global objects the GUI needs to restore.  Unknown global
+    names are still returned so a caller can decide; the values are raw dicts
+    and are instantiated by instantiate_globals().
+    """
+    try:
+        with open(filepath, encoding="utf-8") as fh:
+            doc = json.load(fh)
+    except Exception:
+        return None
+    if not isinstance(doc, dict) or doc.get("format") != "flowviewer-sta":
+        return None
+    children = load_status(filepath)
+    if children is None:
+        return None
+    raw_globals = doc.get("globals")
+    return {
+        "children": children,
+        "globals": raw_globals if isinstance(raw_globals, dict) else {},
+        "version": doc.get("version", 1),
+    }
+
+
+#: global-object names a status file may carry, mapped to their class name.
+_GLOBAL_CLASSES = {
+    "camera": "CameraObject",
+    "light": "LightObject",
+    "draw_window": "DrawWindowObject",
+    "colorbar": "ColorbarObject",
+    "gradation": "GradationObject",
+}
+
+
+def instantiate_globals(raw_globals) -> dict:
+    """Build global objects from a status file's globals section (R121).
+
+    Returns {name: object} for every recognised entry.  Unknown names are
+    skipped rather than raising, so a status file written by a newer build
+    still loads its known parts.
+    """
+    import fv.model.objects as _objects
+
+    out: dict = {}
+    for name, raw in (raw_globals or {}).items():
+        cls_name = _GLOBAL_CLASSES.get(str(name))
+        if cls_name is None:
+            continue
+        cls = getattr(_objects, cls_name, None)
+        if cls is None or not dataclasses.is_dataclass(cls):
+            continue
+        fields = _from_json(raw if isinstance(raw, dict) else {})
+        declared = {f.name for f in dataclasses.fields(cls)}
+        kwargs = {k: v for k, v in fields.items() if k in declared}
+        try:
+            out[str(name)] = cls(**kwargs)
+        except TypeError:  # pragma: no cover - future-proof
+            continue
+    return out
 
 
 def load_status(filepath: str) -> Optional[list]:

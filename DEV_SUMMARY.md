@@ -844,8 +844,41 @@ point 改位置 → 状态栏与消息窗反馈。
 - `integrate_*` 系列：它们描述的是**运行期按钮选项**，对话框直接从控件读取并执行，
   不经过对象模型；让模型成为单一事实来源需要把 `_on_integrate` 改为读取模型字段，
   属于独立小改；
-- `inter_*` 系列（Intersection 页）：尚无渲染消费逻辑，需要先定义语义（按兄弟对象裁剪），
-  与 `trim_objects` 有重叠，应合并设计而非逐个接线；
-- `rotate_axis`/`rotate_angle`/`operate_object`/`regions_mode` 等：需要交互状态机，非接线。
+---
 
-棘轮仍为 87 项预留 / 0 未消费，未新增任何未消费字段。
+## 23. R121：保存的会话必须能完整恢复（2026-09-13）
+
+### 23.1 两处缺口（均已源码核实）
+
+| 缺口 | 事实 |
+|---|---|
+| **全局对象从不落盘** | `save_status` 只序列化 `main_object.children`；相机位姿/关键帧、灯光、Draw Window、全局 colorbar/gradation 都在 `GlobalWindow` 上，**不属于 children** → 精心调好的视角保存后一无所获 |
+| **GUI 能存不能读** | 有 `File → Save Status`，**没有 Load**；`load_status` 只能由 api/COM 调用 |
+
+### 23.2 修复
+
+- `save_status(..., global_objects=...)` 新增**可选** `globals` 段，版本 1 → 2；
+  不传即与旧行为完全一致（既有调用方与测试不受影响）；
+- `load_status_document()` 返回 `{children, globals, version}`，**保留** `load_status()` 的列表契约；
+- `instantiate_globals()` 按名字重建（camera/light/draw_window/colorbar/gradation），
+  **未知名字跳过而不抛错** —— 新版写的文件在旧版仍能读出已知部分；
+- GUI：`File → Load Status` + 工具栏按钮，`on_load_status()` 恢复 children 与全局对象、
+  重建场景、套用 Draw Window、刷新对象树，并**先做一次 undo 快照**；
+- `_global_objects()` 集中列出需要随文件走的全局对象。
+
+### 23.3 实测往返
+
+| 项 | 结果 |
+|---|---|
+| 文件版本 / 段 | v2，`children` + `globals` |
+| 落盘的全局对象 | camera / colorbar / draw_window / gradation / light（5/5） |
+| 相机位置往返 | `(1.0, 2.0, 3.0)` 精确一致 |
+| 灯光亮度往返 | 0.5 精确一致 |
+| 旧 v1 文件（无 globals） | 正常载入，`globals == {}`，children 完整 |
+| `load_status()` 旧契约 | 仍返回列表 |
+
+### 23.4 测试
+
+新增 `tests/test_r121_status_persistence.py`（7 项）：children 往返不回归、全局对象被持久化、
+**逐字段恢复**（位置/亮度）、v1 文件仍可载入、未知全局名跳过而非致命、
+非状态文件被拒绝、GUI 确实暴露 Load 入口且接线到 `instantiate_globals`。
