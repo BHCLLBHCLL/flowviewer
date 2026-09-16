@@ -116,7 +116,14 @@ class Scene:
             self._extra_renderers.append(renderer)
         return len(self._extra_renderers)
 
-    def add_actor(self, layer: str, actor) -> None:
+    def add_actor(self, layer: str, actor, kind: str = "", obj=None) -> None:
+        if kind and obj is not None and not isinstance(actor, str):
+            # R119: registration belongs at this choke point.  Relying on
+            # each caller to remember is how Surface and Particle ended up
+            # unregistered: their builders came through here and never called
+            # register_actor_object, so pick_actor returned nothing for the two
+            # objects a user is most likely to click.
+            self.register_actor_object(actor, kind, obj)
         if self.enable_3d:
             # vtkProp can be rendered by several renderers at once; push the
             # 3D actor into every viewport so a 2x2 split shows the same
@@ -361,11 +368,29 @@ class Scene:
     def actor_names(self) -> list[str]:
         return [name for name, actors in self._layer_actors.items() if actors]
 
+    def _layer_actors_for(self, layer: str) -> list:
+        """Actors of *layer*, accepting a bare kind or a full key (R119).
+
+        Pipelines record namespaced keys ("surface:contour", "plane:contour",
+        "cylinder:cut") while the object tree asks for the bare kind, so an
+        exact dict lookup matched nothing and the eye checkbox did nothing for
+        every kind except grid/colorbar.  A bare kind now means every layer of
+        that kind; a namespaced key still selects exactly one layer.
+        """
+        if layer in self._layer_actors:
+            return self._layer_actors[layer]
+        prefix = layer + ":"
+        out: list = []
+        for name, actors in self._layer_actors.items():
+            if name.startswith(prefix):
+                out.extend(actors)
+        return out
+
     def layer_count(self, layer: str) -> int:
-        return len(self._layer_actors.get(layer, []))
+        return len(self._layer_actors_for(layer))
 
     def set_layer_visible(self, layer: str, visible: bool) -> None:
-        for a in self._layer_actors.get(layer, []):
+        for a in self._layer_actors_for(layer):
             if self.enable_3d and not isinstance(a, str):
                 a.SetVisibility(1 if visible else 0)
 
@@ -758,6 +783,7 @@ class Scene:
         prop = actor.GetProperty()
         prop.SetColor(0.05, 0.05, 0.08)
         prop.SetLineWidth(1.0)
+        # the mesh wireframe has no owning PostObject to resolve a pick to
         self.add_actor("grid", actor)
 
     def _build_fph_wireframe(self, ff: FieldFile) -> None:
@@ -776,6 +802,7 @@ class Scene:
         prop.SetColor(0.05, 0.05, 0.08)
         prop.SetLineWidth(1.0)
         prop.SetRepresentationToWireframe()
+        # the mesh wireframe has no owning PostObject to resolve a pick to
         self.add_actor("grid", actor)
 
     def _build_fld_wireframe(self, ff: FieldFile) -> None:
@@ -799,6 +826,7 @@ class Scene:
         prop = actor.GetProperty()
         prop.SetColor(0.05, 0.05, 0.08)
         prop.SetLineWidth(1.0)
+        # the mesh wireframe has no owning PostObject to resolve a pick to
         self.add_actor("grid", actor)
 
     def _add_surface_actors(self, ff: FieldFile, obj) -> None:
@@ -816,7 +844,7 @@ class Scene:
                     self._layer_actors["grid"])
             return
         for key, actor in actors.items():
-            self.add_actor(f"surface:{key}", actor)
+            self.add_actor(f"surface:{key}", actor, kind="surface", obj=obj)
 
     def _add_plane_actors(self, ff: FieldFile, obj) -> None:
         """Cut-plane pipeline: contour / vector / mesh / boundary / subline
@@ -827,7 +855,7 @@ class Scene:
         siblings = list(getattr(self._main, "children", []) or [])
         actors = plane_render.build_plane_actors(ff, obj, siblings=siblings)
         for key, actor in actors.items():
-            self.add_actor(f"plane:{key}", actor)
+            self.add_actor(f"plane:{key}", actor, kind="plane", obj=obj)
             if not isinstance(actor, str):
                 self.register_actor_object(actor, "plane", obj)
         if "contour" not in actors and self._bounds is not None:
@@ -859,7 +887,7 @@ class Scene:
             prop.SetOpacity(0.35)
             prop.EdgeVisibilityOn()
             prop.SetEdgeColor(*color)
-            self.add_actor("plane", actor)
+            self.add_actor("plane", actor, kind="plane", obj=obj)
 
     def _add_particle_actors(self, ff, obj) -> None:
         """Build particle actors from the file's particle sections."""
@@ -869,7 +897,7 @@ class Scene:
         if not actors:
             return
         for key, actor in actors.items():
-            self.add_actor(f"particle:{key}", actor)
+            self.add_actor(f"particle:{key}", actor, kind="particle", obj=obj)
         self._layer_actors.setdefault("particle", ["particle_1"])
 
     def _add_isosurface_actors(self, ff, obj) -> None:
@@ -877,7 +905,7 @@ class Scene:
         from . import isosurface as iso_render
         actors = iso_render.build_isosurface_actors(ff, obj)
         for key, actor in actors.items():
-            self.add_actor(f"isosurface:{key}", actor)
+            self.add_actor(f"isosurface:{key}", actor, kind="isosurface", obj=obj)
             if not isinstance(actor, str):
                 self.register_actor_object(actor, "isosurface", obj)
 
@@ -886,7 +914,7 @@ class Scene:
         from . import point as point_render
         actors = point_render.build_point_actors(ff, obj)
         for key, actor in actors.items():
-            self.add_actor(f"point:{key}", actor)
+            self.add_actor(f"point:{key}", actor, kind="point", obj=obj)
             if key == "point" and not isinstance(actor, str):
                 self.register_actor_object(actor, "point", obj)
 
@@ -895,7 +923,7 @@ class Scene:
         from . import streamline as sl_render
         actors = sl_render.build_streamline_actors(ff, obj)
         for key, actor in actors.items():
-            self.add_actor(f"streamline:{key}", actor)
+            self.add_actor(f"streamline:{key}", actor, kind="streamline", obj=obj)
             if not isinstance(actor, str):
                 self.register_actor_object(actor, "streamline", obj)
 
@@ -904,7 +932,7 @@ class Scene:
         from .turbo import build_turbo_actors
         actors = build_turbo_actors(ff, obj)
         for key, actor in actors.items():
-            self.add_actor(f"turbo:{key}", actor)
+            self.add_actor(f"turbo:{key}", actor, kind="turbo", obj=obj)
             if not isinstance(actor, str):
                 self.register_actor_object(actor, "turbo", obj)
 
@@ -927,7 +955,7 @@ class Scene:
             actor.GetProperty().SetColor(0.3, 0.6, 0.9)
         if getattr(obj, "transparent", False):
             actor.GetProperty().SetOpacity(0.5)
-        self.add_actor("region", actor)
+        self.add_actor("region", actor, kind="region", obj=obj)
         self.register_actor_object(actor, "region", obj)
 
     def _add_ufo_actor(self, ff, obj) -> None:
@@ -935,7 +963,7 @@ class Scene:
         from .ufo import build_ufo_actors
         actors = build_ufo_actors(ff, obj)
         for key, actor in actors.items():
-            self.add_actor(f"ufo:{key}", actor)
+            self.add_actor(f"ufo:{key}", actor, kind="ufo", obj=obj)
             if not isinstance(actor, str):
                 self.register_actor_object(actor, "ufo", obj)
 
@@ -944,7 +972,7 @@ class Scene:
         from .bar import build_bar_actors
         actors = build_bar_actors(ff, obj)
         for key, actor in actors.items():
-            self.add_actor(f"bar:{key}", actor)
+            self.add_actor(f"bar:{key}", actor, kind="bar", obj=obj)
             if not isinstance(actor, str):
                 self.register_actor_object(actor, "bar", obj)
 
@@ -954,7 +982,7 @@ class Scene:
         siblings = list(getattr(self._main, "children", []) or [])
         actors = build_periodical_actors(ff, obj, siblings=siblings)
         for key, actor in actors.items():
-            self.add_actor(f"periodical:{key}", actor)
+            self.add_actor(f"periodical:{key}", actor, kind="periodical", obj=obj)
             if not isinstance(actor, str):
                 self.register_actor_object(actor, "periodical", obj)
 
@@ -963,7 +991,7 @@ class Scene:
         from .curve import build_curve_actors
         actors = build_curve_actors(ff, obj)
         for key, actor in actors.items():
-            self.add_actor(f"curve:{key}", actor)
+            self.add_actor(f"curve:{key}", actor, kind="curve", obj=obj)
             if not isinstance(actor, str):
                 self.register_actor_object(actor, "curve", obj)
 
@@ -973,7 +1001,7 @@ class Scene:
         siblings = list(getattr(self._main, "children", []) or [])
         actors = build_mirror_actors(ff, obj, siblings=siblings)
         for key, actor in actors.items():
-            self.add_actor(f"mirror:{key}", actor)
+            self.add_actor(f"mirror:{key}", actor, kind="mirror", obj=obj)
             if not isinstance(actor, str):
                 self.register_actor_object(actor, "mirror", obj)
 
@@ -982,7 +1010,7 @@ class Scene:
         from .information import marker_actor
         a = marker_actor(obj, bounds=self._bounds)
         if a is not None:
-            self.add_actor("information", a)
+            self.add_actor("information", a, kind="information", obj=obj)
             self.register_actor_object(a, "information", obj)
 
     def _add_text_actor(self, obj) -> None:
@@ -990,7 +1018,7 @@ class Scene:
         from .text import text_actor
         a = text_actor(obj)
         if a is not None:
-            self.add_actor("text", a)
+            self.add_actor("text", a, kind="text", obj=obj)
             self.register_actor_object(a, "text", obj)
 
     def _add_bitmap_actor(self, obj) -> None:
@@ -998,7 +1026,7 @@ class Scene:
         from .text import bitmap_actor
         a = bitmap_actor(obj)
         if a is not None:
-            self.add_actor("bitmap", a)
+            self.add_actor("bitmap", a, kind="bitmap", obj=obj)
             self.register_actor_object(a, "bitmap", obj)
 
     def _add_cut_actors(self, ff, obj) -> None:
@@ -1008,7 +1036,7 @@ class Scene:
             build_circle_actors
         actors = fn(ff, obj)
         for key, actor in actors.items():
-            self.add_actor(f"{obj.kind}:{key}", actor)
+            self.add_actor(f"{obj.kind}:{key}", actor, kind=obj.kind, obj=obj)
             if not isinstance(actor, str):
                 self.register_actor_object(actor, obj.kind, obj)
 
@@ -1018,7 +1046,7 @@ class Scene:
         files = getattr(obj, "files", None) or []
         actors = build_pathline_actors(obj, list(files), ff0=ff)
         for key, actor in actors.items():
-            self.add_actor(f"pathline:{key}", actor)
+            self.add_actor(f"pathline:{key}", actor, kind="pathline", obj=obj)
             if not isinstance(actor, str):
                 self.register_actor_object(actor, "pathline", obj)
 
@@ -1027,7 +1055,7 @@ class Scene:
         from . import volume as vol_render
         actors = vol_render.build_volume_actors(ff, obj)
         for key, actor in actors.items():
-            self.add_actor(f"volume:{key}", actor)
+            self.add_actor(f"volume:{key}", actor, kind="volume", obj=obj)
             if not isinstance(actor, str):
                 self.register_actor_object(actor, "volume", obj)
 
@@ -1036,7 +1064,7 @@ class Scene:
         from .measure import build_measure_actors
         actors = build_measure_actors(ff, obj)
         for key, actor in actors.items():
-            self.add_actor(f"measure:{key}", actor)
+            self.add_actor(f"measure:{key}", actor, kind="measure", obj=obj)
             if not isinstance(actor, str):
                 self.register_actor_object(actor, "measure", obj)
 

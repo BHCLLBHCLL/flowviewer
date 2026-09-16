@@ -758,3 +758,49 @@ FPH 上 d/dy(y 线性场) **精确等于 1**（沿轴方向正确）；但 d/dx(
 `field_exemptions.json` 中标记 `planned R118` 的约 18 个字段（纹理投影/字体/网格绘制/边界线样式）
 本轮**未接线** ---- 本轮把预算集中在"渲染不出来"的正确性缺陷上。
 这些条目的归属轮次顺延（改标 R118b），棘轮仍不允许新增未消费字段。
+---
+
+## 21. R119：拾取与显隐必须触达每个对象（2026-09-13）
+
+两个机制的失效方式都是"界面看起来在工作、实际什么也没做"。
+
+### 21.1 拾取：默认对象与粒子**完全点不中**
+
+原来靠**每个渲染方法自觉**调用 `register_actor_object`。实测：
+
+| 对象 | 修复前已注册 |
+|---|---|
+| surface（默认对象） | **NONE** |
+| particle（粒子云） | **NONE** |
+| plane / isosurface / point / … | plane（其余靠各自调用） |
+
+后果：左键探针、橡皮筋框选、Delete/Hide Selected 对**用户最可能点击的两个对象**全部无效。
+
+修复：把注册移到 `add_actor` 这个**唯一咽喉**（新增 `kind`/`obj` 参数），
+任何进入场景的 actor 默认都可解析，除非调用方显式不传 kind。
+同时删除 20 处现已冗余的手工注册。网格线框无归属对象，显式不注册。
+
+### 21.2 图层键：树上的 eye 勾选框对 14 类对象是装饰品
+
+管线记录的是**命名空间键**（`surface:contour`、`plane:mesh`、`volume:scalar`…），
+而对象树传的是**裸 kind**（`surface`）。`_layer_actors.get(layer)` 精确匹配 → 全不命中，
+只有 `grid`/`colorbar` 生效。实测修复前 `set_layer_visible('surface'|'plane'|'cylinder'|…)` 找到 **0 个 actor**。
+
+修复：新增 `_layer_actors_for(layer)`，裸 kind 表示"该 kind 的全部图层"（前缀匹配），
+命名空间键仍精确选单层；`layer_count` 与 `set_layer_visible` 共用它。
+
+### 21.3 测试
+
+新增 `tests/test_r119_picking_visibility.py`（6 项，**`enable_3d=True` 真实 offscreen 场景**，
+因此在真正的 `vtkActor` 上观察可见性而非占位字符串）：
+surface/particle actor 可被拾取解析、裸 kind 命中命名空间图层、
+**树上的显隐真的改变了 actor 的 visibility**（0↔1）、未知 kind 是静默 no-op、
+每个已建图层都带 kind 前缀（否则树永远够不到它）。
+
+### 21.4 过程中的自我纠错
+
+批量脚本两次改坏 `scene.py`：
+① 删除冗余注册的正则把**缩进块体**一起删掉（含刚加的 `add_actor` 行）；
+② 替换 `if self.enable_3d:` 时命中了 `__init__` 里的同名行而非 `add_actor` 内的。
+两次都用 `git checkout` 回退后改为**按函数锚点定位**再改。
+教训：批处理正则前先确认**匹配唯一性**，改完立即 `ast.parse` + `ruff` 验证。

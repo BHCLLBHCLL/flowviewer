@@ -1,0 +1,42 @@
+R119: picking and tree visibility must reach every object kind
+
+Both mechanisms were broken in the same shape: UI that looked connected while
+doing nothing.
+
+1. Picking missed the two objects a user is most likely to click. Resolution
+   relied on every renderer remembering to call register_actor_object; the
+   Surface builder (the default object) and the Particle builder never did, so
+   left-click probing, rubber-band selection and Delete/Hide Selected were all
+   dead for them while isosurface/point/plane worked. Measured before the fix:
+   surface -> NONE registered, particle -> NONE.
+   Registration now happens at the single choke point, add_actor(), which
+   takes an optional kind/obj: anything that reaches the scene is resolvable
+   unless the caller deliberately omits the kind. The 20 now-redundant manual
+   register_actor_object calls are removed, and the mesh wireframe (which has
+   no owning PostObject) registers nothing.
+
+2. The object tree's eye checkbox was decoration for 14 of the kinds.
+   Pipelines record namespaced layer keys ("surface:contour", "plane:mesh",
+   "volume:scalar") while the tree asks for the bare kind ("surface"), and
+   the lookup was an exact dict get -- so it matched nothing and only
+   grid/colorbar responded. Measured before the fix: set_layer_visible found
+   0 actors for surface, plane, particle, cylinder, circle, text and bar.
+   _layer_actors_for() now treats a bare kind as "every layer of that kind"
+   by prefix, while a namespaced key still selects exactly one layer;
+   layer_count and set_layer_visible share it.
+
+Tests: tests/test_r119_picking_visibility.py (6 cases) runs real scenes with
+enable_3d=True offscreen, so visibility is observed on actual vtkActors rather
+than on placeholder strings: surface and particle actors resolve for picking,
+a bare kind reaches namespaced layers, the checkbox really flips visibility
+0<->1, an unknown kind is a silent no-op, and every built layer carries a
+kind prefix (otherwise the tree could never reach it).
+
+Self-correction worth recording: two batch edits damaged scene.py -- one
+regex deleted the indented BODY of the redundant registrations (including the
+new add_actor line), and a replace on 'if self.enable_3d:' hit the copy in
+__init__ instead of the one inside add_actor. Both were reverted with git
+checkout and redone by anchoring on the function. Batch regexes now get a
+uniqueness check and an ast.parse + ruff pass immediately after.
+
+Regression: 1118 passed / 6 skipped over the 105 non-GUI modules (488 s).
