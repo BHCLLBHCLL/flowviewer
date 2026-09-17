@@ -13,3 +13,7 @@ tests/*
 
 .trae/
 out_empty/
+
+# Scratch files used while driving a round (regression logs, commit messages).
+/_*.txt
+

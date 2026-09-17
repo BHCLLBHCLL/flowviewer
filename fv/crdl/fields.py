@@ -361,7 +361,6 @@ def _collect_fld_fields(data, n_vertices: int) -> dict[str, np.ndarray]:
     if temp_blocks:
         if temp_blocks[0].size == n:
             fields["TEMP"] = temp_blocks[0]
-            fields["ATMS"] = temp_blocks[0].copy()
         if len(temp_blocks) > 3 and temp_blocks[3].size == n:
             fields["TURK"] = temp_blocks[3]
         if len(temp_blocks) > 6 and temp_blocks[6].size == n:

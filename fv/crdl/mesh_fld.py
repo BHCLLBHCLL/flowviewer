@@ -303,6 +303,34 @@ def _f64_block_descriptors(data, section_name: str) -> list[tuple]:
     return out
 
 
+def _decode_name(blob: bytes) -> str:
+    """Decode a CRDL name field (R123).
+
+    Cradle writes these as UTF-8, but the reader decoded ASCII with
+    errors="replace", so a Japanese region name such as "Xmax面" came back as
+    "Xmax\ufffd\ufffd\ufffd".  Decoding UTF-8 first also removes the need for
+    the ASCII-only printability filter that used to DROP such names entirely.
+    """
+    return blob.decode("utf-8", errors="replace")
+
+
+def _looks_like_text(raw: bytes) -> bool:
+    """True when *raw* is printable text (ASCII or valid UTF-8) (R123).
+
+    The old test was ``all(b == 0 or 32 <= b < 127)``, i.e. pure ASCII, so a
+    block containing any multi-byte character failed it and its names were
+    discarded -- which is why ex1_100.fld reported NO volume region names at
+    all even though the section holds them.
+    """
+    stripped = raw.rstrip(b"\x00")
+    if not stripped:
+        return False
+    try:
+        text = stripped.decode("utf-8")
+    except UnicodeDecodeError:
+        return False
+    return all(ch.isprintable() or ch in "\t\n\r" for ch in text)
+
 def _parse_volume_names(data) -> list[str]:
     sec_start = find_section(data, "LS_VolumeGeometryArray")
     if sec_start < 0:
@@ -310,16 +338,16 @@ def _parse_volume_names(data) -> list[str]:
     sec_end = section_end(data, sec_start)
     for p, bc in iter_data_blocks(data, sec_start, sec_end):
         raw = data[p : p + bc]
-        if bc >= 256 and all(b == 0 or 32 <= b < 127 for b in raw):
+        if bc >= 256 and _looks_like_text(raw):
             slot_names: list[str] = []
             for off in range(0, bc, 256):
                 chunk = raw[off : off + 256]
-                text = chunk.split(b"\x00")[0].decode("ascii", errors="replace").strip()
+                text = _decode_name(chunk.split(b"\x00")[0]).strip()
                 if text:
                     slot_names.append(text)
             if slot_names:
                 return slot_names
-            text = raw.decode("ascii", errors="replace").strip("\x00").rstrip()
+            text = _decode_name(raw).strip("\x00").rstrip()
             if text:
                 names = [s.strip() for s in text.split() if s.strip()]
                 if names:
@@ -421,7 +449,7 @@ def _build_face_list_and_bcs_inner(data, mat: np.ndarray):
     bc_names: list[str] = []
     for p, bc in blocks[8:]:
         if bc == 18:
-            bc_names.append(data[p : p + bc].decode("ascii", errors="replace").strip())
+            bc_names.append(_decode_name(data[p : p + bc]).strip())
 
     def _pick_name(prefix: str, default: str) -> str:
         for n in bc_names:
@@ -816,7 +844,6 @@ def parse_fld(filepath: str, data=None, bounds=None,
         if temp_d:
             if _count_ok(temp_d[0][1]):
                 field_lazy["TEMP"] = _d("Temperature", temp_d[0])
-                field_lazy["ATMS"] = _d("Temperature", temp_d[0])
             if len(temp_d) > 3 and _count_ok(temp_d[3][1]):
                 field_lazy["TURK"] = _d("Temperature", temp_d[3])
             if len(temp_d) > 6 and _count_ok(temp_d[6][1]):
@@ -869,7 +896,6 @@ def parse_fld(filepath: str, data=None, bounds=None,
     if temp_blocks:
         if _size_ok(temp_blocks[0]):
             fields["TEMP"] = temp_blocks[0]
-            fields["ATMS"] = temp_blocks[0].copy()
         if len(temp_blocks) > 3 and _size_ok(temp_blocks[3]):
             fields["TURK"] = temp_blocks[3]
         if len(temp_blocks) > 6 and _size_ok(temp_blocks[6]):
