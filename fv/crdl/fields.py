@@ -223,6 +223,130 @@ def parse_particle_variables(data) -> dict:
             in parse_particle_variable_frames(data).items() if frames}
 
 
+#: Field name-block prefixes of an FPH LS_SPHFile section, with the mesh
+#: entity their arrays belong to and how many arrays one value is made of.
+#: R125: FC_* (face-centred wall quantities such as YPLS / USTR / HTFX) were
+#: dropped without a trace; the inventory below reports them.
+_FPH_FIELD_KINDS = {
+    "EC_Scalar": ("cell", 1),
+    "EC_Vector": ("cell", 3),
+    "FC_Scalar": ("face", 1),
+    "FC_Vector": ("face", 3),
+}
+
+#: Smallest payload treated as a field array rather than a marker.
+_FPH_MIN_ARRAY_BYTES = 4
+
+
+def _block_text(data, pos: int, n_bytes: int):
+    """Printable text of a 32-byte name payload, or "" for anything else."""
+    if n_bytes != 32:
+        return ""
+    raw = data[pos:pos + n_bytes]
+    if not all(b == 0 or 32 <= b < 127 for b in raw):
+        return ""
+    return raw.decode("ascii", errors="replace").rstrip("\x00 ").rstrip()
+
+
+def _fph_named_blocks(data, sec_start: int, sec_end: int):
+    """(blocks, [(index, name)]) for the field name blocks of a section.
+
+    A name block is a 32-byte payload holding printable text of the form
+    <prefix>_Scalar:<var> or <prefix>_Vector:<var>; the descriptive name
+    blocks (pressure, velocity, ...) that precede each group of arrays are not
+    names in this sense.
+    """
+    blocks = list(iter_data_blocks(data, sec_start, sec_end))
+    names: list = []
+    for i, (p, bc) in enumerate(blocks):
+        s = _block_text(data, p, bc)
+        if s and s.split(":", 1)[0].endswith(("_Scalar", "_Vector")):
+            names.append((i, s))
+    return blocks, names
+
+
+def _fph_field_ranges(data, blocks, names):
+    """[(name_index, name, [(array_index, dim0, n_bytes), ...])].
+
+    The arrays of a name block are the payload blocks up to the next name
+    block; every array is a 1-D float32 block whose dim0 is its byte count
+    over four (verified against the 16-byte [dim0, 1, 12, bytes] descriptor
+    the writer puts in front of each payload).
+    """
+    out = []
+    for k, (i, name) in enumerate(names):
+        nxt = names[k + 1][0] if k + 1 < len(names) else len(blocks)
+        arrays = []
+        for j in range(i + 1, nxt):
+            p, bc = blocks[j]
+            if bc <= _FPH_MIN_ARRAY_BYTES or bc % 4:
+                continue
+            if _block_text(data, p, bc):
+                # the descriptive name block each writer puts before a group
+                # of arrays ("pressure", "velocity", ...) is not an array
+                continue
+            arrays.append((j, bc // 4, bc))
+        out.append((i, name, arrays))
+    return out
+
+
+def fph_unparsed_fields(data, n_cells: int) -> list:
+    """Field sections of an FPH that this reader does not attach to the mesh.
+
+    R125: an LS_SPHFile section also carries face-centred sections
+    (FC_Scalar:* / FC_Vector:*), wall quantities such as YPLS, USTR and HTFX,
+    and they were dropped in silence: a file holding them opened as if it had
+    only the cell fields.  Measured on the FPH files in this workspace, the FC
+    arrays are plain 1-D blocks whose length is a *face* count (12537 is the
+    face count of two surface regions of tr03_9.fph) and each variable carries
+    three such arrays (five for FC_Vector:VEL), with no index array anywhere
+    tying a value to a face.  Guessing that association would invent data, so
+    these sections are reported with their exact dimensions instead.
+
+    A recognised EC_* field whose arrays do not hold n_cells values is
+    reported too, since the parser skips those silently.
+
+    Returns [{"name", "variable", "location", "components", "arrays":
+    [(dim0, n_bytes), ...], "reason"}].
+    """
+    sec_start = find_section(data, "LS_SPHFile")
+    if sec_start < 0:
+        return []
+    sec_end = section_end(data, sec_start)
+    blocks, names = _fph_named_blocks(data, sec_start, sec_end)
+    if not names:
+        return []
+    out = []
+    for _i, name, arrays in _fph_field_ranges(data, blocks, names):
+        prefix, var = name.split(":", 1)
+        location, components = _FPH_FIELD_KINDS.get(prefix, ("unknown", 0))
+        dims = [(d, nb) for _j, d, nb in arrays]
+        if location == "unknown":
+            reason = "unknown field section prefix %r" % prefix
+        elif location == "face":
+            reason = ("face-centred section: the file stores no face index "
+                      "list, so its values cannot be attached to faces")
+        elif not arrays:
+            reason = "no data arrays found"
+        elif any(d != n_cells for d, _nb in dims):
+            reason = ("array length %s does not match the %d cells"
+                      % ([d for d, _nb in dims], n_cells))
+        elif len(arrays) < components:
+            reason = ("%d of %d component arrays present"
+                      % (len(arrays), components))
+        else:
+            continue
+        out.append({
+            "name": name,
+            "variable": var,
+            "location": location,
+            "components": components,
+            "arrays": dims,
+            "reason": reason,
+        })
+    return out
+
+
 def parse_fph_flow_solution(data, n_cells: int,
                             lazy: bool = False) -> dict:
     """Parse ``LS_SPHFile`` → ``{var: float64 (n_cells,)}`` (cell-centred).
@@ -236,22 +360,14 @@ def parse_fph_flow_solution(data, n_cells: int,
         return {}
     sec_end = section_end(data, sec_start)
 
-    blocks = list(iter_data_blocks(data, sec_start, sec_end))
+    blocks, all_names = _fph_named_blocks(data, sec_start, sec_end)
     if not blocks:
         return {}
 
     expected_data_bytes = n_cells * 4  # float32 BE
 
-    name_indices: list[tuple[int, str]] = []
-    for i, (p, bc) in enumerate(blocks):
-        if bc != 32:
-            continue
-        raw = data[p:p + bc]
-        if not all(b == 0 or 32 <= b < 127 for b in raw):
-            continue
-        s = raw.decode("ascii", errors="replace").rstrip("\x00 ").rstrip()
-        if s.startswith("EC_Scalar:") or s.startswith("EC_Vector:"):
-            name_indices.append((i, s))
+    name_indices = [(i, s) for i, s in all_names
+                    if s.startswith(("EC_Scalar:", "EC_Vector:"))]
 
     if not name_indices:
         return {}

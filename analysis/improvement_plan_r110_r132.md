@@ -27,7 +27,7 @@
 | **R122** | 动画正确性 | 时间线增量重建 + 保相机；Automove frames=0 冻结修复 | `fix(timeline): incremental frame rebuild, preserved camera, automove freeze` | R121 |
 | **R123** | FLD 变量忠实 | 按 `LS_Scalar:*` 命名段取变量；去 ATMS 伪造；UTF-8 区域名；BC 段补全 | `fix(fld): name fields from LS_Scalar sections, drop fabricated ATMS, UTF-8 regions` | R122 |
 | **R124** ✅ | CGNS 真机可用（已推送 origin/main；提交哈希见下一轮的记录） | NGON_n/NFACE_n 多面体面表 + 全部 base + GridLocation 过滤 + zone 去重 + ZoneBC 面号归一化 | `R124: open real polyhedral Cradle CGNS exports` | R123 |
-| **R125** | FPH 场完整 | `FC_Scalar/FC_Vector` 面心场 + 多帧节点量 | `feat(fph): decode face-centred fields and keep every nodal frame` | R124 |
+| **R125** ✅ | FPH 场可见性 | `FC_Scalar/FC_Vector` 段盘点与如实报告（附实测维度）+ 证明 EC_* 本就单帧 + 加载时写入 meta 与日志 | `R125: report the FPH field sections that are not attached` | R124 |
 | **R126** | 导出诚实化 | `.mp4` 走 ffmpeg 路径；失败显式报错；CVFF/FBX 文案对齐 | `fix(export): real MP4 path or an explicit refusal; honest format labels` | R125 |
 | **R127** | 性能 | 节索引缓存淘汰 + 路径键；`iter_data_blocks` 向量化 | `perf(crdl): evictable section index keyed by path, vectorised block walk` | R126 |
 | **R128** | 大模型性能 | FLD 流线空间索引；`_cell_centers_fph` 向量化；内存峰值 | `perf(render): spatial index for FLD tracing, vectorised cell centres` | R127 |
@@ -141,7 +141,8 @@
 |---|---|
 | **R123** | `LS_Scalar:*`/`LS_Vector:*` 命名段驱动变量名（替代块序号映射）；删除 `ATMS ← TEMP` 伪造；UTF-8 区域显示名；`AMOM(*)` 等全部 BC 段；`LS_RegionName&Type`；体积区名 |
 | **R124** | CGNS：`Elements_t` 的 `' data'`（前导空格）数据集作类型码来源；`NGON_n(22)/NFACE_n(23)` + `ElementStartOffset` + 负引用（NFACE 面符号）；`_CODE_CELLS` 13/14 与 SIDS 对齐；读全部 base；`FlowSolution` 过滤 `GridLocation/Descriptor`；`ZoneBC` 接入 `bc_plan` 使 BC 成为区域 |
-| **R125** | FPH：`FC_Scalar/FC_Vector` 面心场解码；节点量保留全部帧 |
+| **R125** ✅ | FPH：`FC_Scalar/FC_Vector` 面心段**盘点 + 如实报告**（维度、原因写进 `ff.meta["unparsed_fields"]` 并打日志）；实测证明 `EC_*` 段本来就是单帧（标量 1 个数组、矢量正好 3 个分量），"保留全部帧"这条前提在本机文件上不成立，不写假修复；解码面对应关系因文件无面索引而留 R125b |
+
 | **R126** | 导出：`.mp4` 接既有 ffmpeg 路径（`export_iso_video`），否则显式拒绝；`.avi` 不再静默写 Ogg Theora |
 
 **R124 验收（本计划最关键的一条）**：`tr03_9_orig.cgns` 与 `exPRE04-1_37.cgns` 解出的单元数与同源 `.fph` 一致（±0.1%），变量表与 `PRES/TEMP/TURK/TEPS` 等对齐，且能建出可切面的 ugrid。

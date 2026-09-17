@@ -816,6 +816,19 @@ def load_file(filepath: str, lazy_vars: bool = False) -> FieldFile:
 
         sph = fld_fields.parse_fph_flow_solution(data, ff.n_cells,
                                                  lazy=lazy_vars)
+        # R125: FPH files also carry field sections this reader cannot attach
+        # to the mesh (face-centred FC_* wall quantities such as YPLS, USTR and
+        # HTFX).  They used to vanish from the variable list without a word, so
+        # an RPH/FPH with more data looked identical to one without it: report
+        # them with their dimensions and say why they are not offered.
+        unparsed = fld_fields.fph_unparsed_fields(data, ff.n_cells)
+        if unparsed:
+            ff.meta["unparsed_fields"] = unparsed
+            _LOG.warning(
+                "%s: %d field section(s) not attached to the mesh: %s",
+                path.name, len(unparsed),
+                ", ".join("%s (%s)" % (u["name"], u["reason"])
+                          for u in unparsed[:4]))
         for name, arr in sph.items():
             if lazy_vars and isinstance(arr, tuple):
                 section, bidx, dtype, count = arr
