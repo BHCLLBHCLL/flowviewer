@@ -60,12 +60,23 @@ def cell_filter_mask(ff: FieldFile, obj) -> Optional[np.ndarray]:
         cvol = ff.cvol_id
         parts = ff.parts_with_cvol or []
         n = ff.n_cells
-        if cvol is None or len(cvol) != n or not parts:
+        if cvol is not None and len(cvol) == n and parts:
+            keep = np.zeros(n, dtype=bool)
+            for name in regions:
+                keep |= classify_volume_region_cells(name, parts, cvol, n)
+            return keep
+        # R124: a polyhedral CGNS has no part/region flags, but every cell
+        # carries the 1-based id of the zone it came from, so the zone names
+        # in ff.volume_regions select cells directly.
+        mat = ff.material
+        if mat is None or len(mat) != n:
             return None
-        keep = np.zeros(n, dtype=bool)
-        for name in regions:
-            keep |= classify_volume_region_cells(name, parts, cvol, n)
-        return keep
+        names = list(ff.volume_regions or [])
+        want = sorted({i + 1 for i, name in enumerate(names)
+                       if name in set(regions)})
+        if not want:
+            return None
+        return np.isin(np.asarray(mat, dtype=np.int64), want)
 
     # FLD material filter
     mat = ff.material

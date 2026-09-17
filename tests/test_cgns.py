@@ -113,7 +113,9 @@ def test_cgns_mixed_multi_zone_structured_p21(tmp_path):
                     field=np.arange(8, dtype=np.float64))
         # zone 2: structured (2,2,2) -> one hexa
         z2 = base.create_group("ZoneStruct")
-        _write_structured_zone(z2, cube.reshape(2, 2, 2, 3))
+        # R124: a zone whose cells are all present in another zone is dropped
+        # as a duplicate, so this one is placed away from ZoneMixed
+        _write_structured_zone(z2, (cube + [10.0, 0.0, 0.0]).reshape(2, 2, 2, 3))
     d = read_cgns(str(path))
     assert d is not None
     # two zones merged: 16 vertices, 3 cells (tet + hex + struct hex)

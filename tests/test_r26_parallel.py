@@ -98,7 +98,8 @@ def _make_multi_zone_hdf5(path):
         _h5_zone(z2, cube * 2.0, [[1, 2, 3, 4, 5, 6, 7, 8]], 17,
                  field=np.arange(8, 16, dtype=np.float64))
         z3 = base.create_group("ZoneC")
-        _h5_structured_zone(z3, cube.reshape(2, 2, 2, 3))
+        # R124: an exactly duplicated zone is dropped, so keep ZoneC distinct
+        _h5_structured_zone(z3, (cube + [10.0, 0.0, 0.0]).reshape(2, 2, 2, 3))
 
 
 # ---- ADF helpers ------------------------------------------------------
@@ -167,7 +168,7 @@ def test_cgns_hdf5_parallel_equals_serial(tmp_path):
 
 
 def test_cgns_hdf5_worker_picklable(tmp_path):
-    """Module-level HDF5 worker is picklable and returns a 7-tuple."""
+    """Module-level HDF5 worker is picklable and returns a zone record."""
     pytest.importorskip("h5py")
     import pickle
 
@@ -176,8 +177,12 @@ def test_cgns_hdf5_worker_picklable(tmp_path):
     _make_multi_zone_hdf5(str(path))
     fn = pickle.loads(pickle.dumps(_decode_zone_hdf5))
     out = fn((str(path), "Base", "ZoneA"))
-    assert out is not None and len(out) == 7
-    assert out[0].shape == (8, 3)
+    assert out is not None
+    assert sorted(out) == ["bcs", "conn", "ctypes", "fields", "n_c", "n_v",
+                           "poly", "vertex_bcs", "verts", "zone"]
+    assert out["zone"] == "ZoneA"
+    assert out["verts"].shape == (8, 3)
+    assert (out["n_v"], out["n_c"]) == (8, 1)
 
 
 def test_cgns_adf_parallel_equals_serial(tmp_path):

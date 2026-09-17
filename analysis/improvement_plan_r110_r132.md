@@ -26,7 +26,7 @@
 | **R121** | 状态持久化 | 全局对象（相机/灯光/背景）纳入 STA；GUI 增加 Load Status | `fix(sta): persist global objects and add a GUI Load Status path` | R120 |
 | **R122** | 动画正确性 | 时间线增量重建 + 保相机；Automove frames=0 冻结修复 | `fix(timeline): incremental frame rebuild, preserved camera, automove freeze` | R121 |
 | **R123** | FLD 变量忠实 | 按 `LS_Scalar:*` 命名段取变量；去 ATMS 伪造；UTF-8 区域名；BC 段补全 | `fix(fld): name fields from LS_Scalar sections, drop fabricated ATMS, UTF-8 regions` | R122 |
-| **R124** | CGNS 真机可用 | `' data'` 类型码 + NGON_n/NFACE_n + MIXED 码修正 + 全部 base + GridLocation 过滤 | `fix(cgns): decode polyhedral NGON_n/NFACE_n zones from real Cradle exports` | R123 |
+| **R124** ✅ | CGNS 真机可用（已推送 origin/main；提交哈希见下一轮的记录） | NGON_n/NFACE_n 多面体面表 + 全部 base + GridLocation 过滤 + zone 去重 + ZoneBC 面号归一化 | `R124: open real polyhedral Cradle CGNS exports` | R123 |
 | **R125** | FPH 场完整 | `FC_Scalar/FC_Vector` 面心场 + 多帧节点量 | `feat(fph): decode face-centred fields and keep every nodal frame` | R124 |
 | **R126** | 导出诚实化 | `.mp4` 走 ffmpeg 路径；失败显式报错；CVFF/FBX 文案对齐 | `fix(export): real MP4 path or an explicit refusal; honest format labels` | R125 |
 | **R127** | 性能 | 节索引缓存淘汰 + 路径键；`iter_data_blocks` 向量化 | `perf(crdl): evictable section index keyed by path, vectorised block walk` | R126 |
@@ -145,6 +145,20 @@
 | **R126** | 导出：`.mp4` 接既有 ffmpeg 路径（`export_iso_video`），否则显式拒绝；`.avi` 不再静默写 Ogg Theora |
 
 **R124 验收（本计划最关键的一条）**：`tr03_9_orig.cgns` 与 `exPRE04-1_37.cgns` 解出的单元数与同源 `.fph` 一致（±0.1%），变量表与 `PRES/TEMP/TURK/TEPS` 等对齐，且能建出可切面的 ugrid。
+
+> **R124 实测结果（2026-09-13）：完全相等，超过 ±0.1% 的验收线。**
+> tr03_9：221786 节点 / 63697 单元 / 323827 面，11 个变量与 FPH 逐个同名，104 个区域；exPRE04：
+> 585872 / 531434 / 1649182，10 个变量同名，12 个区域。修复前两个文件的单元数都是 **0**
+> （NGON_n/NFACE_n 未实现），且都带一个伪造的 `GridLocation` 变量。
+> 另实测出"zone 重复计数"：Cradle 把同一批单元按 region/part/FPHPARTS.* 重复写出，
+> 全读会得到约两倍单元（tr03_9 127396 vs 63697），现在按单元中心精确去重并在 meta 里报告。
+>
+> **仅多面体文件**（面编号显式）的 ZoneBC 能变成可选区域（实测 inlet 170 面 / 面积 2.804853e-3）。
+> 元素型 CGNS 的 BC 走 SIDS"隐含面编号"，需要先做面枚举，留 R124b；这类文件的行为与 R124 之前一致。
+>
+> **R124 顺带发现（转入 R131）**：字段消费门禁在本轮暴露 —— `GroupingObject.subgroups` 只被
+> Grouping 对话框写入，唯一读取者 `objects.grouping_members()` **在应用里没有任何调用点**
+> （只有 test_gui.py 直接调它），即"分组包含关系"从未生效。已按 planned R131 记入豁免原因。
 
 ---
 

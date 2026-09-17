@@ -95,8 +95,13 @@ class FieldFile:
     path: str
     @property
     def poly(self) -> bool:
-        """True for polyhedral (LS_Links) topology: fph / gph / pph."""
-        return self.kind in POLY_KINDS
+        """True for face-table (polyhedral) topology: fph / gph / pph / CGNS.
+
+        R124: a CGNS file written from a polyhedral mesh (NGON_n / NFACE_n,
+        as Cradle exports) is decoded into the same link_data face table, so
+        it renders and cuts through the FPH path.
+        """
+        return self.kind in POLY_KINDS or self.link_data is not None
     kind: str = "fph"            # 'fph' | 'fld'
     vertices: Optional[np.ndarray] = None
     n_vertices: int = 0
@@ -300,6 +305,16 @@ def cgns_load(filepath: str, lazy_vars: bool = False) -> FieldFile:
     ff.surface_regions = mesh["surface_regions"]
     ff.volume_regions = mesh["volume_regions"]
     ff.file_size = mesh["vertices"].nbytes
+    # R124: a polyhedral CGNS carries a face table and a per-cell zone id, so
+    # it renders/cuts through the FPH path and its zones can filter like
+    # volume regions.  Zone selection and skipped fields are reported in meta
+    # rather than silently applied.
+    ff.link_data = mesh.get("link_data")
+    ff.material = mesh.get("material")
+    for key in ("base_names", "dropped_zones", "zone_selection",
+                "skipped_fields", "vertex_bcs", "n_faces"):
+        if mesh.get(key):
+            ff.meta[key] = mesh[key]
     lazy_map = mesh.get("field_lazy") or {}
     for name, (arr, loc) in mesh["fields"].items():
         if lazy_vars and name in lazy_map:

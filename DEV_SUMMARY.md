@@ -903,3 +903,130 @@ R123 新增测试后核心模块真值占比降到 **59.9%**，**低于 60% 阈�
 新增 `tests/test_r123_fld_fidelity.py`（6 项）：UTF-8 解码不再产生替换字符、
 可打印性判定接受合法 UTF-8 且拒绝二进制、**不存在伪造变量**且每个变量都有有限值、
 区域名可读且无替换字符、体积区名非空、多字节 BC 名往返（含精确计数 5）。
+
+---
+
+## 26. R124：CGNS 真机可用（2026-09-13）
+
+计划里 R124 的验收标准是"与同源 .fph 一致（±0.1%）"。实测结果是**逐项完全相等**，
+不是近似——因为本轮同时修掉了"zone 重复计数"，选出的 zone 集合正好等于 FPH 里的那一个。
+
+### 26.1 实测缺陷 1：真实 Cradle CGNS 打开后 **0 个单元**
+
+| 文件 | 修复前 | 修复后 |
+|---|---|---|
+| tr03_9_orig.cgns | nodes 968552、**cells 0**、变量 12（含伪造 GridLocation） | nodes **221786**、cells **63697**、faces 323827、变量 11 |
+| exPRE04-1_37.cgns | nodes 853122、**cells 0**、变量 11 | nodes **585872**、cells **531434**、faces 1649182、变量 10 |
+
+根因：Elements_t 的类型码 **22/23（NGON_n / NFACE_n）**不在 _CODE_TO_NAME 里，
+_elem_type_name() 于是返回空串，_read_cells() 落到 else 分支 continue ——
+**全部单元被跳过，节点却照读**，表现成"打开成功但空网格"。
+两个真实文件都是 100% 多面体网格，所以 100% 的单元丢失。
+
+### 26.2 实测缺陷 2：GridLocation 被当成变量
+
+FlowSolution 组里除了数据数组还存着 SIDS 记账节点（GridLocation、Descriptor…），
+旧代码把它们当字段读：变量表里多出一个 GridLocation，值就是字符串 "CellCenter" 的 ASCII 码。
+同一处还有第二个问题：位置判定是"长度 == 节点数 → node，否则 cell"，
+**当某个 zone 的单元数恰好等于节点数时，单元场会被标成节点场**。
+
+修复：按 GridLocation 判位置（Vertex/CellCenter…），记账节点按名字过滤，
+面心/边心场明确记为"跳过"并写进 skipped_fields，长度两边都对不上的场同样报告而不是硬贴。
+
+### 26.3 实测缺陷 3：zone 重复/嵌套 → 网格被重复计数
+
+Cradle 导出的 CGNS 按"体积区名"写 zone，并且**同一批单元会以 region / part / FPHPARTS.* 多个名字重复写出**。实测（按单元中心逐点比对 + 几何摘要）：
+
+- tr03_9_orig.cgns：FluidRegion(221786 节点/63697 单元) 正好是 Rotate_MovingVolumeRegion(44842) 与 Case[2](18855) 的**精确不相交并集**；Rotate_Moving、Rotate[2]、FPHPARTS.Rotate 与前者**逐字节相同**（摘要 f50987ab6da1），FPHPARTS.tr03.Case 与 Case[2] 相同。
+- exPRE04-1_37.cgns：5 个 FPHPARTS.* zone 的单元/节点集合全部包含于 FluidRegion。
+
+全部读出会得到 tr03_9 **127396** 单元、exPRE04 **711618** 单元——都是真值的约两倍。
+而**同源 FPH 里只有 FluidRegion 那一个 zone**（221786/63697 与 585872/531434）。
+
+修复：新增 select_zones()——按单元数从大到小，若某 zone 的**全部单元中心**已出现在此前保留的
+zone 里，则丢弃该 zone（单元中心用 24 字节精确行 + searchsorted 判定，无容差近似）。
+丢弃结果不隐藏：写进 mesh["dropped_zones"] 与 FieldFile.meta（含被谁覆盖、丢了多少单元），
+并在日志里逐条 INFO。**仅坐标/单元完全重合才会被丢**：overset 式"细网格落在粗单元内部"的 zone
+中心不同 → 保留（已写成测试）。
+
+### 26.4 本轮实现清单
+
+- NGON_n(22) 面表：ElementStartOffset 与 [count, ids...] 流两种编码；保留**文件里的面编号**（ZoneBC 的 PointList 正是按这套编号寻址，去重会错位）。
+- NFACE_n(23) 单元：负号 = 面法向指向单元内部，据此确定 owner/neighbour；未被任何单元引用的面保留在表里。
+- 多面体统一生成 link_data（n_faces / npe / face_nodes / face_offsets / owner / neighbour / cell_owner_faces / cell_neighbour_faces），cell_conn 为面号、cell_types 全 42；FieldFile.poly 对带面表的 CGNS 返回 True → 直接走 FPH 的 vtkPolyhedron 切开路径。
+- 同文件混合"多面体 + 固定单元"时，固定单元按 _ELEMENT_FACES 生成面并按键去重（合成同一张面表）。
+- **读全部 base**（此前只读第一个含 zone 的 base，其余静默丢弃）；zone 识别改为"有 ZoneType 或 GridCoordinates"。
+- 多 FlowSolution 索引全部读取（后者覆盖同名前者），记账节点过滤。
+- ZoneBC：按**面段 ElementRange 起点**归一化（旧代码一律减 1，面号不从 1 开始时全部错位）；支持 PointRange；Vertex 定位的 BC 明确报告为无法表示（mesh["vertex_bcs"]）而不是当索引用。
+- 每个单元带 1-based zone 号（material），cell_filter_mask() 对无 part/cvol 的多面体网格回落到它 → **CGNS 也能按体积区过滤**。
+
+### 26.5 与同源 FPH 的逐项对照（真值）
+
+| 项 | tr03_9.fph | tr03_9_orig.cgns | exPRE04-1_37.fph | exPRE04-1_37.cgns |
+|---|---|---|---|---|
+| 节点 | 221786 | **221786** | 585872 | **585872** |
+| 单元 | 63697 | **63697** | 531434 | **531434** |
+| 面 | 323827 | **323827** | 1649182 | **1649182** |
+| 变量表 | 11 个（PRES/TURK/TEPS/EVIS/TPRS/VELX/Y/Z/LNAM_RV001X/Y/Z） | **完全相同** | 10 个（PRES/TEMP/TURK/TEPS/EVIS/ENTL/TPRS/VELX/Y/Z） | **完全相同** |
+| 区域数 | 104 | 104 | 12 | 12 |
+| 定位 | 单元中心 | 单元中心（按 GridLocation） | 单元中心 | 单元中心 |
+
+build_ugrid() 对 63697 单元的 tr03_9 网格返回 cell_centered=True 且单元数一致（可切面）。
+
+**不只"能打开"，还能用**（tr03_9_orig.cgns 实测）：ZoneBC 变成表面区域 ——
+inlet 区域 170 个面、积分面积 2.804853e-3；全部边界面 21220 个、面积 0.1783432。
+topology 接口给出 cells 的 6 个面 / 9 个节点、volume_of_element(0)=8.610770e-07、
+area_of_face(0)=8.498223e-05、node_neighbours(0)=8、elements_of_region("FluidRegion")=63697；
+probe_values 在单元中心返回全部 11 个变量（PRES=-2.824344）；
+register_dst 得到 63697 个单元中心的 DST（0 到 2.6e-2，7.3 s），register_normal 得到
+NORMALX/Y/Z（各 63697，3.7 s）。
+
+### 26.6 语义变更（如实记录）
+
+- **zone 去重是有意变更**：既有夹具 test_cgns_mixed_multi_zone_structured_p21 与 test_r26_parallel
+  里，structured zone 与 hex zone 用了**完全相同的坐标**（本来就是重复单元）。已把 structured zone
+  平移 +10 以保持原测试意图（多 zone 合并 + 结构化 zone + MIXED 流），另把"嵌套 zone 被丢弃并报告"
+  单独写成 R124 测试。
+- 混合网格统一成面表后，cell_types 一律 42（VTK_POLYHEDRON）而不是各自的原生类型码。
+
+### 26.7 附带修好的两处（同属"不许静默"）
+
+1. __skipped__ 泄漏：_merge_zones 把 _read_flow_solution 的"跳过的字段"列表当成一个字段参与合并
+   （arr[0].size 对 tuple 取 .size 会直接 AttributeError；即使不炸也会变成一个全 NaN 的变量）。
+   现在双下划线前缀键不参与合并，跳过的字段进 mesh["skipped_fields"]，并且**全 NaN 的字段不再作为变量出现**。
+2. is_cgns_hdf5() 里 any("ZoneType" in (g or {}) for g in []) 是恒 False 的死代码；删除后语义不变
+   （仍要求存在 CGNSLibraryVersion 或带 ZoneType 的 base）。
+3. **门禁抓到一次"靠注释蒙混过关"，并顺带查出一个真缺陷**：R116 的字段消费门禁是按**纯文本**
+   在 fv/ 非 GUI 文件里搜字段名，而 cgns.py 里恰好有一句含 subgroups 一词的注释 —— 于是
+   objects.py 的 subgroups 字段一直"看起来有人用"。本轮重写那段代码（注释一起换掉）后门禁立刻报
+   1 个 UNCONSUMED。**没有放宽门禁**：先量化了"注释/字符串不计数"的严格版会新增 **217** 个字段
+   （远超本轮范围，等于重写护栏），所以只按既有类别补了一条**带原因**的豁免记录。
+   追查这条豁免时发现真实情况：subgroups 只被对象的 Grouping 对话框写入，唯一的读取者
+   objects.grouping_members() **在整个应用里没有任何调用点**（只有 test_gui.py 直接调它）——
+   也就是说"分组包含关系"根本没有生效，这是一个新发现的真缺陷，已记为 planned R131 并写进豁免原因。
+   门禁返回 PASS（88 reserved / 0 unconsumed），且这条记录不影响下一次真正回归的检出。
+
+### 26.8 测试
+
+新增 tests/test_r124_cgns_poly.py（16 项，全部通过）：多面体面表/owner/neighbour/边界面的精确期望、
+单元中心与解析立方体中心比对、面节点表与文件顺序一致、可切面 ugrid、GridLocation 不作变量、
+_location_of 对节点数==单元数时仍判 cell、尺寸不匹配/不可读字段被报告且不进变量表、
+全部 base 合并、BC 面号按面段起点归一化、Vertex BC 报告、重复 zone 被丢弃并报告、
+overset 式 zone 保留、体积区过滤选中正确的单元、两个真实文件的 FPH 对照（样本不在时 skip）。
+
+**回归**：`python scripts/round.py --check` → **1160 passed / 6 skipped / 2 deselected（509.9 s）**，
+ruff + mypy + 两项门禁全绿；门禁数字：真值断言 716/1412 = 50.7%（阈值 45%）、
+核心模块 97/159 = **61.0%**（阈值 60%，R123 为 60.6%）、字段消费 88 reserved / **0 unconsumed**。
+
+### 26.9 遗留（转入 R124b / 后续轮次，写清楚不掩盖）
+
+1. **元素型（非多面体）CGNS 的 BC→区域**仍未打通：这种文件的 ZoneBC PointList 用的是 SIDS 的
+   "由单元连接关系推导的隐含面编号"，需要先做面枚举（cg_nlike 的 npe/connect 逻辑）才能变成可选的区域。
+   多面体文件不存在这个问题（面就是 NGON 元素，编号显式）——本轮验收的两个文件都属于后者。
+   元素型文件的 surface_regions 行为与 R124 之前**完全一致**（没有被改坏，只是仍不可选）。
+2. **超大网格的 zone 去重上限**：单元总数超过 1200 万时跳过（要排序全部单元中心），
+   此时会把所有 zone 都读进来，并在 mesh["zone_selection"] 里写明跳过原因。
+3. **ADF 后端**（cgns_adf.py）仍是"单 base + 固定单元"，本轮只改了 HDF5 路径。
+4. **门禁的注释敏感问题**：见 26.7 第 3 条；改成"注释/字符串不计数"会一次冒出 217 个字段，
+   需要单独一轮（R116b）连同豁免清单一起重做，不适合塞进数据层轮次。
+

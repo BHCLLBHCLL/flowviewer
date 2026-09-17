@@ -95,6 +95,7 @@
     "arbitrary_enabled": "planned R120: Plane arbitrary-normal mode (tab writes it, renderer ignores it)",
     "arbitrary_normal_r": "planned R120: arbitrary normal magnitude/angles",
     "arbitrary_normal_t": "planned R120",
-    "arbitrary_normal_p": "planned R120"
+    "arbitrary_normal_p": "planned R120",
+    "subgroups": "planned R131: the Grouping dialog collects nested labels and objects.grouping_members expands them, but nothing in the app calls that helper (only a test does), so grouping membership is not applied yet. R124 removed an accidental pass: the bare word also happened to sit in a cgns.py comment."
   }
 }
