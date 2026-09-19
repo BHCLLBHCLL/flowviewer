@@ -13,9 +13,12 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Optional
+
+_LOG = logging.getLogger(__name__)
 
 try:
     import vtk
@@ -23,6 +26,72 @@ try:
     _HAS_VTK = True
 except Exception:  # pragma: no cover - headless / no vtk
     _HAS_VTK = False
+
+
+# ── video container selection (R126) ───────────────────────────────────────
+#
+# The extension decides the container, and the encoder that can actually write
+# that container decides whether the request can be honoured.  Before R126 the
+# VTK path picked vtkOggTheoraWriter for every extension other than .avi, so
+# asking for movie.mp4 wrote Ogg Theora bytes into a file named movie.mp4 and
+# reported success -- a wrong file the user only discovers in their player.
+
+VIDEO_FORMATS = {
+    ".ogv": "Ogg Theora video (*.ogv)",
+    ".avi": "AVI video (*.avi)",
+    ".mp4": "MPEG-4 video (*.mp4)",
+}
+
+
+def _vtk_has(name: str) -> bool:
+    """True when the VTK build exposes *name* (False without VTK)."""
+    if not _HAS_VTK:
+        return False
+    import vtk
+    return hasattr(vtk, name)
+
+
+def _note(issues, message: str) -> None:
+    """Record why an export was refused (R126); also warns in the log."""
+    if message:
+        _LOG.warning("export refused: %s", message)
+    if issues is not None:
+        issues.append(message)
+
+
+def video_encoder_for(filename: str):
+    """(encoder, reason) for a video filename (R126).
+
+    The encoder is "" when the file cannot be produced, and the reason then
+    names what is missing, so a caller can refuse *before* rendering instead
+    of writing a different container under the requested name.
+    """
+    ext = os.path.splitext(str(filename))[1].lower()
+    if ext == ".mp4":
+        if _ffmpeg_path():
+            return "ffmpeg", ""
+        return "", ("MP4 needs ffmpeg on PATH (install ffmpeg or point the "
+                    "FFMPEG environment variable at it); this VTK build "
+                    "cannot write MP4")
+    if ext == ".ogv":
+        if _vtk_has("vtkOggTheoraWriter"):
+            return "vtk-ogg-theora", ""
+        return "", "this VTK build has no vtkOggTheoraWriter"
+    if ext == ".avi":
+        if _vtk_has("vtkAVIWriter"):
+            return "vtk-avi", ""
+        return "", ("this VTK build has no vtkAVIWriter; write .ogv or .mp4 "
+                    "instead of an AVI file holding another container")
+    return "", "unsupported video extension %r (use .ogv, .avi or .mp4)" % ext
+
+
+def video_formats_available() -> list:
+    """[(glob, label)] for the video formats this machine can really write."""
+    out = []
+    for ext, label in VIDEO_FORMATS.items():
+        if video_encoder_for("x" + ext)[0]:
+            out.append(("*" + ext, label))
+    return out
 
 
 def snapshot_png(renderer_or_window, filename: str,
@@ -37,6 +106,11 @@ def snapshot_png(renderer_or_window, filename: str,
     for print / poster export); ``dpi`` is honoured when given a non-default
     value by deriving ``scale = max(scale, dpi / 72.0)``. Both are
     back-compatible - callers that omit them keep the old 1x capture.
+
+    R126: an extension this writer cannot produce is refused (False) instead
+    of being rewritten to .png, which reported success for a file the caller
+    never asked for -- the requested name did not exist afterwards.  .tiff is
+    honoured like .tif.
     """
     if not _HAS_VTK:
         return False
@@ -50,9 +124,14 @@ def snapshot_png(renderer_or_window, filename: str,
     if dpi and dpi > 0 and dpi != 72.0:
         scale = max(float(scale), float(dpi) / 72.0)
     try:
-        base, ext = os.path.splitext(filename)
-        if ext.lower() not in (".png", ".jpg", ".jpeg", ".bmp", ".tif"):
-            filename = base + ".png"
+        ext = os.path.splitext(filename)[1]
+        ext_req = ext.lower()
+        if ext_req == ".tiff":
+            ext_req = ".tif"
+        if ext_req not in (".png", ".jpg", ".jpeg", ".bmp", ".tif"):
+            _LOG.warning("snapshot_png: unsupported image extension %r "
+                         "(use .png, .jpg, .bmp or .tif)", ext)
+            return False
         w2i = vtk.vtkWindowToImageFilter()
         w2i.SetInput(win)
         w2i.SetInputBufferTypeToRGB()
@@ -63,7 +142,7 @@ def snapshot_png(renderer_or_window, filename: str,
         w2i.Update()
         # Honest writers per extension (P0.6): BMP/TIF get their native
         # VTK writers instead of PNG bytes in a mismatched container.
-        ext_l = ext.lower()
+        ext_l = ext_req
         if ext_l in (".jpg", ".jpeg"):
             writer = vtk.vtkJPEGWriter()
         elif ext_l == ".bmp":
@@ -341,25 +420,30 @@ def export_animation_frames(ff, main, scene, render_window,
 
 
 def _write_vtk_video(scene, render_window, filename: str,
-                     frames: int = 30, fps: int = 15) -> int:
+                     frames: int = 30, fps: int = 15,
+                     issues: Optional[list] = None) -> int:
     """Encode scene animation frames to a video via a VTK writer (R3.2).
 
     Uses ``vtkOggTheoraWriter`` for ``.ogv``, or ``vtkAVIWriter`` for
     ``.avi`` when that writer is available on this build.  Advances *scene*
     once per frame and writes it from *render_window*.  Returns the number
     of frames written, or 0 on failure.
+
+    R126: an extension this build cannot write (including .mp4, which belongs
+    to ffmpeg) is refused with a reason in *issues* -- it is never written as
+    Ogg Theora under a name that promises another container.
     """
     if not _HAS_VTK:
+        _note(issues, "VTK is not available")
+        return 0
+    enc, reason = video_encoder_for(filename)
+    if enc not in ("vtk-ogg-theora", "vtk-avi"):
+        _note(issues, reason or ("%s is written by the ffmpeg encoder"
+                                 % os.path.splitext(filename)[1]))
         return 0
     import vtk
-    ext = os.path.splitext(filename)[1].lower()
-    writer = None
-    if ext == ".avi" and hasattr(vtk, "vtkAVIWriter"):
-        writer = vtk.vtkAVIWriter()
-    elif hasattr(vtk, "vtkOggTheoraWriter"):
-        writer = vtk.vtkOggTheoraWriter()
-    if writer is None:
-        return 0
+    writer = (vtk.vtkAVIWriter() if enc == "vtk-avi"
+              else vtk.vtkOggTheoraWriter())
     try:
         writer.SetFileName(str(filename))
         if hasattr(writer, "SetRate"):
@@ -390,7 +474,8 @@ def _write_vtk_video(scene, render_window, filename: str,
 
 def export_animation_video(ff, main, scene, render_window, filename: str,
                            frames: int = 30, fps: int = 15,
-                           base: str = "frame") -> int:
+                           base: str = "frame",
+                           issues: Optional[list] = None) -> int:
     """Render an animation and encode it to a video file (R3.2).
 
     Writes the animation via VTK's native writer (Ogg Theora ``.ogv``, or
@@ -398,11 +483,41 @@ def export_animation_video(ff, main, scene, render_window, filename: str,
     parity with :func:`export_animation_frames` but only ``scene`` and
     ``render_window`` are required.  Returns the number of frames written,
     or 0 when VTK / the render window is missing.
+
+    R126: the extension picks the encoder -- .ogv/.avi through the VTK writer,
+    .mp4 through ffmpeg -- and an extension this machine cannot write is
+    refused with the reason in *issues* (nothing is written under a name whose
+    container it does not hold).
     """
     if render_window is None:
+        _note(issues, "no render window")
         return 0
-    return _write_vtk_video(scene, render_window, filename, frames=frames,
-                            fps=fps)
+    enc, reason = video_encoder_for(filename)
+    if not enc:
+        _note(issues, reason)
+        return 0
+    if enc != "ffmpeg":
+        return _write_vtk_video(scene, render_window, filename, frames=frames,
+                                fps=fps, issues=issues)
+    # R126: .mp4 goes through ffmpeg (the encoder that can really write it).
+    # The animation is rendered to a temporary PNG sequence first, exactly
+    # like export_iso_video does for a frame list.
+    import shutil
+    import tempfile
+    tmp = tempfile.mkdtemp(prefix="fv_anim_")
+    try:
+        n_png = export_animation_frames(ff, main, scene, render_window, tmp,
+                                       frames=frames, fps=fps, base=base)
+        if not n_png:
+            _note(issues, "no frames were rendered")
+            return 0
+        n = _encode_video_ffmpeg(tmp, base + "_%04d.png", filename,
+                                 int(fps), n_frames=n_png)
+        if n <= 0:
+            _note(issues, "ffmpeg failed to encode %d rendered frames" % n_png)
+        return n
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def export_surface_obj(ff, filename: str, obj=None) -> bool:
@@ -803,25 +918,40 @@ def export_iso_png_frames(frames, renderer_or_window, out_dir: str,
 
 
 def _ffmpeg_path() -> Optional[str]:
-    """Locate ffmpeg on PATH (R25-S1 optional video encoder)."""
+    """Locate ffmpeg: the FFMPEG environment variable, then PATH (R126)."""
     import shutil
-    return shutil.which("ffmpeg")
+    return os.environ.get("FFMPEG") or shutil.which("ffmpeg")
+
+
+def _printf_to_glob(pattern: str) -> str:
+    """ffmpeg's printf pattern (frame_%04d.png) as a glob (frame_*.png)."""
+    import re
+    return re.sub(r"%0?\d*d", "*", pattern)
 
 
 def _encode_video_ffmpeg(png_dir: str, pattern: str, filename: str,
-                         fps: int) -> int:
+                         fps: int, n_frames: int = 0) -> int:
     """Encode a ``glob`` PNG sequence into a video via ffmpeg (R25-S1).
 
-    Returns the number of input frames ffmpeg reported, or 0 on any failure.
+    Returns the number of frames encoded (how many files the pattern matched)
+    or 0 on any failure.  R126: it used to return 1 for every success, so a
+    30-frame animation was reported to the user as a 1-frame video.
     Explicit closes of stdin are harmless on Windows (the child reads the
     glob, not stdin).
     """
+    import glob
     import subprocess
     png_dir = os.fspath(png_dir)
-    pattern = os.path.join(png_dir, pattern) if not os.path.isabs(pattern) \
-        else pattern
-    cmd = ["ffmpeg", "-y", "-framerate", str(int(fps)),
-           "-i", pattern, "-c:v", "libx264", "-pix_fmt", "yuv420p",
+    full = (pattern if os.path.isabs(pattern)
+            else os.path.join(png_dir, pattern))
+    n_in = int(n_frames)
+    if n_in <= 0:
+        # the pattern is ffmpeg's printf syntax, so count with its glob form
+        n_in = len(glob.glob(_printf_to_glob(full)))
+    if n_in <= 0:
+        return 0
+    cmd = [_ffmpeg_path() or "ffmpeg", "-y", "-framerate", str(int(fps)),
+           "-i", full, "-c:v", "libx264", "-pix_fmt", "yuv420p",
            "-loglevel", "error", str(filename)]
     try:
         proc = subprocess.run(cmd, capture_output=True, timeout=300)
@@ -830,13 +960,14 @@ def _encode_video_ffmpeg(png_dir: str, pattern: str, filename: str,
     if proc.returncode != 0:
         return 0
     if os.path.exists(filename) and os.path.getsize(filename) > 0:
-        return 1
+        return n_in
     return 0
 
 
 def export_iso_video(frames, renderer_or_window, filename: str,
                      fps: int = 15, scale: float = 1.0, dpi: float = 72.0,
-                     tmp_dir: Optional[str] = None) -> int:
+                     tmp_dir: Optional[str] = None,
+                     issues: Optional[list] = None) -> int:
     """Render an iso/animation frame list to a video (R25-S1).
 
     Frames are first we-written into a temporary PNG sequence, then encoded:
@@ -847,8 +978,19 @@ def export_iso_video(frames, renderer_or_window, filename: str,
       actor frames.
 
     Returns the number of frames the encoder consumed (>0 on success) or 0.
+
+    R126: the encoder is chosen from the extension before a single frame is
+    rendered, and *issues* receives the reason when the request cannot be
+    honoured (unsupported extension, no ffmpeg for .mp4, no VTK AVI writer).
     """
     if not _HAS_VTK:
+        _note(issues, "VTK is not available")
+        return 0
+    # R126: decide before rendering anything, so an impossible request fails
+    # fast and leaves no half-written file behind.
+    enc, reason = video_encoder_for(filename)
+    if not enc:
+        _note(issues, reason)
         return 0
     import tempfile
     win = renderer_or_window
@@ -870,15 +1012,17 @@ def export_iso_video(frames, renderer_or_window, filename: str,
             import shutil
             shutil.rmtree(cleaned, ignore_errors=True)
         return 0
-    ext = os.path.splitext(filename)[1].lower()
-    if ext == ".mp4" and _ffmpeg_path():
+    if enc == "ffmpeg":
         n = _encode_video_ffmpeg(
             tmp_dir, "frame_%04d.png", filename,
-            fps=int(fps))
+            fps=int(fps), n_frames=written)
         ok = n > 0
+        if not ok:
+            _note(issues, "ffmpeg failed to encode %d rendered frames"
+                  % written)
     else:
         n = _write_frame_video(frames, renderer, win, filename,
-                               fps=int(fps))
+                               fps=int(fps), issues=issues)
         ok = n > 0
     if cleaned is not None:
         import shutil
@@ -887,7 +1031,7 @@ def export_iso_video(frames, renderer_or_window, filename: str,
 
 
 def _write_frame_video(frames, renderer, render_window, filename: str,
-                       fps: int = 15) -> int:
+                       fps: int = 15, issues: Optional[list] = None) -> int:
     """Drive a VTK video writer frame-by-frame (R25-S1, non-ffmpeg path).
 
     Picks ``vtkOggTheoraWriter`` for ``.ogv`` or ``vtkAVIWriter`` for ``.avi``
@@ -895,15 +1039,13 @@ def _write_frame_video(frames, renderer, render_window, filename: str,
     frame, then replaces them - unlike :func:`_write_vtk_video` which reuses
     ``scene.animate``. Returns frames written, or 0 on failure.
     """
-    import vtk
-    writer = None
-    ext = os.path.splitext(filename)[1].lower()
-    if ext == ".avi" and hasattr(vtk, "vtkAVIWriter"):
-        writer = vtk.vtkAVIWriter()
-    elif hasattr(vtk, "vtkOggTheoraWriter"):
-        writer = vtk.vtkOggTheoraWriter()
-    if writer is None:
+    enc, reason = video_encoder_for(filename)
+    if enc not in ("vtk-ogg-theora", "vtk-avi"):
+        _note(issues, reason)
         return 0
+    import vtk
+    writer = (vtk.vtkAVIWriter() if enc == "vtk-avi"
+              else vtk.vtkOggTheoraWriter())
     try:
         writer.SetFileName(str(filename))
         if hasattr(writer, "SetRate"):

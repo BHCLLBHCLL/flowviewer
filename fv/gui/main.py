@@ -393,6 +393,8 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         add(m, "Export PNG…", self.on_export_png)
         add(m, "Export STL…", self.on_export_stl)
         add(m, "Export OBJ…", self.on_export_obj)
+        add(m, "Export FBX…", self.on_export_fbx)
+        add(m, "Export CVFF…", self.on_export_cvff)
         add(m, "Export VRML…", self.on_export_vrml)
         add(m, "Export glTF…", self.on_export_gltf)
         add(m, "Export Animation Frames…", self.on_export_animation_frames)
@@ -1458,7 +1460,7 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         return path or ""
 
     def on_export_obj(self) -> None:
-        """File > Export OBJ… (4, FBX-neutral)."""
+        """File > Export OBJ… (4): Wavefront OBJ, not FBX (R126)."""
         if self.dataset is None:
             self.status.showMessage("Open a field file first", 4000)
             return
@@ -1482,6 +1484,32 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         ok = export_surface_stl(self.dataset, path)
         self.message_win.log(f"Export STL {'OK' if ok else 'failed'}: {path}")
         self.status.showMessage(f"STL {'exported' if ok else 'failed'}", 4000)
+
+    def on_export_fbx(self) -> None:
+        """File > Export FBX… (r15, R126): ASCII FBX 7.3 of the surface."""
+        if self.dataset is None:
+            self.status.showMessage("Open a field file first", 4000)
+            return
+        from ..render.export import export_surface_fbx
+        path = self._export_dialog("Export FBX", "FBX (*.fbx)", "model.fbx")
+        if not path:
+            return
+        ok = export_surface_fbx(self.dataset, path)
+        self.message_win.log(f"Export FBX {'OK' if ok else 'failed'}: {path}")
+        self.status.showMessage(f"FBX {'exported' if ok else 'failed'}", 4000)
+
+    def on_export_cvff(self) -> None:
+        """File > Export CVFF… (R17-T4b, R126): named boundary-region scene."""
+        if self.dataset is None:
+            self.status.showMessage("Open a field file first", 4000)
+            return
+        from ..render.export import export_surface_cvff
+        path = self._export_dialog("Export CVFF", "CVFF (*.cvw)", "scene.cvw")
+        if not path:
+            return
+        ok = export_surface_cvff(self.dataset, path)
+        self.message_win.log(f"Export CVFF {'OK' if ok else 'failed'}: {path}")
+        self.status.showMessage(f"CVFF {'exported' if ok else 'failed'}", 4000)
 
     def on_export_vrml(self) -> None:
         """File > Export VRML… (P3.2)."""
@@ -1532,7 +1560,15 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.status.showMessage(f"Exported {n} frames", 5000)
 
     def on_export_animation_video(self) -> None:
-        """File > Export Animation Video… (R3.2): encode MP4/AVI via ffmpeg."""
+        """File > Export Animation Video… (R3.2, R126).
+
+        Offers exactly the containers this machine can write -- .ogv always,
+        .avi when the VTK build has an AVI writer, .mp4 when ffmpeg is on
+        PATH -- and reports the real reason when the request is refused
+        instead of blaming ffmpeg for every failure.  Before R126 the dialog
+        said "MP4/AVI" while the code could only write Ogg Theora, so picking
+        .mp4 or .avi produced a file whose contents contradicted its name.
+        """
         if not self._enable_3d or self.vtk_widget is None:
             self.message_win.log("Animation export needs 3D mode", "WARN")
             return
@@ -1544,24 +1580,34 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self, "Export Animation Video", "Frames:", 30, 2, 500)
         if not ok:
             return
-        default = (f"{Path(self.dataset.path).stem}.ogv"
-                   if self.dataset else "animation.ogv")
+        from ..render.export import export_animation_video, video_formats_available
+        formats = video_formats_available()
+        if not formats:
+            self.message_win.log(
+                "No video encoder on this build (need VTK Ogg Theora or "
+                "ffmpeg on PATH)", "ERROR")
+            return
+        filters = ";;".join("%s (%s)" % (label, glob_)
+                            for glob_, label in formats)
+        default = ((Path(self.dataset.path).stem if self.dataset
+                    else "animation") + formats[0][0][1:])
         path, _ = QFileDialog.getSaveFileName(
-            self, "Export Animation Video", default,
-            "Ogg Theora video (*.ogv);;AVI video (*.avi)")
+            self, "Export Animation Video", default, filters)
         if not path:
             return
-        from ..render.export import export_animation_video
+        issues: list = []
         n = export_animation_video(
             self.dataset, self.main_object, self.scene,
             self.vtk_widget.GetRenderWindow(), path,
-            frames=frames, fps=15)
+            frames=frames, fps=15, issues=issues)
         if n:
             self.message_win.log(f"Exported {n}-frame video → {path}")
             self.status.showMessage(f"Exported {n}-frame video", 5000)
         else:
-            self.message_win.log("Video export failed (ffmpeg missing?)",
-                                 "ERROR")
+            self.message_win.log(
+                "Video export failed: "
+                + (issues[-1] if issues else "no frames were written"),
+                "ERROR")
 
     def on_batch_export(self) -> None:
         """File > Export Batch\u2026: run an R33 batch job (streaming, bounded)."""

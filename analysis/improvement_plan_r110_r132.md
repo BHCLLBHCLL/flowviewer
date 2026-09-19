@@ -28,7 +28,7 @@
 | **R123** | FLD 变量忠实 | 按 `LS_Scalar:*` 命名段取变量；去 ATMS 伪造；UTF-8 区域名；BC 段补全 | `fix(fld): name fields from LS_Scalar sections, drop fabricated ATMS, UTF-8 regions` | R122 |
 | **R124** ✅ | CGNS 真机可用（已推送 origin/main；提交哈希见下一轮的记录） | NGON_n/NFACE_n 多面体面表 + 全部 base + GridLocation 过滤 + zone 去重 + ZoneBC 面号归一化 | `R124: open real polyhedral Cradle CGNS exports` | R123 |
 | **R125** ✅ | FPH 场可见性 | `FC_Scalar/FC_Vector` 段盘点与如实报告（附实测维度）+ 证明 EC_* 本就单帧 + 加载时写入 meta 与日志 | `R125: report the FPH field sections that are not attached` | R124 |
-| **R126** | 导出诚实化 | `.mp4` 走 ffmpeg 路径；失败显式报错；CVFF/FBX 文案对齐 | `fix(export): real MP4 path or an explicit refusal; honest format labels` | R125 |
+| **R126** ✅ | 导出诚实化 | 视频编码器由扩展名+能力决定（`.mp4`→ffmpeg，`.avi`→vtkAVIWriter，否则显式拒绝）；不再把 Ogg Theora 写进 `.mp4/.avi`；`snapshot_png` 不再偷偷改名；FBX/CVFF 补入口与测试 | `R126: write the format the filename promises` | R125 |
 | **R127** | 性能 | 节索引缓存淘汰 + 路径键；`iter_data_blocks` 向量化 | `perf(crdl): evictable section index keyed by path, vectorised block walk` | R126 |
 | **R128** | 大模型性能 | FLD 流线空间索引；`_cell_centers_fph` 向量化；内存峰值 | `perf(render): spatial index for FLD tracing, vectorised cell centres` | R127 |
 | **R129** | 分析栈诚实化 | IDW 改名/标注；POD/DMD/谱接入金标；去误导措辞 | `refactor(analysis): label probe-interpolated fields honestly, add numeric goldens` | R128 |
@@ -143,7 +143,7 @@
 | **R124** | CGNS：`Elements_t` 的 `' data'`（前导空格）数据集作类型码来源；`NGON_n(22)/NFACE_n(23)` + `ElementStartOffset` + 负引用（NFACE 面符号）；`_CODE_CELLS` 13/14 与 SIDS 对齐；读全部 base；`FlowSolution` 过滤 `GridLocation/Descriptor`；`ZoneBC` 接入 `bc_plan` 使 BC 成为区域 |
 | **R125** ✅ | FPH：`FC_Scalar/FC_Vector` 面心段**盘点 + 如实报告**（维度、原因写进 `ff.meta["unparsed_fields"]` 并打日志）；实测证明 `EC_*` 段本来就是单帧（标量 1 个数组、矢量正好 3 个分量），"保留全部帧"这条前提在本机文件上不成立，不写假修复；解码面对应关系因文件无面索引而留 R125b |
 
-| **R126** | 导出：`.mp4` 接既有 ffmpeg 路径（`export_iso_video`），否则显式拒绝；`.avi` 不再静默写 Ogg Theora |
+| **R126** ✅ | 导出：`.mp4` 接既有 ffmpeg 路径（两条视频路径都接），否则**显式拒绝**；`.avi` 在没有 vtkAVIWriter 的构建上同样拒绝而不再静默写 Ogg Theora；`snapshot_png` 未知扩展名拒绝而不改名；FBX/CVFF 写入器补 GUI 入口与真文件测试（实测前后对照见 DEV_SUMMARY §28.1） |
 
 **R124 验收（本计划最关键的一条）**：`tr03_9_orig.cgns` 与 `exPRE04-1_37.cgns` 解出的单元数与同源 `.fph` 一致（±0.1%），变量表与 `PRES/TEMP/TURK/TEPS` 等对齐，且能建出可切面的 ugrid。
 

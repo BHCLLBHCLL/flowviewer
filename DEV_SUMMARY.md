@@ -1089,6 +1089,80 @@ FC_* 段按维度被报告且不被当成已接线、长度不符的 EC 段被�
 
 ---
 
+## 28. R126：导出的文件必须是文件名承诺的格式（2026-09-13）
+
+### 28.1 实测缺陷：.mp4 / .avi 里装的是 Ogg Theora
+
+编码器只对 `.avi` 按扩展名选择，**其它任何扩展名都回落到 `vtkOggTheoraWriter`**。
+本机 VTK 9.6.2 没有 `vtkAVIWriter`、PATH 上也没有 ffmpeg，所以两种扩展名都走进了这条回落分支。
+用 R125 提交（`eefca4a`）在临时 worktree 里跑同一段代码，实测前后对照：
+
+| 请求 | 修复前（R125 提交） | 修复后（本轮工作树） |
+|---|---|---|
+| `export_animation_video(..., "anim.mp4", frames=3)` | 返回 **3**、文件存在、前 4 字节 **`OggS`** | 返回 **0**、**不创建文件**、日志写明缺 ffmpeg |
+| `export_animation_video(..., "anim.avi", frames=3)` | 返回 **3**、文件存在、前 4 字节 **`OggS`** | 返回 **0**、**不创建文件**、日志写明缺 vtkAVIWriter |
+| `snapshot_png(win, "shot.xyz")` | 返回 **True**、请求的文件不存在、**偷偷写了 shot.png** | 返回 **False**、什么都不写、日志写明不支持的扩展名 |
+
+第三行是同一类问题的图片版本：扩展名不认识就**改写成 .png**，然后按改写后的名字判断成功，
+于是调用方拿到 True 却找不到自己要的文件。
+
+### 28.2 实测缺陷：ffmpeg 成功也报"1 帧"
+
+`_encode_video_ffmpeg()` 的文档说返回"ffmpeg 报告的输入帧数"，代码里成功时 **`return 1`**。
+30 帧动画在 UI 上显示成 "Exported 1-frame video"。现在返回真实帧数（调用方已知则直接用，
+否则把 ffmpeg 的 printf 模式 `frame_%04d.png` 翻成 glob 计数）。
+
+### 28.3 实测缺陷：GUI 文案承诺了代码做不到的事
+
+`on_export_animation_video` 的文档写 "encode MP4/AVI via ffmpeg"，但调用的
+`export_animation_video` **从不使用 ffmpeg**；对话框过滤器只给 `.ogv/.avi`，
+失败信息一律是 "Video export failed (ffmpeg missing?)"（这条路径根本没用 ffmpeg）。
+现在过滤器由**能力**派生（`video_formats_available()`：本机只有 `*.ogv`），
+拒绝时把真实原因回显给用户。
+
+### 28.4 实测缺陷：FBX / CVFF 有写入器却没有入口、也没有测试
+
+`export_surface_fbx`（ASCII FBX 7.3）与 `export_surface_cvff` 只被 `fv/api.py` 引用，
+GUI 菜单里没有，仓库里**没有任何测试**；而 OBJ 菜单项的文档自称 "(4, FBX-neutral)"。
+现在：菜单补齐 "Export FBX…" / "Export CVFF…"，OBJ 的文案改成"就是 OBJ"，两个写入器都有真文件测试
+（FBX 头 `; FBX 7.3.0 project file` + `FBXVersion: 7300`；CVFF 用 `cvff_load` 回读校验区域名与顶点数）。
+
+### 28.5 实现
+
+- 新增 `VIDEO_FORMATS` / `video_encoder_for()`（扩展名 → 需要的编码器；给不出就返回**原因**）/
+  `video_formats_available()` / `_note()`（把拒绝原因写进调用方给的 issues 列表并记 warning 日志）。
+- 三条视频路径统一走决策表：`export_animation_video`、`export_iso_video`、`_write_vtk_video`、
+  `_write_frame_video`；`.mp4` 现在在两条路径上都**真的走 ffmpeg**（先把帧渲成临时 PNG 序列，
+  与 `export_iso_video` 同一套流程），而不是回落成 Ogg Theora。
+- **先判断再渲染**：`export_iso_video` 在渲染任何一帧之前就拒绝，不留半成品 PNG 目录（有测试钉住）。
+- `_ffmpeg_path()` 现在也认 `FFMPEG` 环境变量（拒绝信息里既然提到它，就得真的支持它）。
+- `snapshot_png`：`.tiff` 与 `.tif` 同样对待；不支持的扩展名**拒绝**而不是改名。
+- GUI：视频对话框过滤器由能力派生、失败显示真实原因；新增 FBX/CVFF 入口；OBJ 文案不再自称 FBX。
+
+### 28.6 测试
+
+新增 `tests/test_r126_export_honesty.py`（10 项，全部通过）：决策表全枚举（含大小写与能力变化）、
+供用户选择的格式列表与决策表一致、`.mp4` 无 ffmpeg 时拒绝且**不产生文件**（两条路径）、
+`.avi` 无写入器时拒绝、`export_iso_video` 在渲染前拒绝（临时目录仍为空）、
+`.ogv` 写出的文件**前 4 字节确实是 OggS**、ffmpeg 帧数（glob 回退与调用方给值两种）、
+`snapshot_png` 拒绝未知扩展名 / `.tiff` 写出真 TIFF（魔数校验）、
+FBX/CVFF 真文件（FBX 头 + CVFF 回读比对区域名）、GUI 文案不再承诺做不到的格式。
+
+**回归**：`python scripts/round.py --check` → **1177 passed / 6 skipped / 2 deselected（550.8 s）**，
+ruff + mypy + 门禁全绿；真值断言 726/1429 = 50.8%（阈值 45%）、核心模块 107/176 = **60.8%**、
+字段消费 88 reserved / 0 unconsumed。另单独跑了 `tests/test_gui.py` 里与视频有关的两项（快层不含该模块）：**2 passed**。
+
+### 28.7 遗留（转入 R126b，写清楚不掩盖）
+
+1. **本机没有 ffmpeg，也没有 vtkAVIWriter**，所以 `.mp4`／`.avi` 的**成功**路径没有被真机验证过：
+   只有决策表、拒绝路径与 fake-run 单测（帧数）。要在有 ffmpeg 的机器上补一条真机验证
+   （写出的文件须能被识别为 MP4/AVI，而不只是"非空"）。
+2. `fv/session.py::encode_video`（第三条视频路径）直接调 ffmpeg 且只按 `libx264` 编码，
+   对 `.ogv` 这类容器会由 ffmpeg 自己报错返回 0 —— 行为已经诚实，但没有走同一张决策表，留待统一。
+
+
+---
+
 
 
 **回归**：`python scripts/round.py --check` → **1160 passed / 6 skipped / 2 deselected（509.9 s）**，
