@@ -29,7 +29,7 @@
 | **R124** ✅ | CGNS 真机可用（已推送 origin/main；提交哈希见下一轮的记录） | NGON_n/NFACE_n 多面体面表 + 全部 base + GridLocation 过滤 + zone 去重 + ZoneBC 面号归一化 | `R124: open real polyhedral Cradle CGNS exports` | R123 |
 | **R125** ✅ | FPH 场可见性 | `FC_Scalar/FC_Vector` 段盘点与如实报告（附实测维度）+ 证明 EC_* 本就单帧 + 加载时写入 meta 与日志 | `R125: report the FPH field sections that are not attached` | R124 |
 | **R126** ✅ | 导出诚实化 | 视频编码器由扩展名+能力决定（`.mp4`→ffmpeg，`.avi`→vtkAVIWriter，否则显式拒绝）；不再把 Ogg Theora 写进 `.mp4/.avi`；`snapshot_png` 不再偷偷改名；FBX/CVFF 补入口与测试 | `R126: write the format the filename promises` | R125 |
-| **R127** | 性能 | 节索引缓存淘汰 + 路径键；`iter_data_blocks` 向量化 | `perf(crdl): evictable section index keyed by path, vectorised block walk` | R126 |
+| **R127** ✅ | 性能 | 节索引缓存改为内容键 + 16 条 LRU（不再持有缓冲区）；索引从 40 遍扫描改为单遍（实测 2.8–5.0×）；`iter_data_blocks` **实测不需要向量化**（0.000–0.001 s/段，profile 里不出现）故不改；额外优化实测热点 `_normalise_face_nodes` 等宽快路径（1.8×，输出逐元素相同）。整文件加载实测：101 MB FLD 5.31→4.27 s、1356 MB FPH 50.64→42.93 s | `R127: stop the section index pinning files, and scan once` | R126 |
 | **R128** | 大模型性能 | FLD 流线空间索引；`_cell_centers_fph` 向量化；内存峰值 | `perf(render): spatial index for FLD tracing, vectorised cell centres` | R127 |
 | **R129** | 分析栈诚实化 | IDW 改名/标注；POD/DMD/谱接入金标；去误导措辞 | `refactor(analysis): label probe-interpolated fields honestly, add numeric goldens` | R128 |
 | **R130** | 缺失格式决策 | `.rph` 立项或移除；binary STL；`.neu` 注册修正 | `feat(crdl): binary STL, correct .neu registry, .rph decision` | R129 |
@@ -49,7 +49,7 @@
    - 快层（每轮门禁）：`python scripts/round.py --check` = ruff + mypy + `pytest tests --ignore=tests/test_gui.py` → **实测 351–362 s（5.9–6.0 分钟）**，1034–1036 passed
    - 全层（发布前门禁）：`python -m pytest tests -q` → **实测 1033.9 s（17.2 分钟）**，1302 passed
    - 静态层：ruff + mypy（已含在快层内）
-   - **快层其实不"快"**：top-12 慢测试合计 ~105 s（`test_r26_plane` 17.7 s 单测、`test_scpost_samples` 13.7+7.8+7.7 s、`test_r25_export` 10.9+10.7 s、`test_r21` 9.9+9.9 s、`test_pod` 8.4 s）。**R110.5 先建立"测试可重复"基线，R127 再对测试提速**（把重复的真实文件解析改为 session 级 fixture 共享，预计快层可降到 2 分钟内）。
+   - **快层其实不"快"**：top-12 慢测试合计 ~105 s（`test_r26_plane` 17.7 s 单测、`test_scpost_samples` 13.7+7.8+7.7 s、`test_r25_export` 10.9+10.7 s、`test_r21` 9.9+9.9 s、`test_pod` 8.4 s）。**R110.5 先建立"测试可重复"基线，测试提速排在 R127 之后（已转出为 R127c）**（把重复的真实文件解析改为 session 级 fixture 共享，预计快层可降到 2 分钟内）。
 5. **不许留红**：若某轮改动使既有测试失败，必须同轮修正测试期望并说明原因（如 R109 的 0 点单元语义变更）。
 6. **提交**：`R<n>: <一句话主题>` 作 subject（沿用 R17–R108 惯例），正文列证据与回归数字。
 7. **推送**：`git push origin main`，并核对 `git status -sb` 显示 `## main...origin/main`（无 ahead/behind）。
@@ -177,7 +177,9 @@
 
 ## 7. 阶段 E：性能（R127–R128）
 
-- **R127**：`_section_index_cache` 加淘汰策略、键从 `id(data)` 改路径；`iter_data_blocks` 向量化（当前逐 4 字节 Python 扫描，1.36 GB 文件 50 s 固定开销）。
+- **R127** ✅：`_section_index_cache` 加 16 条 LRU 淘汰、键从 `id(data)` 改为**内容摘要**（大小 + 三处 64 KiB 采样；路径键需要穿过所有解析器签名，理由写在码里）；索引构建从 40 遍扫描改为单遍（实测 2.8–5.0×）。
+- **R127 实测更正**：`iter_data_blocks` **不需要向量化** —— 它是块到块跳转：496 MB 段 80 个块 0.001 s，38.9/52.9 MB 网格段 0.000 s，且**不出现在** load profile 里；所谓"1.36 GB 文件 50 s 固定开销"实测**不来自它**，而来自 40 遍节索引扫描（5.03 s）与字段负载解码。因此本轮改为优化实测热点（`_normalise_face_nodes` 等宽面 numpy 快路径，1.8×，输出逐元素相同），整文件加载 101 MB FLD 5.31→4.27 s、1356 MB FPH 50.64→42.93 s。
+- **R127c（未做，转出）**：测试提速（session 级共享真实文件解析，目标快层 < 2 分钟）。本轮实测快层仍为 ~9.3 分钟；top-12 慢测试清单见 §2。
 - **R128**：FLD 流线加空间索引（当前每采样点 O(n) 全网格扫描，单对象 94 s → 目标 <5 s）；`_cell_centers_fph` 向量化（482k 单元 20.8 s → 目标 <1 s）；大文件峰值 RSS 从 4.4× 文件降到 <2×。
 - **验收**：`scripts/benchmarks.json` 阈值收紧并纳入 `scripts/check.py`。
 
@@ -207,7 +209,7 @@
 
 1. **每轮必须先核对源码**：项目文档历史多次夸大，禁止按文档直接开工（本轮审计已证）。
 2. **不许"为绿而绿"**：修正测试期望必须在提交信息里说明理由与证据。
-3. **回归时长已实测**：快层 5.9–6.0 分钟、全层 17.2 分钟。全层作发布前门禁；快层作每轮门禁。**但快层目前有顺序依赖导致的假失败（R110.5）**，在修复前不得把"快层绿"当作放行依据。测试提速（session 级共享真实文件解析）排在 R127。
+3. **回归时长已实测**：快层 5.9–6.0 分钟、全层 17.2 分钟。全层作发布前门禁；快层作每轮门禁。**但快层目前有顺序依赖导致的假失败（R110.5）**，在修复前不得把"快层绿"当作放行依据。测试提速（session 级共享真实文件解析）在 R127 复核后转出为 **R127c**（R127 改为先修实测出的 CRDL 节索引问题）。
 4. **外部依赖项**（VR HMD / ShellExecute 沙箱 / FBX 原生 writer / scPOST 未安装环境）单独登记，不计入指标 A 的分母。
 5. **R117 是分水岭**：在交叉验证跑通之前，不再新增任何"对标"声明。
 

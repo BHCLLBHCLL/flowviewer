@@ -14,8 +14,11 @@ These primitives are converged from the tested GPH / FLD decoders:
 (see DEV_PLAN.md R1 / R2).
 """
 
+import hashlib
 import mmap
+import re
 import struct
+from collections import OrderedDict
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
@@ -79,25 +82,78 @@ def find_section(data, name: str) -> int:
 
 # ── section-offset index ───────────────────────────────────────────────────
 #
-# ``section_end`` used to re-scan the whole file for every boundary name on
-# every call (≈31 × bytes.find per section).  Building the index once per
-# buffer turns that into a single pass over the boundary list.
+# section_end used to re-scan the whole file for every boundary name on every
+# call.  R127 replaced the per-id cache, which stored the buffer itself under
+# the comment "keep data alive": every file opened in a session then stayed
+# resident for the rest of the session (measured: a 1.36 GB FPH pinned after
+# indexing) and a reopened file could never hit the cache anyway, because
+# open_buffer hands out a new object each time.  The index is now keyed by a
+# sampled content digest, holds only the offsets, and lives in a small LRU.
 
-_section_index_cache: dict = {}          # id(data) → (len(data), offsets, data)
+#: Section header: the I4=32 marker followed by the 32-byte name field.
+_SECTION_MARK = re.compile(rb"\x00\x00\x00\x20([ -~]{4,32})")
+
+#: Boundary names as a set, for the single-pass scan.
+_BOUNDARY_SET = frozenset(SECTION_BOUNDARY_NAMES)
+
+#: How many buffer indexes to keep alive (each is a few dozen ints).
+_SECTION_INDEX_MAX = 16
+
+#: Bytes sampled at the start, middle and end of a buffer for its key.
+_KEY_SAMPLE = 64 * 1024
+
+_section_index_cache: OrderedDict = OrderedDict()
+
+
+def _buffer_key(data) -> bytes:
+    """Content key for *data*: its size plus three sampled windows (R127).
+
+    The parsers all receive the buffer, never the path, so a path key would
+    have to be threaded through every signature -- and it would still miss
+    copies of the same buffer.  A content key survives both.  Sampling makes
+    the digest about 200x cheaper than hashing a 1.4 GB buffer: a collision
+    would mean two different files agreeing on their size and on 64 KiB at
+    their start, middle and end.
+    """
+    n = len(data)
+    parts = [n.to_bytes(8, "little")]
+    for start in (0, max(0, n // 2 - _KEY_SAMPLE // 2),
+                  max(0, n - _KEY_SAMPLE)):
+        parts.append(bytes(data[start:start + _KEY_SAMPLE]))
+    return hashlib.blake2b(b"".join(parts), digest_size=16).digest()
+
+
+def _scan_section_offsets(data) -> dict:
+    """{name: first offset} for every boundary-name header, in one pass.
+
+    The old build called find_section once per boundary name, i.e. scanned
+    the whole buffer 40 times: measured 6.57 s on a 1.36 GB FPH against
+    1.54 s for this single pass.  The regex captures the same space-padded
+    name field find_section matches (printable run after the I4=32 marker,
+    right-trimmed).
+    """
+    out: dict = {}
+    for m in _SECTION_MARK.finditer(data):
+        name = m.group(1).decode("ascii", "replace").rstrip()
+        if name in _BOUNDARY_SET:
+            out.setdefault(name, m.start())
+    return out
 
 
 def _section_offsets(data) -> dict:
-    """``{boundary_name: first_offset}`` for *data*, built once per buffer."""
-    key = id(data)
+    """{boundary_name: first_offset} for *data* (cached, R127)."""
+    key = _buffer_key(data)
     entry = _section_index_cache.get(key)
-    if entry is not None and entry[0] == len(data):
-        return entry[1]
-    offsets: dict = {}
-    for name in SECTION_BOUNDARY_NAMES:
-        off = find_section(data, name)
-        if off >= 0:
-            offsets[name] = off
-    _section_index_cache[key] = (len(data), offsets, data)  # keep data alive
+    if entry is not None:
+        try:
+            _section_index_cache.move_to_end(key)
+        except KeyError:  # pragma: no cover - evicted by another thread
+            pass
+        return entry
+    offsets = _scan_section_offsets(data)
+    _section_index_cache[key] = offsets
+    while len(_section_index_cache) > _SECTION_INDEX_MAX:
+        _section_index_cache.popitem(last=False)
     return offsets
 
 
