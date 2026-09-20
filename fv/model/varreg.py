@@ -559,6 +559,44 @@ def _cell_centers_fph(ff):
     face_nodes = np.asarray(ld["face_nodes"], dtype=np.int64)
     face_offsets = np.asarray(ld["face_offsets"], dtype=np.int64)
     verts = np.asarray(ff.vertices, dtype=np.float64)
+    owner = ld.get("owner")
+    if owner is not None and len(np.asarray(owner)) == face_offsets.size - 1:
+        # R128: the same quantity as the loop below -- the mean of the node
+        # multiset built from the cell's owner faces, where a node shared by
+        # two faces of the cell counts twice -- computed with one pass over
+        # the face table instead of one Python list per cell.  Faces are
+        # grouped by owner, so the per-cell sums come out of bincount.
+        owner = np.asarray(owner, dtype=np.int64)
+        n_faces = face_offsets.size - 1
+        if n_faces <= 0:
+            return np.zeros((ff.n_cells, 3))
+        out = np.zeros((ff.n_cells, 3), dtype=np.float64)
+        # faces are summed in face-id order (face_offsets ascends, which
+        # reduceat needs) and only then grouped by owner cell; the loop below
+        # averages over the concatenated node multiset, so the divisor is the
+        # node count of those faces, not the face count.
+        counts = np.diff(face_offsets)
+        used = np.flatnonzero((owner >= 0) & (owner < ff.n_cells)
+                              & (counts > 0))
+        if used.size == 0:
+            return out
+        cid = owner[used]
+        total = np.bincount(cid, weights=counts[used], minlength=ff.n_cells)
+        starts = face_offsets[:n_faces][used]
+        pad = np.zeros(1, dtype=np.float64)
+        sums = np.zeros((ff.n_cells, 3), dtype=np.float64)
+        for d in range(3):
+            col = np.ascontiguousarray(verts[:, d])
+            flat = np.concatenate([col[face_nodes], pad])
+            # the sentinel start makes reduceat's last real segment end at the
+            # last node instead of running to the end of the flat array
+            idx = np.append(starts, flat.size - 1)
+            face_sum = np.add.reduceat(flat, idx)[:used.size]
+            sums[:, d] = np.bincount(cid, weights=face_sum,
+                                     minlength=ff.n_cells)
+        ok = total > 0
+        out[ok] = sums[ok] / total[ok, None]
+        return out
     out = np.zeros((ff.n_cells, 3))
     for c, pf in ld["cell_owner_faces"].items():
         pts = []

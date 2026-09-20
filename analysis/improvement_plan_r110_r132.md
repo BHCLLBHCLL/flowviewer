@@ -30,7 +30,7 @@
 | **R125** ✅ | FPH 场可见性 | `FC_Scalar/FC_Vector` 段盘点与如实报告（附实测维度）+ 证明 EC_* 本就单帧 + 加载时写入 meta 与日志 | `R125: report the FPH field sections that are not attached` | R124 |
 | **R126** ✅ | 导出诚实化 | 视频编码器由扩展名+能力决定（`.mp4`→ffmpeg，`.avi`→vtkAVIWriter，否则显式拒绝）；不再把 Ogg Theora 写进 `.mp4/.avi`；`snapshot_png` 不再偷偷改名；FBX/CVFF 补入口与测试 | `R126: write the format the filename promises` | R125 |
 | **R127** ✅ | 性能 | 节索引缓存改为内容键 + 16 条 LRU（不再持有缓冲区）；索引从 40 遍扫描改为单遍（实测 2.8–5.0×）；`iter_data_blocks` **实测不需要向量化**（0.000–0.001 s/段，profile 里不出现）故不改；额外优化实测热点 `_normalise_face_nodes` 等宽快路径（1.8×，输出逐元素相同）。整文件加载实测：101 MB FLD 5.31→4.27 s、1356 MB FPH 50.64→42.93 s | `R127: stop the section index pinning files, and scan once` | R126 |
-| **R128** | 大模型性能 | FLD 流线空间索引；`_cell_centers_fph` 向量化；内存峰值 | `perf(render): spatial index for FLD tracing, vectorised cell centres` | R127 |
+| **R128** ✅ | 大模型性能 | 单元查找改为中心 k-d 树 + 半径查询（结果与旧全量扫描**逐位相同**）：locate 14.1–17.0 ms → **0.27 ms**（约 52×），单条 200 步流线隐含查找 13.6 s → 0.22 s；`_cell_centers_fph` 改单遍面表向量化：**20.07 s → 0.09 s**（校验和一致，峰值 1.5 MB → 57.8 MB，有上界测试） | `R128: index cell lookup and vectorise cell centres` | R127 |
 | **R129** | 分析栈诚实化 | IDW 改名/标注；POD/DMD/谱接入金标；去误导措辞 | `refactor(analysis): label probe-interpolated fields honestly, add numeric goldens` | R128 |
 | **R130** | 缺失格式决策 | `.rph` 立项或移除；binary STL；`.neu` 注册修正 | `feat(crdl): binary STL, correct .neu registry, .rph decision` | R129 |
 | **R131** | scPOST 深度补齐 | 交互/对象面剩余缺口（按 R117 交叉验证后重新排序） | `feat(scpost-parity): close remaining interaction and object gaps` | R130 |
@@ -180,7 +180,9 @@
 - **R127** ✅：`_section_index_cache` 加 16 条 LRU 淘汰、键从 `id(data)` 改为**内容摘要**（大小 + 三处 64 KiB 采样；路径键需要穿过所有解析器签名，理由写在码里）；索引构建从 40 遍扫描改为单遍（实测 2.8–5.0×）。
 - **R127 实测更正**：`iter_data_blocks` **不需要向量化** —— 它是块到块跳转：496 MB 段 80 个块 0.001 s，38.9/52.9 MB 网格段 0.000 s，且**不出现在** load profile 里；所谓"1.36 GB 文件 50 s 固定开销"实测**不来自它**，而来自 40 遍节索引扫描（5.03 s）与字段负载解码。因此本轮改为优化实测热点（`_normalise_face_nodes` 等宽面 numpy 快路径，1.8×，输出逐元素相同），整文件加载 101 MB FLD 5.31→4.27 s、1356 MB FPH 50.64→42.93 s。
 - **R127c（未做，转出）**：测试提速（session 级共享真实文件解析，目标快层 < 2 分钟）。本轮实测快层仍为 ~9.3 分钟；top-12 慢测试清单见 §2。
-- **R128**：FLD 流线加空间索引（当前每采样点 O(n) 全网格扫描，单对象 94 s → 目标 <5 s）；`_cell_centers_fph` 向量化（482k 单元 20.8 s → 目标 <1 s）；大文件峰值 RSS 从 4.4× 文件降到 <2×。
+- **R128** ✅：FLD 单元查找建 k-d 树（半径 = 最大半对角线 ⇒ 包围盒候选的超集，候选按索引顺序过滤 ⇒ 结果与旧实现**逐位相同**）：实测 locate **14.1–17.0 ms → 0.27 ms**（约 52×），单条 200 步流线隐含查找 **13.6 s → 0.22 s**，达到"目标 <5 s"；`_cell_centers_fph` 单遍向量化：实测 **20.07 s → 0.09 s**（同为 63697 单元的 CGNS 多面体网格，与逐单元循环逐元素一致），达到"目标 <1 s"。
+- **R128 内存实测更正**：本轮的向量化是**用峰值内存换时间**（单元中心 1.5 MB → 57.8 MB，有 <256 MB 的测试上界），**不是**"降低峰值 RSS"；计划里"大文件峰值 RSS 从 4.4× 文件降到 <2×"本轮**未测量也未达成**，转 R128b（1.36 GB FPH 读约 1.4 GB 负载，属 I/O 与分配）。
+- **R128b（观察转出）**：合成 seed 调 `_numeric_trace_fld` 时修复前后都抛 ValueError: 'x' must be finite（疑为 FLD 场 NaN 哨兵进入 VTK 点），需单独排查。
 - **验收**：`scripts/benchmarks.json` 阈值收紧并纳入 `scripts/check.py`。
 
 ---

@@ -198,6 +198,42 @@ class FldCellInterpolator:
             neginf = np.where(mask, coords, -np.inf)
             self._bmin = finite.min(axis=1)
             self._bmax = neginf.max(axis=1)
+        self._centres = None
+        self._radius = 0.0
+        self._indexed = None
+        self._tree = None
+        self._build_index()
+
+    def _build_index(self):
+        """k-d tree over cell centres so locate stops scanning every cell (R128).
+
+        locate used to test the bounding box of all n_cells cells on every
+        query: measured 15.14 ms per call for 409188 cells, and an RK4
+        streamline calls it four times per step, i.e. about 12 s per line.
+        The tree returns every cell whose *centre* lies within the largest
+        cell half-diagonal of the query point, which is a superset of the
+        cells whose bbox can contain it; those candidates are then tested in
+        index order, so the cell the old code picked is still the one picked.
+        """
+        if self._bmin is None or self._hex_mask is None:
+            return
+        try:
+            from scipy.spatial import cKDTree
+        except Exception:  # pragma: no cover - scipy absent
+            return
+        valid = (self._hex_mask
+                 & np.isfinite(self._bmin).all(axis=1)
+                 & np.isfinite(self._bmax).all(axis=1))
+        idx = np.flatnonzero(valid)
+        if idx.size == 0:
+            return
+        bmin = self._bmin[idx]
+        bmax = self._bmax[idx]
+        half = 0.5 * (bmax - bmin)
+        self._radius = float(np.sqrt((half * half).sum(axis=1)).max())
+        self._indexed = idx
+        self._centres = 0.5 * (bmin + bmax)
+        self._tree = cKDTree(self._centres)
 
     def locate(self, p):
         """``(node_ids (8,), weights (8,))`` of the containing hex cell,
@@ -205,8 +241,17 @@ class FldCellInterpolator:
         p = np.asarray(p, dtype=np.float64)
         if self.conn is None or self._bmin is None:
             return None, None
-        inb = ((p >= self._bmin) & (p <= self._bmax)).all(axis=1)
-        cands = np.flatnonzero(inb & self._hex_mask)
+        if self._tree is not None:
+            near = self._tree.query_ball_point(p, self._radius)
+            if not near:
+                return None, None
+            cands = self._indexed[np.sort(np.asarray(near, dtype=np.int64))]
+            inb = ((p >= self._bmin[cands])
+                   & (p <= self._bmax[cands])).all(axis=1)
+            cands = cands[inb]
+        else:
+            inb = ((p >= self._bmin) & (p <= self._bmax)).all(axis=1)
+            cands = np.flatnonzero(inb & self._hex_mask)
         if cands.size == 0:
             return None, None
         ids = self.conn[cands]
