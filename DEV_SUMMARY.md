@@ -1326,3 +1326,45 @@ ruff + mypy + 门禁全绿；真值断言 744/1447 = 51.4%（阈值 45%）、核
 逐位一致（这是"更快但答案不变"的硬证据）、权重和几何恒等式 ΣN_i·V_i = p（120 点，误差 <1e-6）、
 索引只访问少量候选（实测最多 204 个，远小于 409188）、远离网格返回空、
 单元中心与逐单元循环逐元素一致且校验和等于记录值、峰值内存上界。
+
+---
+
+## 31. R129：分析栈金标与措辞核查（2026-09-13）
+
+### 31.1 先量化"哪里缺金标"，而不是先改名
+
+用 R116 的分类器统计分析栈（pod / dmd / coherencemap / spectevol / modalfield / dmdrecon /
+podfilter / spatialreport 及其测试）：**125 项测试里 65 项带独立期望（52%）**，
+最弱的几个文件是 test_r54_spatialreport（**2/9**）、test_r64_gui_analysis（**0/9**）、
+test_r56_spatialreport_dmd（3/8）、test_r62_spatialfield（3/8）、test_r52/test_r53（各 4/9）。
+
+### 31.2 计划里"IDW 改名/标注"：核查后**不需要改**
+
+逐处核对：`idw_field` 的 docstring 写明"Spread per-probe weights onto every mesh vertex by IDW"、
+返回值的语义（探针节点携带精确权重、其它顶点是最近邻探针权重的反距离加权、无参考顶点为 NaN）；
+`modalfield.py` 的模块说明写"spreads ... with inverse-distance weighting (IDW)"；
+导出元数据是 "FlowViewer R52 inverse-distance-weighted modal spatial map"；`dmdrecon.py` 同样逐处标注 IDW。
+也**没有找到**把 IDW 插值场冒充文件数据的地方：这些场只导出 npz/JSON/HTML，不注册进 FieldFile 变量表，
+因此不会在色标/探针/积分里伪装成实测字段。
+
+结论：计划里这一条前提不成立（与 R125 的"多帧"、R127 的 "iter_data_blocks" 同类），
+本轮**不改名、不加误导性标注**，只把核查结论记录在案。
+
+### 31.3 新增解析金标（tests/test_r129_analysis_goldens.py，4 项）
+
+| 金标 | 独立期望（闭式解） |
+|---|---|
+| POD 能量份额与模态 | 秩二合成场 X = a(t)φ₁ + b(t)φ₂，能量份额 = 解析方差比 var_a/(var_a+var_b)（误差 <1e-9）；|⟨mode₁,φ₁⟩| > 1-1e-9（符号无关）；两模态重建与 X 的最大偏差 <1e-9 |
+| POD 模态顺序 | 把幅度换成 amp_b > amp_a 后，第一模态必须与 φ₂ 对齐、能量份额按新比例 |
+| IDW | 探针节点上取值**精确**等于该探针权重（0 与 10）；p=1 且两探针等距时中点为解析值 5；x=2 处为 10·2/3（解析外推）；无探针时全 NaN |
+| 相干峰值 | 5 Hz 正弦 + dt=0.01 + nperseg=64 → 峰值频率落在 5 Hz 的一个 Welch 频带内（1/(64·dt)）、自相干 >0.99；加宽带噪声的那个顶点峰值相干 = **0.9147**（记录值，换种子/换估计器就会变） |
+
+### 31.4 门禁与回归
+
+**回归**：`python scripts/round.py --check` → **1199 passed / 6 skipped / 2 deselected（588.7 s）**，
+ruff + mypy + 门禁全绿；真值断言 748/1451 = 51.6%（阈值 45%）、核心模块 **129/198 = 65.2%**、
+字段消费 88 reserved / 0 unconsumed。新增 4 项金标**全部**计入真值期望。
+
+**措辞核查补充**：计划里提到"停止使用'全场重构'措辞" —— 在 modalfield.py 中检索
+full-field / full field / reconstruct 均无命中（该模块只说 "spread ... modes onto the mesh"
+与 "modal spatial map"）。其余模块未逐一排查，留给 R129b 与弱断言清单一起处理。

@@ -31,7 +31,7 @@
 | **R126** ✅ | 导出诚实化 | 视频编码器由扩展名+能力决定（`.mp4`→ffmpeg，`.avi`→vtkAVIWriter，否则显式拒绝）；不再把 Ogg Theora 写进 `.mp4/.avi`；`snapshot_png` 不再偷偷改名；FBX/CVFF 补入口与测试 | `R126: write the format the filename promises` | R125 |
 | **R127** ✅ | 性能 | 节索引缓存改为内容键 + 16 条 LRU（不再持有缓冲区）；索引从 40 遍扫描改为单遍（实测 2.8–5.0×）；`iter_data_blocks` **实测不需要向量化**（0.000–0.001 s/段，profile 里不出现）故不改；额外优化实测热点 `_normalise_face_nodes` 等宽快路径（1.8×，输出逐元素相同）。整文件加载实测：101 MB FLD 5.31→4.27 s、1356 MB FPH 50.64→42.93 s | `R127: stop the section index pinning files, and scan once` | R126 |
 | **R128** ✅ | 大模型性能 | 单元查找改为中心 k-d 树 + 半径查询（结果与旧全量扫描**逐位相同**）：locate 14.1–17.0 ms → **0.27 ms**（约 52×），单条 200 步流线隐含查找 13.6 s → 0.22 s；`_cell_centers_fph` 改单遍面表向量化：**20.07 s → 0.09 s**（校验和一致，峰值 1.5 MB → 57.8 MB，有上界测试） | `R128: index cell lookup and vectorise cell centres` | R127 |
-| **R129** | 分析栈诚实化 | IDW 改名/标注；POD/DMD/谱接入金标；去误导措辞 | `refactor(analysis): label probe-interpolated fields honestly, add numeric goldens` | R128 |
+| **R129** ✅ | 分析栈金标 | 先量化（分析栈 125 项测试仅 65 项带独立期望 = 52%）；逐处核查后确认 **IDW 标注本来就诚实、无需改名**（不写假修复）；新增 4 项闭式解金标：POD 能量份额/模态/秩二重建、POD 模态顺序、IDW 探针点精确与解析插值、相干峰值频率与记录值 | `R129: analytic goldens for POD, IDW and coherence` | R128 |
 | **R130** | 缺失格式决策 | `.rph` 立项或移除；binary STL；`.neu` 注册修正 | `feat(crdl): binary STL, correct .neu registry, .rph decision` | R129 |
 | **R131** | scPOST 深度补齐 | 交互/对象面剩余缺口（按 R117 交叉验证后重新排序） | `feat(scpost-parity): close remaining interaction and object gaps` | R130 |
 | **R132** | 文档与指标 | 删除自评百分比，落地三项可测指标 | `docs: replace self-assessed percentages with the three measurable indicators` | R131 |
@@ -189,7 +189,12 @@
 
 ## 8. 阶段 F：分析栈与文档（R129–R132）
 
-- **R129**：`idw_field` 产物在 API/UI/报告里明确标注为 **probe-interpolated（非物理场）**，停止使用"全场重构"措辞；POD/DMD/谱接入 R115 金标；DMD 秩截断阈值改为有意义的能量准则。
+- **R129** ✅：核查结论 —— `idw_field` 的 docstring、`modalfield` 模块说明、导出元数据都已写明 IDW，
+  且插值场只导出 npz/JSON/HTML、不注册进 FieldFile 变量表；modalfield.py 中检索 full-field/full field/reconstruct 无命中。
+  前提不成立，**不改名**；实际交付为 4 项闭式解金标 + "哪里缺金标"的量化清单。
+- **R129b（转出）**：补 test_r54_spatialreport（2/9）、test_r64_gui_analysis（0/9）、test_r56（3/8）、test_r62（3/8）的数值金标；
+  其余模块的"全场/重构"措辞逐处排查。
+- （原计划条目，未执行）`idw_field` 产物在 API/UI/报告里明确标注为 **probe-interpolated（非物理场）**，停止使用"全场重构"措辞；POD/DMD/谱接入 R115 金标；DMD 秩截断阈值改为有意义的能量准则。
 - **R130**：`.rph`（实为 CRDL-FLD 容器，5 个真实样例，最大 2 GB）立项实现或从 `LOADERS` 移除；binary STL 解析；`.neu` 注册修正。
 - **R131**：按 R117 交叉验证结果重排并补齐 scPOST 交互/对象面剩余缺口（此时才有资格谈"对标"）。
 - **R132**：`DEV_PLAN.md`/`function_gap_analysis.md`（350 KB、100+ 轮执行记录）压缩为"当前差距表 + 证据"；删除所有自评百分比；落地三项可测指标（可复现正确率 / 无静默错误率 / 字段贯通率）。
