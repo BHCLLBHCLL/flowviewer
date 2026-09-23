@@ -6,6 +6,7 @@ variables (Neutral variable import, item 7).
 
 from __future__ import annotations
 
+import io
 import struct
 
 import numpy as np
@@ -36,11 +37,28 @@ def parse_obj(path: str):
 
 
 def parse_stl(path: str):
-    """ASCII STL -> vertices + triangle faces (1)."""
+    """STL -> vertices + triangle faces (1; binary support added in R130).
+
+    Binary STL is what CAD tools export by default, and it used to be read as
+    text: the 80-byte header plus 50-byte records contain NULs, no "vertex "
+    lines survive, and the file was rejected as "not a readable neutral mesh".
+    The format is now detected from the byte count (84 + 50 x n == filesize,
+    the standard test) and decoded with one structured-array view.
+    """
+    try:
+        with open(path, "rb") as fh:
+            data = fh.read()
+    except OSError:
+        return None
+    if len(data) >= 84:
+        n_tris = int.from_bytes(data[80:84], "little")
+        if n_tris > 0 and len(data) >= 84 + 50 * n_tris:
+            return _parse_stl_binary(data, n_tris)
+    text = data.decode("utf-8", "replace")
     verts = []
     faces = []
     try:
-        with open(path, encoding="utf-8", errors="replace") as fh:
+        with io.StringIO(text) as fh:
             cur = []
             for line in fh:
                 s = line.strip()
@@ -57,6 +75,27 @@ def parse_stl(path: str):
     except Exception:
         return None
     return _build(verts, faces)
+
+
+def _parse_stl_binary(data: bytes, n_tris: int):
+    """Binary STL records -> vertices + triangle faces (R130).
+
+    Each 50-byte record is normal + three float32 vertices + a uint16
+    attribute; the three vertices of a triangle are kept per face, exactly as
+    the ASCII path does, so both encodings of one mesh give the same arrays.
+    """
+    dt = np.dtype([("normal", "<f4", (3,)), ("v", "<f4", (3, 3)),
+                   ("attr", "<u2")])
+    try:
+        rec = np.frombuffer(data, dtype=dt, count=int(n_tris), offset=84)
+    except ValueError:
+        return None
+    verts = np.ascontiguousarray(rec["v"], dtype=np.float64).reshape(-1, 3)
+    if verts.shape[0] == 0:
+        return None
+    faces = np.arange(verts.shape[0], dtype=np.int64).reshape(-1, 3)
+    # _build() takes plain lists (it tests "if not verts"), so hand it lists
+    return _build(verts.tolist(), faces.tolist())
 
 
 def _parse_ply_header_bytes(lines):

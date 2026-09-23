@@ -403,6 +403,15 @@ def neutral_load(filepath: str) -> FieldFile:
     else:
         mesh = parse_stl(str(path))
     if mesh is None:
+        if suf in (".neu", ".nfb", ".gbf"):
+            # R130: these are registered as neutral meshes, but their format is
+            # Gambit neutral, which no parser here reads -- saying "not a
+            # readable neutral mesh" made a missing parser look like a damaged
+            # file.
+            raise ValueError(
+                "%s is a Gambit neutral file (%s) and no Gambit parser is "
+                "implemented; the neutral loader reads OBJ, STL (ascii and "
+                "binary) and PLY" % (filepath, suf))
         raise ValueError("not a readable neutral mesh: " + filepath)
     ff = FieldFile(path=str(path), kind="neutral")
     ff.vertices = mesh["vertices"]

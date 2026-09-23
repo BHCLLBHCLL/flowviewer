@@ -32,7 +32,7 @@
 | **R127** ✅ | 性能 | 节索引缓存改为内容键 + 16 条 LRU（不再持有缓冲区）；索引从 40 遍扫描改为单遍（实测 2.8–5.0×）；`iter_data_blocks` **实测不需要向量化**（0.000–0.001 s/段，profile 里不出现）故不改；额外优化实测热点 `_normalise_face_nodes` 等宽快路径（1.8×，输出逐元素相同）。整文件加载实测：101 MB FLD 5.31→4.27 s、1356 MB FPH 50.64→42.93 s | `R127: stop the section index pinning files, and scan once` | R126 |
 | **R128** ✅ | 大模型性能 | 单元查找改为中心 k-d 树 + 半径查询（结果与旧全量扫描**逐位相同**）：locate 14.1–17.0 ms → **0.27 ms**（约 52×），单条 200 步流线隐含查找 13.6 s → 0.22 s；`_cell_centers_fph` 改单遍面表向量化：**20.07 s → 0.09 s**（校验和一致，峰值 1.5 MB → 57.8 MB，有上界测试） | `R128: index cell lookup and vectorise cell centres` | R127 |
 | **R129** ✅ | 分析栈金标 | 先量化（分析栈 125 项测试仅 65 项带独立期望 = 52%）；逐处核查后确认 **IDW 标注本来就诚实、无需改名**（不写假修复）；新增 4 项闭式解金标：POD 能量份额/模态/秩二重建、POD 模态顺序、IDW 探针点精确与解析插值、相干峰值频率与记录值 | `R129: analytic goldens for POD, IDW and coherence` | R128 |
-| **R130** | 缺失格式决策 | `.rph` 立项或移除；binary STL；`.neu` 注册修正 | `feat(crdl): binary STL, correct .neu registry, .rph decision` | R129 |
+| **R130** ✅ | 缺失格式决策 | **二进制 STL**：实测被当文本读后判为不可读 → 按 84+50n 启发式识别并一次解出（两种编码结果逐元素一致）；**.neu/.nfb/.gbf**：错误信息从"不可读的 neutral 网格"改为点名"Gambit neutral 无解析器 + 支持 OBJ/STL/PLY"；**.rph**：维持 R111 的显式拒绝（已有测试），本轮只记录决策 | `R130: read binary STL, name the missing Gambit parser` | R129 |
 | **R131** | scPOST 深度补齐 | 交互/对象面剩余缺口（按 R117 交叉验证后重新排序） | `feat(scpost-parity): close remaining interaction and object gaps` | R130 |
 | **R132** | 文档与指标 | 删除自评百分比，落地三项可测指标 | `docs: replace self-assessed percentages with the three measurable indicators` | R131 |
 

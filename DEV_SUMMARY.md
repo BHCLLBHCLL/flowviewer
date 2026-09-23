@@ -1368,3 +1368,41 @@ ruff + mypy + 门禁全绿；真值断言 748/1451 = 51.6%（阈值 45%）、核
 **措辞核查补充**：计划里提到"停止使用'全场重构'措辞" —— 在 modalfield.py 中检索
 full-field / full field / reconstruct 均无命中（该模块只说 "spread ... modes onto the mesh"
 与 "modal spatial map"）。其余模块未逐一排查，留给 R129b 与弱断言清单一起处理。
+
+---
+
+## 32. R130：缺失格式决策（2026-09-13）
+
+### 32.1 二进制 STL：实测被当成文本读，直接判为"不可读"
+
+parse_stl 的 docstring 写着 "ASCII STL"，实现按文本行扫描 "vertex "。二进制 STL（CAD 默认导出）
+的 80 字节头 + 50 字节记录里全是 NUL，扫不到任何 "vertex " 行 → 实测 parse_stl 返回 None，
+load_file 报 "not a readable neutral mesh"。**同一个网格用两种编码写出来，ASCII 能读、二进制读不了。**
+
+修复：按标准启发式（84 + 50×n == 文件大小）识别二进制，用一条结构化 dtype 视图一次解出
+（normal + 3×float32 + uint16 属性），顶点与面与 ASCII 路径同样"每个三角形 3 个顶点"。
+实测：同一网格两种编码得到 **n_vertices 6 / n_faces 2 且坐标逐元素相同**（测试钉住）；
+截断的二进制头（声明 4 个三角形却只有 84 字节）返回 None 而不是猜。
+
+### 32.2 .neu 注册修正：错误信息把"没有解析器"说成"文件坏了"
+
+.neu/.nfb/.gbf 被注册到 neutral 加载器（OBJ/STL/PLY），但它们是 Gambit neutral 格式，
+于是打开时报 "not a readable neutral mesh" —— 把**缺失的解析器**说得像**损坏的文件**。
+修复：这三种扩展名在解析失败时明确说明"这是 Gambit neutral 文件，本程序没有 Gambit 解析器；
+neutral 加载器支持 OBJ / STL（ASCII 与二进制）/ PLY"（测试断言消息里含 Gambit 与支持列表）。
+
+### 32.3 .rph 决策：维持"显式拒绝"，本轮只记录
+
+R111 已经实现并测试了这条决策（tests/test_r111_errors.py::test_rph_layout_is_named_in_the_error
+断言错误信息里同时出现 RPH 与 Ph_R）——即**不实现 RPH 解析器，但绝不静默**。
+本轮核查未发现任何文档宣称支持 RPH；故决策维持不变，不新增代码。
+
+### 32.4 测试
+
+新增 tests/test_r130_formats.py（4 项）：二进制与 ASCII 编码同一网格结果逐元素一致（含记录坐标）、
+二进制 STL 能通过 load_file 打开（6 顶点）、截断二进制头被拒绝而不是猜测、.neu 报错点名 Gambit
+与支持格式。
+
+**回归**：`python scripts/round.py --check` → **1203 passed / 6 skipped / 2 deselected（569.9 s）**，
+ruff + mypy + 门禁全绿；真值断言 750/1455 = 51.5%（阈值 45%）、核心模块 **129/198 = 65.2%**、
+字段消费 88 reserved / 0 unconsumed。
