@@ -2291,6 +2291,16 @@ class FlowViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 "point": "point",
                 "main": "grid",
             }.get(kind, "")
+            if kind == "grouping" and self.main_object is not None:
+                # R131: a grouping toggles its resolved members (nested
+                # subgroups expanded); before this it changed nothing.
+                from ..model.objects import set_grouping_visibility
+                by_label = {o.label: o for o in self.main_object.children}
+                grp = by_label.get(name)
+                if grp is not None:
+                    set_grouping_visibility(grp, by_label, on)
+                    self._refresh_gl()
+                return
             if layer:
                 # Surface shares the wireframe grid actors
                 if layer == "surface":

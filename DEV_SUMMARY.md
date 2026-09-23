@@ -1406,3 +1406,37 @@ R111 已经实现并测试了这条决策（tests/test_r111_errors.py::test_rph_
 **回归**：`python scripts/round.py --check` → **1203 passed / 6 skipped / 2 deselected（569.9 s）**，
 ruff + mypy + 门禁全绿；真值断言 750/1455 = 51.5%（阈值 45%）、核心模块 **129/198 = 65.2%**、
 字段消费 88 reserved / 0 unconsumed。
+
+---
+
+## 33. R131：Grouping 从来就没有生效（2026-09-13）
+
+### 33.1 实测缺陷：唯一解析分组的函数没有任何调用点
+
+R124 追查字段门禁豁免时发现的问题在本轮闭环：**GroupingObject.subgroups 只被对话框写入，
+唯一读取者 objects.grouping_members() 在整个应用里没有任何调用点**（只有 test_gui.py 直接调它）。
+也就是说：对象树里把 Grouping 的勾去掉，**什么都不会发生** —— 成员对象照旧显示。
+
+### 33.2 修复
+
+- 新增 `set_grouping_visibility(grouping, objects_by_label, on)`（与 grouping_members 同在
+  objects.py，因此 R116 字段门禁的"objects.py 不扫描"语义不变，豁免记录不需要改动）：
+  解析成员（递归展开嵌套子分组、破环、去重）并逐个设置 visible，返回解析出的标签列表。
+- GUI `_on_tree_visibility` 增加 `kind == "grouping"` 分支：按标签集合调用该函数并刷新视图；
+  此前该分支落到 `layer = ""` 什么都不做。
+
+### 33.3 关于 scPOST 对标（说清楚，不冒充）
+
+计划里 R131 是"scPOST 深度补齐（按 R117 交叉验证后重新排序）"。**本机 scPOST COM 数值交叉验证仍是
+阻塞的**（R117b：GetNodeXYZ 报 RPC_E_SERVERFAULT），因此本轮**不提出任何新的对标结论**，
+只关闭一个**可独立测量**的交互缺口（Grouping 不生效），并在测试里钉住解析规则（嵌套顺序、环、
+缺失成员）与接线（源码级断言，防止再退回"什么都不做"）。
+
+### 33.4 测试
+
+新增 tests/test_r131_grouping.py（5 项，全部通过）：嵌套分组按顺序展开且去重、可见性触达每个成员
+（False→True 双向）、子分组成环能终止、缺失成员被如实返回而不是报错、GUI 走该 helper（源码断言）。
+
+**回归**：`python scripts/round.py --check` → **1208 passed / 6 skipped / 2 deselected（588.3 s）**，
+ruff + mypy + 门禁全绿；真值断言 750/1460 = 51.4%（阈值 45%）、核心模块 **129/198 = 65.2%**、
+字段消费 88 reserved / 0 unconsumed。

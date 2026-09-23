@@ -603,6 +603,24 @@ class GroupingObject(PostObject):
     subgroups: list = field(default_factory=list)   # nested grouping labels (9)
 
 
+def set_grouping_visibility(grouping, objects_by_label: dict, on: bool) -> list:
+    """Apply a grouping's visibility to its resolved members (R131).
+
+    R124 found that nothing ever called grouping_members, so the nested
+    subgroup labels a Grouping dialog collects had no effect at all: toggling
+    a grouping in the object tree changed nothing. This applies the resolved
+    member list (nested subgroups expanded, cycles broken) and returns it.
+
+    Returns the labels that were resolved (whether or not each one exists).
+    """
+    labels = grouping_members(grouping, objects_by_label)
+    for label in labels:
+        obj = objects_by_label.get(label)
+        if obj is not None:
+            obj.visible = bool(on)
+    return labels
+
+
 def grouping_members(grouping, objects_by_label: dict):
     """Recursively resolve a grouping tree into ordered leaf labels (9).
 
