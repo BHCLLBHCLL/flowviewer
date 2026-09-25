@@ -162,9 +162,11 @@ class FieldFile:
             return None
         if vi.array is None and vi.lazy_kind == "cgns":
             from ..crdl.cgns import materialize_lazy_field
-            vi.array = materialize_lazy_field(
+            # R133c: lazy materialisation has to give the same array as the
+            # eager path -- the sentinel normalisation used to be skipped here.
+            vi.array = normalise_field_sentinels(materialize_lazy_field(
                 vi.lazy_path, vi.lazy_parts,
-                self.n_vertices if vi.location == "node" else self.n_cells)
+                self.n_vertices if vi.location == "node" else self.n_cells))
             return vi.array
         if vi.array is None and vi.lazy_path:
             from ..crdl.core import (
@@ -188,11 +190,11 @@ class FieldFile:
                 if hit is None:
                     raise OSError(f"lazy block missing: {name}")
                 p, bc = hit
-                vi.array = np.frombuffer(
+                vi.array = normalise_field_sentinels(np.frombuffer(
                     data, dtype=vi.lazy_dtype,
                     count=min(vi.lazy_count,
                               bc // np.dtype(vi.lazy_dtype).itemsize),
-                    offset=p).astype(np.float64)
+                    offset=p).astype(np.float64))
         return vi.array
 
     def variable_array(self, name: str) -> Optional[np.ndarray]:
@@ -857,7 +859,12 @@ def load_file(filepath: str, lazy_vars: bool = False) -> FieldFile:
                 name=name,
                 kind=_field_kind(name),
                 location="cell",
-                array=arr,
+                # R133c: the FPH/GPH path used to hand the 1e20 "undefined"
+                # sentinel straight through (only FLD normalised it since
+                # R118).  On the real block sample 14112 of 1262424 cells
+                # carried it in VELX/Y/Z, which made the peak magnitude
+                # 1.73e20 and stretched every glyph bound to ~1e18.
+                array=normalise_field_sentinels(arr),
             )
         ff.cycle, ff.time = fld_fields.parse_cycle_meta(data)
         ff.has_particles = fld_fields.has_particle_results(data)

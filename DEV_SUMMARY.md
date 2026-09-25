@@ -1470,3 +1470,101 @@ R132 是计划最后一轮，本应把 DEV_PLAN.md / function_gap_analysis.md �
 
 **回归**（文档轮，代码未变）：`python scripts/round.py --check` → **1208 passed / 6 skipped / 2 deselected（661.0 s）**，
 ruff + mypy + 门禁全绿；三项指标实测即上表（真值断言 750/1460 = 51.4%、核心 129/198 = 65.2%、字段 0 unconsumed、贯通率 71.9%）。
+
+---
+
+## 35. R133c：真机样例上的矢量箭头（2026-09-26）
+
+R133/R133b 修的是"Vector 页给出的变量名"，两轮都留了一句"真机样例上的箭头尚未验证"。
+本轮把那句话做完：在同一个真实文件上量出四个新缺陷并逐条修掉，判据取自 scPOST 自带手册
+（COM 数值交叉验证 R117b 仍阻塞，所以本轮不产生任何数值对标结论）。
+
+### 35.1 验收对象与实测（修前 / 修后）
+
+样例 `D:/training/cradle/laptop/laptop_thermal_steady_scaled_v3_block/laptop_thermal_steady_scaled_v3_block_50.fph`
+（174 MB；解析 9.7–10.4 s；1305005 节点 / 1262424 单元；默认切面 X = 0.0062；模型宽 0.5360 m；
+构 ugrid 51.9 s。测量时本机同时跑 8 个 chtMultiRegionSimpleFoam，CPU 100%）。
+
+| 场景 | 修前 | 修后 |
+|---|---|---|
+| `vector_actor(..., "VEL")`（页里给的基名） | 26040 点 / 12600 单元，**最快箭头 0.012 m、中位箭头 9.7e-6 m（模型宽 0.0018%，不可见）** | 26040 点 / 12600 单元，**最快箭头 0.0268 m = 模型宽 5.00%** |
+| `vector_actor(..., "VELX")`（旧会话存的分量名） | **None**（actor 仍拿原名去 SetActiveVectors） | 26040 点 / 12600 单元，包围盒有限 |
+| Location = Nodes / Center | 字形包围盒 **1.63e18**（14112 个单元三个分量都是 1e20 哨兵） | 316820 点，包围盒 0.5131 |
+| Space (u) = 4 | 1550 点 | 6510 点 |
+| Space (v) = 4 | 26040 点（**控件完全无效**） | 6200 点 |
+| Scale — Thickness = 10 | 无任何变化 | 包围盒 0.5383 → 0.5853（箭杆变粗） |
+
+其余实测：VELX/VELY/VELZ 的 `kind` 都是 "vector" 且没有 `VEL`，`_vector_vars(ff) == ["VEL"]`；
+undefined 单元 14112 / 1262424 = 1.1178%（修后变 NaN，`nanmax|v| = 0.4485`，p50 = 3.6e-4，p95 = 3.1e-3）。
+
+### 35.2 改了什么（每条都有测试）
+
+1. `fv/model/dataset.py`：1e20 哨兵归一化（R118）此前只覆盖 FLD 的立即路径；现在 FPH 变量注册与两条惰性物化路径也做，
+   否则同一文件 eager / lazy 会给出不同的数组。
+2. `fv/render/vector.py`：新增 `resolve_vector_base`（折叠分量名 + 缺分量告警，三条路径共用一份实现）、
+   `vector_peak`（忽略 NaN **以及仍为 1e20 的哨兵**）、`glyph_scale`（按峰值归一的 vtkGlyph3D 系数）。
+3. `fv/render/plane.py`：actor 用折叠后的名字（`vec.GetName()`）；比例取自"真正被画出来的场"（切面）而非整个网格；
+   `_uniform_points_on_cut` 让 Space(u)/Space(v) 各管一个方向；抽出 `vector_glyph_source`，使 Type / Arrow Angle /
+   Arrow Size / Thickness 真的生效（Simple/Animation 走线宽；VTK 把 TipLength 夹在 [0, 1]，已在码里写明）。
+4. `fv/render/surface.py`：同一套折叠、同一个 source、同样的峰值归一化。修前它连 Type/Arrow 四项都忽略（裸 vtkArrowSource）。
+5. `fv/render/vector.py` 的 volume/isosurface 路径：同样折叠 + 告警（原先对分量名与缺分量都是静默返回 None）。
+6. `tests/field_exemptions.json` 删掉 `vector_space_v`、`vector_scale_thickness` 两条豁免（门禁棘轮只许缩）。
+
+判据来自 scPOST 自带手册（HTML_POST_eng）：
+P2011_0038_base0062 "[Uniform] ... enter a value for [Space(u)] and [Space(v)] to adjust the spacing.
+The value is a relative value and irrelevant to the coordinates."；
+P2011_0034_base0058 "[Length] and/or [Thickness] ... [Angle] and/or [Size] of [Arrow] ... a relative factor to
+the default value."。也就是：这四个控件都必须是相对系数、且都必须改变画出来的东西。
+
+测试：`tests/test_r133c_vector_arrows.py`（15 项，2.2 s，全部带解析期望：0.05·W/峰值、40×40 采样点、
+箭杆半径 0.04×thickness、TipLength 上限 1.0、基名与分量名都要画得出）；`tests/test_r133c_real_arrows.py`
+（3 项，慢层 `-m slow`，实文件 66.5 s，断言 14112 个 NaN、两条路径都画得出、最快箭头 = 5% 模型宽）。
+
+### 35.3 门禁与耗时（快层实测，2026-09-26）
+
+第一次全量快层（改动后、修复红测试前）：**4 failed / 1139 passed / 92 skipped / 5 deselected，2015.27 s（33:35）**；
+4 个失败全部是 `tests/test_scene_snapshot.py`（与 test_pod.py 同因：样例路径，见 35.4）。
+修掉那 4 项后重跑（本文件 §35.3 的两个数字就是这次补写的，代码未再改动）：
+**1143 passed / 92 skipped / 5 deselected / 0 failed，1427.22 s（23:47）** —— 两次都远高于 R132 记录的 588–661 s，
+差额来自外部负载（见下）。
+门禁 `scripts/gates.py all` **PASS**：真值断言 765/1484 = 51.5%（阈值 45%）、核心 129/198 = 65.2%（阈值 60%）、
+字段 313 个 / 86 reserved / **0 UNCONSUMED**（本轮删掉两条豁免，reserved 88 → 86）。
+
+慢测试前 25 名合计约 1400 s，**全部落在分析报告栈（test_r57–test_r67）**，与计划 §2 的清单完全不同：
+
+| 测试 | 本次实测 |
+|---|---|
+| test_r61_fieldconsole::test_build_console_empty_graceful_and_dt_inference | 124.75 s |
+| test_r67_analysis_params::test_run_report_forwards_extra_kwargs | 108.63 s |
+| test_r60_spectevol::test_build_report_maps_and_tone_centroid | 88.89 s |
+| test_r59_coherencemap::test_build_report_ref_node_fully_coherent | 88.88 s |
+| test_r63_field_interact::test_reports_carry_extent_and_probes_xy | 74.92 s |
+| test_r61_fieldconsole::test_cli_error_cases | 60.07 s |
+| test_r58_spectralmap::test_render_html_sections_and_escaping | 43.66 s |
+
+计划 §2 点名的 test_r26_plane（17.7 s）、test_r25_export、test_r21 在本机是 skip，test_pod 换了路径后按实跑计。
+所以 R127c 的下一步不是给这几个模块加缓存，而是先量这 11 个报告模块（它们除 load 之外还有 FFT/POD/DMD 的合成场）。
+另一个必须同时报告的量：本轮测量期间本机有 8 个 chtMultiRegionSimpleFoam + 2 个 python 长任务、CPU 100%；
+R132 记录的快层 588–661 s 是空载数字，两个数字不能直接相减。
+
+### 35.4 开场发现：门禁本来是红的（记为 R127d）
+
+新会话按上一轮要求先重跑门禁，结果是 **8 个 FAIL，全部同一个原因：样例目录搬迁**。
+
+- `tests/test_pod.py` 4 项：`shutil.copyfile(r"D:/training/cgns/examples/tr03_9.fph", ...)`；
+- `tests/test_scene_snapshot.py` 4 项：同样 `load_file(FPH)`，而且没有 skip 守卫。
+
+该目录已空（只剩一个见E盘cradle目录.txt），样例被搬到 `E:/cradle` 与 `D:/training/cradle/laptop/...`。
+写同一路径的其它模块都带 skipif、静默跳过（本次快层 92 skipped）；这两处没有守卫，于是红。
+本轮新增 `tests/samples.py`（按 ROOTS 依次解析，缺失返回 None），两个模块都接上：
+test_pod.py **5 passed / 21.8 s**，test_scene_snapshot.py 的 4 项现在真的跑（连同新测试共 25 passed / 37.0 s）。
+其余约 27 个模块的重接记为 R127d：那是要覆盖率还是要快层时间的决定，不该顺手改。
+
+### 35.5 边界与未做（不写假修复）
+
+- 中位箭头仍只有 2.2e-5 m（模型宽 0.004%）：这个文件 |v| 从 3.6e-4 到 0.4485（约 1200 倍动态范围），
+  按峰值归一化后"最快的箭头 = 5% 模型宽"，慢区箭头本来就小。scPOST 的默认值只能在 GUI 里读，
+  没有证据说明它取峰值还是别的分位数，所以不擅自改成 p99。
+- 平面/曲面用 0.05、volume/isosurface 那条更早的路径用 0.03：本轮不统一（改哪一边都是行为变化），如实记录。
+- 其余矢量消费点（streamline 两处、pathline、oilflow、point/probe、cylinder）仍按字面名取分量、缺分量静默返回，
+  记为 R133d。

@@ -195,18 +195,11 @@ def attach_vector(ff: FieldFile, pd, face_idx, base: str,
     """Attach vector field ``base``X/Y/Z to the surface."""
     # R133b: same rule as the plane path (R133) -- a component name is folded
     # back to its base, and a missing component is reported rather than
-    # silently drawing no arrows.
-    base = str(base)
-    if base.endswith(("X", "Y", "Z")) and base[:-1] and all(
-            (base[:-1] + s) in ff.variables for s in ("X", "Y", "Z")):
-        base = base[:-1]
-    missing = [s for s in ("X", "Y", "Z")
-               if ff.variable_array(f"{base}{s}") is None]
-    if missing:
-        import logging
-        logging.getLogger(__name__).warning(
-            "surface vector %r has no %s component(s): no vector arrows "
-            "are drawn", base, "/".join(missing))
+    # silently drawing no arrows.  R133c: one implementation, in
+    # render/vector.py, shared with the plane path and the actors.
+    from .vector import resolve_vector_base
+    base, missing = resolve_vector_base(ff, base, label="surface vector")
+    if missing or not base:
         return None
     vx = np.asarray(ff.variable_array(f"{base}X"), dtype=np.float64)
     vy = np.asarray(ff.variable_array(f"{base}Y"), dtype=np.float64)
@@ -275,13 +268,24 @@ def vector_actor(pd, obj, cell_centered: bool) -> Optional[vtk.vtkActor]:
         c2p.PassCellDataOn()
         c2p.Update()
         work = c2p.GetOutput()
-    work.GetPointData().SetActiveVectors(base)
-    src = vtk.vtkArrowSource()
+    # R133c: the attached array carries the folded name (VEL for a VELX
+    # request), so read it back instead of trusting obj.vector_var -- keeping
+    # the raw name here made SetActiveVectors/SetInputArrayToProcess find
+    # nothing and the surface drew no arrows.
+    active = work.GetPointData().GetVectors()
+    if active is None:
+        return None
+    name = active.GetName()
+    work.GetPointData().SetActiveVectors(name)
+    # R133c: same Type / Arrow Size / Angle / Thickness source as the plane
+    # (this path used a bare vtkArrowSource and ignored all four).
+    from .plane import vector_glyph_source
+    src = vector_glyph_source(obj)
     glyph = vtk.vtkGlyph3D()
     glyph.SetInputData(work)
     glyph.SetSourceConnection(src.GetOutputPort())
     glyph.SetInputArrayToProcess(
-        1, 0, 0, vtk.vtkDataObject.FIELD_ASSOCIATION_POINTS, base)
+        1, 0, 0, vtk.vtkDataObject.FIELD_ASSOCIATION_POINTS, name)
     glyph.SetScaleFactor(_vector_scale(work, obj))
     glyph.OrientOn()
     glyph.SetVectorModeToUseVector()
@@ -292,6 +296,9 @@ def vector_actor(pd, obj, cell_centered: bool) -> Optional[vtk.vtkActor]:
     actor.SetMapper(mapper)
     from .vector import apply_vector_coloring
     apply_vector_coloring(obj, work, mapper, actor)
+    if obj.vector_type in ("Simple", "Animation"):
+        actor.GetProperty().SetLineWidth(max(
+            1.0, float(getattr(obj, "vector_scale_thickness", 1.0) or 1.0)))
     return actor
 
 
@@ -537,6 +544,8 @@ def _data_range(pd, name: str) -> tuple[float, float]:
 
 
 def _vector_scale(pd, obj) -> float:
+    """Glyph factor for the surface arrows (R133c: relative to the peak)."""
     b = pd.GetBounds()
     w = max(b[1] - b[0], b[3] - b[2], b[5] - b[4], 1e-9)
-    return 0.05 * w * getattr(obj, "vector_scale_length", 1.0)
+    from .vector import glyph_scale
+    return glyph_scale(pd, w, getattr(obj, "vector_scale_length", 1.0))

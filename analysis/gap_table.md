@@ -1,7 +1,7 @@
 # 当前差距表（R132b 第一步，2026-09-13）
 
 本表取代"按轮次复述"的读法：每一行是一条**尚未完成**的差距，附证据所在位置与复现方式。
-已完成项的证据在 DEV_SUMMARY.md 的 §12–§34，不在此重复。
+已完成项的证据在 DEV_SUMMARY.md 的 §12–§35，不在此重复。
 
 | 编号 | 差距 | 证据 / 复现 | 阻塞或前置 |
 |---|---|---|---|
@@ -12,10 +12,12 @@
 | R125b | FPH 的 FC_Scalar/FC_Vector 面对应关系 | 实测 7 个 FC 段（YPLS 3x12537、VEL 5x12707、TURK/TEPS 3x311、PRES 3x141、TPRS 0），文件内**没有**面索引数组；重复次数与分量数/部件数都不吻合 | 需要格式文档或 scPOST 交叉验证（与 R117b 同源） |
 | R126b | 视频导出的**成功**路径未经真机验证 | 本机无 ffmpeg、无 vtkAVIWriter，只有决策表、拒绝路径与 fake-run 帧数单测 | 需要有 ffmpeg 的机器 |
 | R127b | _build_face_list_and_bcs_inner（2.464 s tottime）与 _trim_faces 仍是逐面 Python | profile 见 DEV_SUMMARY §29.4 | 必须先建"面表 + bc_plan 全量等价"基准 |
-| R127c | 测试提速：快层平时 10–11 分钟，**机器有负载时 37:07 / 50:43**（R133、R133b 两次实测），目标 <2 分钟 | 慢测试清单见计划 §2；机制：同一真实样例被多个测试反复 load_file（例：tests/test_scpost_samples.py 的 module 级 fixture 只共享了**路径**，每个测试仍各自 parse）。**具体第一步**：在 tests/conftest.py 加 session 级 memo 夹具（按路径缓存 load_file 结果），先只在只读解析型测试里采用；注意共享 FieldFile 会同时把数组留在内存里，需要对最大的样例设上限或只缓存小样例。 | 低风险但涉及多个测试文件；建议优先做（它决定后续每轮门禁的时间成本） |
+| R127c | 测试提速：目标 <2 分钟。**瓶颈被误判过两次**：(a) 计划 §2 的慢测试清单（test_r26_plane 17.7 s、test_r25_export、test_r21、test_pod 8.4 s）在本机**已全部 skip**，因为样例目录搬迁（见 R127d）；(b) 让门禁变成 37:07 / 50:43 的是**外部负载**——本机同时跑 8 个 chtMultiRegionSimpleFoam，CPU 100% | 第一步（session 级 load_cached 夹具）已完成：提交 `e2087f4`，test_scpost_samples **98.70 → 51.46 s**。本轮改用 `--durations` 重新实测快层（DEV_SUMMARY §35.3），不再引用失效数字 | 需先决定样例路径（R127d），再定提速目标；报耗时必须同时报机器负载 |
 | R128b | _numeric_trace_fld 抛 ValueError: 'x' must be finite | 修复前后**都**会抛，疑为 FLD 场 NaN 哨兵进入 VTK 点 | 需定位并决定是停线还是清哨兵 |
 | R129b | 分析栈弱断言：spatialreport 2/9、gui_analysis 0/9、spatialreport_dmd 3/8、spatialfield 3/8 | 用 scripts/gates.py 的 _is_independent 逐项统计 | 需要数值金标 |
-| R132b | DEV_PLAN.md / function_gap_analysis.md 压缩（本表是第一步，两份历史文档未动） | 归并依据：计划 §1 轮次总表 + DEV_SUMMARY §12–§34 | 纯文档工作 |
+| R127d | 真实样例搬迁：`D:/training/cgns/examples/` 已空（只剩一个“见E盘cradle目录.txt”），样例现在在 `E:/cradle` 与 `D:/training/cradle/laptop/...`。**约 27 个测试模块仍写旧路径**：多数带 skipif 静默跳过，test_pod.py 没有守卫，于是在 R133/R133b 那两次门禁里是 **4 个 FAIL**（本轮开场即撞上） | 本轮新增 `tests/samples.py`（按 ROOTS 依次解析，缺失返回 None），已接进 test_pod.py：5 passed / 21.8 s，实文件真的跑了。复现：`python -m pytest tests/test_pod.py -q` | 需决定“逐模块重接路径”还是“接受跳过”；重接会把 20+ 个实文件测试拉回快层，直接影响 R127c 的时间预算 |
+| R133d | 其余矢量消费点仍按字面名取分量、缺分量时静默返回：streamline（2 处）、pathline、oilflow、point/probe、cylinder | `resolve_vector_base`（fv/render/vector.py）已提供折叠+告警；本轮只接了 plane / surface / volume-isosurface 三条 | 逐处核对，一次改太多会掩盖回归 |
+| R132b | DEV_PLAN.md / function_gap_analysis.md 压缩（本表是第一步，两份历史文档未动） | 归并依据：计划 §1 轮次总表 + DEV_SUMMARY §12–§35 | 纯文档工作 |
 | 指标 | 可复现正确率 51.4%（核心 65.2%）、无静默错误 0 unconsumed、字段贯通率 71.9% | python scripts/gates.py all；python scripts/round.py --check | 只许上升 |
 
 ## 已如实推翻的计划前提（不写假修复）

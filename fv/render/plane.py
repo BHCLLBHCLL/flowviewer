@@ -356,17 +356,11 @@ def attach_vector(ugrid, ff: FieldFile, base: str, cell_centered: bool,
     """Attach a vector field (``base``X/Y/Z) to the grid."""
     # R133: a component name (VELX) is accepted and reduced to its base, and
     # a missing component is reported instead of silently drawing nothing.
-    base = str(base)
-    if base.endswith(("X", "Y", "Z")) and base[:-1] and all(
-            (base[:-1] + s) in ff.variables for s in ("X", "Y", "Z")):
-        base = base[:-1]
-    missing = [s for s in ("X", "Y", "Z")
-               if ff.variable_array(f"{base}{s}") is None]
-    if missing:
-        import logging
-        logging.getLogger(__name__).warning(
-            "vector %r has no %s component(s): no vector arrows are drawn",
-            base, "/".join(missing))
+    # R133c: that rule now lives in render/vector.py so this path, the surface
+    # path and the actors above it share one implementation.
+    from .vector import resolve_vector_base
+    base, missing = resolve_vector_base(ff, base)
+    if missing or not base:
         return None
     vx = np.asarray(ff.variable_array(f"{base}X"), dtype=np.float64)
     vy = np.asarray(ff.variable_array(f"{base}Y"), dtype=np.float64)
@@ -672,6 +666,34 @@ def _apply_font(actor, obj) -> None:
 # Vector
 # ---------------------------------------------------------------------------
 
+def vector_glyph_source(obj):
+    """Glyph source for the Vector tab's Type / Arrow / Thickness controls.
+
+    scPOST's manual (HTML_POST_eng P2011_0034_base0058): "[Length] and/or
+    [Thickness] ... [Angle] and/or [Size] of [Arrow] ... a relative factor to
+    the default value".  Thickness used to be ignored here: the dialog stored
+    it and no renderer read it (R133c).
+    """
+    thickness = float(getattr(obj, "vector_scale_thickness", 1.0) or 1.0)
+    if obj.vector_type in ("Simple", "Animation"):
+        return vtk.vtkLineSource()
+    if obj.vector_type == "3D":
+        src = vtk.vtkConeSource()
+        src.SetHeight(0.4)
+        src.SetRadius(0.15 * thickness)
+        return src
+    # Standard | Triangle.  vtkArrowSource clamps TipLength to [0, 1] (the
+    # radius and shaft radius are free), so a large "Angle" factor saturates
+    # instead of growing without bound.
+    src = vtk.vtkArrowSource()
+    src.SetTipLength(min(1.0, max(0.05, float(getattr(
+        obj, "vector_arrow_angle", 1.0) or 1.0) * 0.35)))
+    src.SetTipRadius(max(0.05, float(getattr(obj, "vector_arrow_size",
+                                             1.0) or 1.0) * 0.1))
+    src.SetShaftRadius(max(0.002, 0.04 * thickness))
+    return src
+
+
 def _glyph_actor(pts_pd, obj, scale: float,
                  project_normal: Optional[np.ndarray] = None) -> vtk.vtkActor:
     """Orient + scale arrow glyphs from ``pts_pd`` PointData vectors.
@@ -683,19 +705,7 @@ def _glyph_actor(pts_pd, obj, scale: float,
     vec = pts_pd.GetPointData().GetVectors()
     if vec is None:
         return None
-    if obj.vector_type in ("Simple", "Animation"):
-        src = vtk.vtkLineSource()
-    elif obj.vector_type == "3D":
-        src = vtk.vtkConeSource()
-        src.SetHeight(0.4)
-        src.SetRadius(0.15)
-    else:  # Standard | Triangle
-        src = vtk.vtkArrowSource()
-        src.SetTipLength(max(0.05, float(getattr(obj, "vector_arrow_angle",
-                                                 1.0) or 1.0) * 0.35))
-        src.SetTipRadius(max(0.05, float(getattr(obj, "vector_arrow_size",
-                                                 1.0) or 1.0) * 0.1))
-        src.SetShaftRadius(0.04)
+    src = vector_glyph_source(obj)
 
     work = pts_pd
     if project_normal is not None or getattr(obj, "vector_constant_length",
@@ -732,6 +742,10 @@ def _glyph_actor(pts_pd, obj, scale: float,
     apply_vector_coloring(obj, work, mapper, actor)
     if obj.vector_transparent:
         actor.GetProperty().SetOpacity(0.5)
+    if obj.vector_type in ("Simple", "Animation"):
+        # A line glyph has no body to thicken, so "Thickness" is its width.
+        actor.GetProperty().SetLineWidth(max(
+            1.0, float(getattr(obj, "vector_scale_thickness", 1.0) or 1.0)))
     return actor
 
 
@@ -751,9 +765,17 @@ def vector_actor(ugrid, ff: FieldFile, obj,
     base = obj.vector_var
     if not base:
         return None
+    # R133c: fold here too -- the array the cut/probe carries is named after
+    # the folded base, so keeping the raw name (VELX) made SetActiveVectors
+    # below find nothing and the actor draw no arrows at all.
+    from .vector import resolve_vector_base
+    base, missing = resolve_vector_base(ff, base)
+    if missing or not base:
+        return None
     vec = attach_vector(ugrid, ff, base, cell_centered, rows=rows)
     if vec is None:
         return None
+    name = vec.GetName()
 
     # Make the vector field point data so cutting interpolates it.
     work = ugrid
@@ -792,8 +814,9 @@ def vector_actor(ugrid, ff: FieldFile, obj,
         probe.Update()
         glyph_in = probe.GetOutput()
     # Probe/cutter copy arrays but lose the active-attribute flag.
-    glyph_in.GetPointData().SetActiveVectors(base)
-    scale = _vector_scale(ugrid, obj)
+    glyph_in.GetPointData().SetActiveVectors(name)
+    # R133c: scale from the data actually drawn (the cut), over the model size.
+    scale = _vector_scale(glyph_in, obj, ugrid)
     proj = None
     if getattr(obj, "vector_projection", False):
         proj = np.asarray(getattr(obj, "normal", (0.0, 0.0, 1.0)))
@@ -811,9 +834,14 @@ def cut_vector_array(ugrid, ff: FieldFile, obj,
     base = obj.vector_var
     if not base:
         return None
+    from .vector import resolve_vector_base
+    base, missing = resolve_vector_base(ff, base)
+    if missing or not base:
+        return None
     vec = attach_vector(ugrid, ff, base, cell_centered)
     if vec is None:
         return None
+    name = vec.GetName()
     work = ugrid
     if cell_centered:
         c2p = vtk.vtkCellDataToPointData()
@@ -828,9 +856,9 @@ def cut_vector_array(ugrid, ff: FieldFile, obj,
     cut = cutter.GetOutput()
     if cut.GetNumberOfPoints() == 0:
         return None
-    arr = cut.GetPointData().GetVectors(base)
+    arr = cut.GetPointData().GetVectors(name)
     if arr is None:
-        arr = cut.GetPointData().GetArray(base)
+        arr = cut.GetPointData().GetArray(name)
     if arr is None:
         return None
     return np.asarray(_vns.vtk_to_numpy(arr), dtype=np.float64).reshape(-1, 3)
@@ -875,14 +903,23 @@ def cut_with_fields(ugrid, ff: FieldFile, obj, cell_centered: bool,
 
 
 def _uniform_points_on_cut(ugrid, obj):
-    """Evenly spaced sample points on the plane (scPOST Uniform location)."""
+    """Evenly spaced sample points on the plane (scPOST Uniform location).
+
+    scPOST's manual (P2011_0038_base0062): "enter a value for [Space(u)] and
+    [Space(v)] to adjust the spacing.  The value is a relative value and
+    irrelevant to the coordinates."  Both directions are scaled independently
+    (R133c: Space(v) was stored, offered and never read).
+    """
     b = ugrid.GetBounds()
     u = max(b[1] - b[0], 1e-9)
     v = max(b[3] - b[2], 1e-9)
-    spacing = getattr(obj, "vector_space_u", 1.0) or 1.0
-    step = max(u, v) / 40.0 * spacing
-    nx = max(2, int(u / max(step, 1e-9)))
-    ny = max(2, int(v / max(step, 1e-9)))
+    base = max(u, v) / 40.0
+    spacing_u = float(getattr(obj, "vector_space_u", 1.0) or 1.0)
+    spacing_v = float(getattr(obj, "vector_space_v", 1.0) or 1.0)
+    step_u = base * spacing_u
+    step_v = base * spacing_v
+    nx = max(2, int(u / max(step_u, 1e-9)))
+    ny = max(2, int(v / max(step_v, 1e-9)))
     pts = vtk.vtkPolyData()
     points = vtk.vtkPoints()
     origin = np.asarray(obj.point)
@@ -895,16 +932,27 @@ def _uniform_points_on_cut(ugrid, obj):
     e2 = np.cross(n, e1)
     for i in range(nx):
         for j in range(ny):
-            p = origin + (i - nx / 2) * step * e1 + (j - ny / 2) * step * e2
+            p = (origin + (i - nx / 2) * step_u * e1
+                 + (j - ny / 2) * step_v * e2)
             points.InsertNextPoint(*p)
     pts.SetPoints(points)
     return pts
 
 
-def _vector_scale(ugrid, obj) -> float:
-    b = ugrid.GetBounds()
+def _vector_scale(field, obj, frame=None) -> float:
+    """Glyph factor for *field* (the data drawn) over *frame*'s model size.
+
+    R133c: this used to be 0.05 * model width with no reference to the field's
+    own magnitude, so the default Scale Length = 1.0 drew 9.8e-6 m arrows in a
+    0.536 m model on the real block sample.  The shared helper normalises by
+    the peak magnitude (ignoring undefined entries), which is what
+    render/vector.py has always done for volume/isosurface.
+    """
+    src = frame if frame is not None else field
+    b = src.GetBounds()
     w = max(b[1] - b[0], b[3] - b[2], b[5] - b[4], 1e-9)
-    return 0.05 * w * getattr(obj, "vector_scale_length", 1.0)
+    from .vector import glyph_scale
+    return glyph_scale(field, w, getattr(obj, "vector_scale_length", 1.0))
 
 
 # ---------------------------------------------------------------------------

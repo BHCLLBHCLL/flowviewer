@@ -13,8 +13,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest  # noqa: E402
+from samples import sample  # noqa: E402
 
-FPH = r"D:\training\cgns\examples\tr03_9.fph"
+# The sample moved off D:/training/cgns/examples (see analysis/gap_table.md
+# R127d); resolve it at run time and skip -- never fail -- when it is absent.
+_SAMPLE = sample("tr03_9.fph")
+FPH = str(_SAMPLE) if _SAMPLE else r"D:\training\cgns\examples\tr03_9.fph"
+requires_sample = pytest.mark.skipif(
+    _SAMPLE is None, reason="tr03_9.fph sample not present")
 
 try:
     import vtk
@@ -24,6 +30,7 @@ except Exception:  # pragma: no cover
 
 
 @pytest.mark.skipif(not _HAS_VTK, reason="vtk unavailable")
+@requires_sample
 def test_scene_snapshot_png(tmp_path):
     """Offscreen render of an FPH scene produces a non-empty PNG."""
     from fv.model.dataset import load_file
@@ -47,6 +54,7 @@ def test_scene_snapshot_png(tmp_path):
 
 
 @pytest.mark.skipif(not _HAS_VTK, reason="vtk unavailable")
+@requires_sample
 def test_apply_to_object_incremental(tmp_path):
     """apply_to_object replaces one plane without full rebuild (I-gap)."""
     from fv.model.dataset import load_file
@@ -68,6 +76,7 @@ def test_apply_to_object_incremental(tmp_path):
 
 
 @pytest.mark.skipif(not _HAS_VTK, reason="vtk unavailable")
+@requires_sample
 def test_apply_to_object_removes_old_actors(tmp_path):
     """Old actors of an edited object are gone after apply_to_object."""
     from fv.model.dataset import load_file
@@ -94,6 +103,7 @@ def test_emt_alias():
     assert loaders.can_load(FPH) is True
 
 
+@requires_sample
 def test_apply_to_object_headless_placeholder():
     """Incremental path works with headless placeholder layers."""
     from fv.model.dataset import load_file

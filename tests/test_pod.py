@@ -8,9 +8,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest  # noqa: E402
+from samples import sample  # noqa: E402
 
-FPH = r"D:\training\cgns\examples\tr03_9.fph"
-
+# The sample moved off the old D:/training/cgns/examples path; resolve it at
+# run time and skip (never fail) when it is absent anywhere.
+_FPH = sample("tr03_9.fph")
+FPH = str(_FPH) if _FPH else r"D:\training\cgns\examples\tr03_9.fph"
+requires_sample = pytest.mark.skipif(
+    _FPH is None, reason="tr03_9.fph sample not present")
 
 
 def test_pod_decompose():
@@ -38,6 +43,7 @@ def test_pod_decompose():
     assert energies_r[0] > 0.999
 
 
+@requires_sample
 def test_pod_analysis_fileset(tmp_path):
     """POD across a cycle FileSet registers POD_MEAN / POD_MODE_i (P3)."""
     import shutil
@@ -60,6 +66,7 @@ def test_pod_analysis_fileset(tmp_path):
     assert "POD_MODE_0" in ff0.variables and "POD_MODE_2" in ff0.variables
 
 
+@requires_sample
 def test_pod_allcyc_cache_and_no_swallow(tmp_path):
     """POD/ALLCYC share a member cache and surface errors (P2.5)."""
     import shutil
@@ -96,6 +103,7 @@ def test_pod_allcyc_cache_and_no_swallow(tmp_path):
         collect_snapshots(fs, "PRES")
 
 
+@requires_sample
 def test_pod_time_coeffs_and_export(tmp_path):
     """POD time coefficients (U matrix) + CSV export (P3-1)."""
     import csv
@@ -123,6 +131,7 @@ def test_pod_time_coeffs_and_export(tmp_path):
     assert all(np.isfinite(float(r[1])) for r in rows[1:])
 
 
+@requires_sample
 def test_cluster_analysis_and_fields(tmp_path):
     """k-means Clustering: labels / centroids / CSV + API wiring (P3-1)."""
     import csv
