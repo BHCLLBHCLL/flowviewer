@@ -16,6 +16,7 @@
 | R128b | _numeric_trace_fld 抛 ValueError: 'x' must be finite | 修复前后**都**会抛，疑为 FLD 场 NaN 哨兵进入 VTK 点 | 需定位并决定是停线还是清哨兵 |
 | R129b | 分析栈弱断言：spatialreport 2/9、gui_analysis 0/9、spatialreport_dmd 3/8、spatialfield 3/8 | 用 scripts/gates.py 的 _is_independent 逐项统计 | 需要数值金标 |
 | R127d | 真实样例搬迁：`D:/training/cgns/examples/` 已空（只剩一个“见E盘cradle目录.txt”），样例现在在 `E:/cradle` 与 `D:/training/cradle/laptop/...`。**约 27 个测试模块仍写旧路径**：多数带 skipif 静默跳过，test_pod.py 没有守卫，于是在 R133/R133b 那两次门禁里是 **4 个 FAIL**（本轮开场即撞上） | 本轮新增 `tests/samples.py`（按 ROOTS 依次解析，缺失返回 None），已接进 test_pod.py：5 passed / 21.8 s，实文件真的跑了。复现：`python -m pytest tests/test_pod.py -q` | 需决定“逐模块重接路径”还是“接受跳过”；重接会把 20+ 个实文件测试拉回快层，直接影响 R127c 的时间预算 |
+| R127e | 被中断的测试会话不再清理 `tests/pytest_tmp`（conftest 只在正常退出时删 session 根），会累积到数 GB | 本轮清理前实测 **20 个会话目录 / 3.3 GB**（单个最大 644 MB；三次被 kill 的门禁各留一份 ~200 MB）。复现：`Get-ChildItem tests/pytest_tmp -Directory` | 需要在 conftest 里补异常退出清理（或每次门禁开头先清），本轮只做了人工清理 |
 | R133d | 其余矢量消费点仍按字面名取分量、缺分量时静默返回：streamline（2 处）、pathline、oilflow、point/probe、cylinder | `resolve_vector_base`（fv/render/vector.py）已提供折叠+告警；本轮只接了 plane / surface / volume-isosurface 三条 | 逐处核对，一次改太多会掩盖回归 |
 | R132b | DEV_PLAN.md / function_gap_analysis.md 压缩（本表是第一步，两份历史文档未动） | 归并依据：计划 §1 轮次总表 + DEV_SUMMARY §12–§35 | 纯文档工作 |
 | 指标 | 可复现正确率 51.4%（核心 65.2%）、无静默错误 0 unconsumed、字段贯通率 71.9% | python scripts/gates.py all；python scripts/round.py --check | 只许上升 |
