@@ -12,7 +12,7 @@
 | R125b | FPH 的 FC_Scalar/FC_Vector 面对应关系 | 实测 7 个 FC 段（YPLS 3x12537、VEL 5x12707、TURK/TEPS 3x311、PRES 3x141、TPRS 0），文件内**没有**面索引数组；重复次数与分量数/部件数都不吻合 | 需要格式文档或 scPOST 交叉验证（与 R117b 同源） |
 | R126b | 视频导出的**成功**路径未经真机验证 | 本机无 ffmpeg、无 vtkAVIWriter，只有决策表、拒绝路径与 fake-run 帧数单测 | 需要有 ffmpeg 的机器 |
 | R127b | _build_face_list_and_bcs_inner（2.464 s tottime）与 _trim_faces 仍是逐面 Python | profile 见 DEV_SUMMARY §29.4 | 必须先建"面表 + bc_plan 全量等价"基准 |
-| R127c | 测试提速：快层 538–661 s，目标 <2 分钟 | 慢测试清单见计划 §2；session 级共享真实文件解析 | 低风险但涉及多测试文件 |
+| R127c | 测试提速：快层平时 10–11 分钟，**机器有负载时 37:07 / 50:43**（R133、R133b 两次实测），目标 <2 分钟 | 慢测试清单见计划 §2；机制：同一真实样例被多个测试反复 load_file（例：tests/test_scpost_samples.py 的 module 级 fixture 只共享了**路径**，每个测试仍各自 parse）。**具体第一步**：在 tests/conftest.py 加 session 级 memo 夹具（按路径缓存 load_file 结果），先只在只读解析型测试里采用；注意共享 FieldFile 会同时把数组留在内存里，需要对最大的样例设上限或只缓存小样例。 | 低风险但涉及多个测试文件；建议优先做（它决定后续每轮门禁的时间成本） |
 | R128b | _numeric_trace_fld 抛 ValueError: 'x' must be finite | 修复前后**都**会抛，疑为 FLD 场 NaN 哨兵进入 VTK 点 | 需定位并决定是停线还是清哨兵 |
 | R129b | 分析栈弱断言：spatialreport 2/9、gui_analysis 0/9、spatialreport_dmd 3/8、spatialfield 3/8 | 用 scripts/gates.py 的 _is_independent 逐项统计 | 需要数值金标 |
 | R132b | DEV_PLAN.md / function_gap_analysis.md 压缩（本表是第一步，两份历史文档未动） | 归并依据：计划 §1 轮次总表 + DEV_SUMMARY §12–§34 | 纯文档工作 |
