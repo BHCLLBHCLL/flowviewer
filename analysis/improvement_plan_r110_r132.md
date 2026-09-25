@@ -251,3 +251,5 @@
 **遗留（转入 R111/R118）**：`test_gui.py` 体渲染路径的偶发原生无响应（位置漂移，需当作 R118 前置项处理）。
 
 **流程改进（本轮教训）**：整文件 `write` 曾把 `fv/render/plane.py`（1457 行）与 `README.md`（1045 行）**截断**，已用 `git checkout` 恢复并改用定点 `edit`。此后大文件一律用 `edit`，写完立即校验行数与 `ruff`/`ast.parse`。
+
+> **R132b 第一步**：未完成差距已汇总为 analysis/gap_table.md（每条附证据与复现命令，已完成项不重复）。
