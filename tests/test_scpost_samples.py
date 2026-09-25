@@ -34,19 +34,17 @@ ALL_SAMPLES = [
 ]
 
 
-def test_scpost_all_samples_load(samples):
+def test_scpost_all_samples_load(samples, load_cached):
     """Every official sample parses without raising (format variants)."""
-    from fv.model.dataset import load_file
     for name in ALL_SAMPLES:
-        ff = load_file(str(samples / name))
+        ff = load_cached(str(samples / name))
         assert ff.kind == "fld", name
         assert ff.vertices is not None and ff.n_vertices > 0, name
 
 
-def test_scpost_minimum_hexa_f32(samples):
+def test_scpost_minimum_hexa_f32(samples, load_cached):
     """minimumHexa uses f32 coordinates: 8 hex vertices (descriptor-guided)."""
-    from fv.model.dataset import load_file
-    ff = load_file(str(samples / "minimumHexa.fld"))
+    ff = load_cached(str(samples / "minimumHexa.fld"))
     assert ff.n_vertices == 8
     import numpy as np
     v = np.asarray(ff.vertices)
@@ -60,32 +58,29 @@ def test_scpost_minimum_hexa_f32(samples):
     assert np.asarray(ff.material).tolist() == [1]
 
 
-def test_scpost_ex1_full_mesh(samples):
+def test_scpost_ex1_full_mesh(samples, load_cached):
     """scSTREAM_example1_100 carries the full hex mesh + variables."""
-    from fv.model.dataset import load_file
-    ff = load_file(str(samples / "scSTREAM_example1_100.fld"))
+    ff = load_cached(str(samples / "scSTREAM_example1_100.fld"))
     assert ff.n_cells == 18240 and ff.n_vertices == 21145
     assert "PRES" in ff.variables
     assert ff.cell_conn is not None and ff.cell_conn.shape[1] == 8
 
 
-def test_scpost_result_only_inherits_mesh(samples):
+def test_scpost_result_only_inherits_mesh(samples, load_cached):
     """Cycle files without mesh sections inherit the sibling mesh."""
-    from fv.model.dataset import load_file
-    ff200 = load_file(str(samples / "scSTREAM_example1_200.fld"))
+    ff200 = load_cached(str(samples / "scSTREAM_example1_200.fld"))
     assert ff200.n_vertices == 21145
     assert getattr(ff200, "mesh_from", "") .endswith("scSTREAM_example1_100.fld")
     assert "PRES" in ff200.variables
-    ff300 = load_file(str(samples / "scSTREAM_example1_300.fld"))
+    ff300 = load_cached(str(samples / "scSTREAM_example1_300.fld"))
     assert ff300.n_vertices == 21145
     assert "VECTX" in ff300.variables
 
 
-def test_scpost_klein_mixed_mesh(samples):
+def test_scpost_klein_mixed_mesh(samples, load_cached):
     """Klein_1 mixed grid: tet/wedge/pyramid via type-code accumulation."""
     import numpy as np
-    from fv.model.dataset import load_file
-    ff = load_file(str(samples / "Klein_1.fld"))
+    ff = load_cached(str(samples / "Klein_1.fld"))
     assert ff.n_vertices == 164343
     assert ff.n_cells == 686497
     assert ff.cell_conn.shape == (686497, 6)
@@ -93,16 +88,15 @@ def test_scpost_klein_mixed_mesh(samples):
     assert dict(zip(uniq.tolist(), cnt.tolist())) == {10: 574271, 13: 112119, 14: 107}
     assert "PRES" in ff.variables
     assert len(ff.faces) > 0  # NGON face list recovered
-    k300 = load_file(str(samples / "Klein_300.fld"))
+    k300 = load_cached(str(samples / "Klein_300.fld"))
     assert getattr(k300, "mesh_from", "") .endswith("Klein_1.fld")
     assert k300.n_vertices == 164343
 
 
-def test_scpost_scteta_mixed_mesh(samples):
+def test_scpost_scteta_mixed_mesh(samples, load_cached):
     """SCTeta_tutorial mixed grid with temperature variables."""
     import numpy as np
-    from fv.model.dataset import load_file
-    ff = load_file(str(samples / "SCTeta_tutorial.fld"))
+    ff = load_cached(str(samples / "SCTeta_tutorial.fld"))
     assert ff.n_cells == 361868 and ff.n_vertices == 116691
     assert ff.cell_conn.shape == (361868, 6)
     uniq, cnt = np.unique(ff.cell_types, return_counts=True)
@@ -110,15 +104,14 @@ def test_scpost_scteta_mixed_mesh(samples):
     assert "TEMP" in ff.variables
 
 
-def test_scpost_2cars_mixed(samples):
+def test_scpost_2cars_mixed(samples, load_cached):
     """2cars mixed-cell grid: tet/pyramid/wedge via type-code accumulation.
 
     scFLOW type codes 34/35/36 -> tet(4)/pyramid(5)/wedge(6) nodes; the
     connectivity is split into a 16 MiB standard block plus a bare
     continuation block (GPH-style)."""
     import numpy as np
-    from fv.model.dataset import load_file
-    ff = load_file(str(samples / "2cars.fld"))
+    ff = load_cached(str(samples / "2cars.fld"))
     assert ff.n_vertices == 338713
     assert ff.n_cells == 1671037
     assert ff.cell_conn.shape == (1671037, 6)
@@ -129,7 +122,7 @@ def test_scpost_2cars_mixed(samples):
     assert len(ff.faces) > 0
 
 
-def test_scpost_scteta_bc_sections(samples):
+def test_scpost_scteta_bc_sections(samples, load_cached):
     """Named BC zones (FLUX/WALL/THERM) and the embedded SDAT surface file."""
     from fv.crdl.mesh_fld import parse_fld
     m = parse_fld(str(samples / "SCTeta_tutorial.fld"))
@@ -146,7 +139,7 @@ def test_scpost_scteta_bc_sections(samples):
     assert sf["magic"] == "SDAT" and "SC/Tetra" in sf["head"]
 
 
-def test_scpost_2cars_bc_sections(samples):
+def test_scpost_2cars_bc_sections(samples, load_cached):
     """2cars BC zones + SDAT surface file (792-byte header)."""
     from fv.crdl.mesh_fld import parse_fld
     m = parse_fld(str(samples / "2cars.fld"))
@@ -159,7 +152,7 @@ def test_scpost_2cars_bc_sections(samples):
     assert sf is not None and sf["bytes"] == 792 and sf["magic"] == "SDAT"
 
 
-def test_scpost_klein_bc_sections(samples):
+def test_scpost_klein_bc_sections(samples, load_cached):
     """Klein_1 BC zones parse too (in/out/bdy)."""
     from fv.crdl.mesh_fld import parse_fld
     m = parse_fld(str(samples / "Klein_1.fld"))

@@ -113,6 +113,29 @@ def fld_golden(golden_dir) -> dict:
 
 
 @pytest.fixture(scope="session")
+def load_cached():
+    """Memoised load_file for read-only parsing tests (R127c).
+
+    Several modules parse the same real sample twice: once in a
+    load-everything test and once in that sample's own test. The fixture hands
+    back the same FieldFile for a given path, so each sample is parsed once per
+    session. Tests that MUTATE a FieldFile must keep calling load_file
+    themselves -- the cache is shared.
+    """
+    from fv.model.dataset import load_file
+
+    cache: dict = {}
+
+    def _load(path):
+        key = str(path)
+        if key not in cache:
+            cache[key] = load_file(key)
+        return cache[key]
+
+    return _load
+
+
+@pytest.fixture(scope="session")
 def fph_golden(golden_dir) -> dict:
     """tr03_9.fph distilled to a committable subset."""
     import numpy as np
