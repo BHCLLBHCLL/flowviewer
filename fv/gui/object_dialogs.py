@@ -43,9 +43,26 @@ def _scalar_vars(ff) -> list[str]:
 
 
 def _vector_vars(ff) -> list[str]:
+    """Base names whose X/Y/Z components all exist (R133).
+
+    The loaders register each *component* (VELX/VELY/VELZ) with kind
+    "vector", so listing vectors by kind offered the components themselves.
+    Picking one made attach_vector look for VELXX/VELXY/VELXZ, find nothing
+    and draw no arrows at all -- the Plane Vector tab showed a filled contour
+    and no glyphs. Offer the base name (VEL) instead, exactly like scPOST, and
+    only when all three components are present.
+    """
     if ff is None:
         return []
-    return sorted(n for n, v in ff.variables.items() if v.kind == "vector")
+    names = set(ff.variables)
+    out = []
+    for name in names:
+        if not name.endswith("X"):
+            continue
+        base = name[:-1]
+        if base and all(base + s in names for s in ("X", "Y", "Z")):
+            out.append(base)
+    return sorted(out)
 
 
 def _mat_numbers(ff) -> list[int]:
