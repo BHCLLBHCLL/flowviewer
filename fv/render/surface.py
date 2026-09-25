@@ -193,9 +193,21 @@ def attach_scalar(ff: FieldFile, pd, face_idx, var_name: str,
 def attach_vector(ff: FieldFile, pd, face_idx, base: str,
                   cell_centered: bool):
     """Attach vector field ``base``X/Y/Z to the surface."""
-    for suff in ("X", "Y", "Z"):
-        if ff.variable_array(f"{base}{suff}") is None:
-            return None
+    # R133b: same rule as the plane path (R133) -- a component name is folded
+    # back to its base, and a missing component is reported rather than
+    # silently drawing no arrows.
+    base = str(base)
+    if base.endswith(("X", "Y", "Z")) and base[:-1] and all(
+            (base[:-1] + s) in ff.variables for s in ("X", "Y", "Z")):
+        base = base[:-1]
+    missing = [s for s in ("X", "Y", "Z")
+               if ff.variable_array(f"{base}{s}") is None]
+    if missing:
+        import logging
+        logging.getLogger(__name__).warning(
+            "surface vector %r has no %s component(s): no vector arrows "
+            "are drawn", base, "/".join(missing))
+        return None
     vx = np.asarray(ff.variable_array(f"{base}X"), dtype=np.float64)
     vy = np.asarray(ff.variable_array(f"{base}Y"), dtype=np.float64)
     vz = np.asarray(ff.variable_array(f"{base}Z"), dtype=np.float64)

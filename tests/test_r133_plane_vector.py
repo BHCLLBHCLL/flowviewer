@@ -75,3 +75,28 @@ def test_r133_missing_component_reports_instead_of_drawing_nothing(caplog):
                for r in caplog.records)
     vecs = ug.GetCellData().GetVectors()
     assert vecs is None or vecs.GetNumberOfTuples() == 0
+
+def test_r133b_surface_vector_accepts_a_component_name():
+    """The surface path folds component names the same way (R133b)."""
+    from fv.render.surface import attach_vector as surface_attach
+    ff = _FF(["VELX", "VELY", "VELZ"])
+    ff.variables["VELX"].array = np.array([1.0, 2.0, 3.0])
+    ff.variables["VELY"].array = np.array([4.0, 5.0, 6.0])
+    ff.variables["VELZ"].array = np.array([7.0, 8.0, 9.0])
+    pd = vtk.vtkPolyData()
+    pd.SetPoints(vtk.vtkPoints())
+    face_idx = np.array([0, 1, 2], dtype=np.int64)
+    arr = surface_attach(ff, pd, face_idx, "VELX", False)
+    assert arr is not None and arr.GetName() == "VEL"
+
+
+def test_r133b_surface_missing_component_reports(caplog):
+    from fv.render.surface import attach_vector as surface_attach
+    ff = _FF(["VELX", "VELY", "VELZ"])
+    ff.variables.pop("VELY")
+    pd = vtk.vtkPolyData()
+    pd.SetPoints(vtk.vtkPoints())
+    with caplog.at_level("WARNING"):
+        assert surface_attach(ff, pd, np.array([0]), "VEL", False) is None
+    assert any("surface vector 'VEL' has no Y component" in r.getMessage()
+               for r in caplog.records)
