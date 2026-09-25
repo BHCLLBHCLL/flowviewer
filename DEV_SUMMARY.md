@@ -1567,4 +1567,53 @@ test_pod.py **5 passed / 21.8 s**，test_scene_snapshot.py 的 4 项现在真的
   没有证据说明它取峰值还是别的分位数，所以不擅自改成 p99。
 - 平面/曲面用 0.05、volume/isosurface 那条更早的路径用 0.03：本轮不统一（改哪一边都是行为变化），如实记录。
 - 其余矢量消费点（streamline 两处、pathline、oilflow、point/probe、cylinder）仍按字面名取分量、缺分量静默返回，
-  记为 R133d。
+  记为 R133d（已在 §36 完成）。
+---
+
+## 36. R133d：其余矢量消费点（2026-09-26）
+
+差距表 R133d 列了五处“仍按字面名取分量、缺分量静默返回”的地方。逐处核对后发现比记录更糟：
+三处在**编造数据**（用 0 补缺分量后照常积分/取值），一处**必然抛错**，只有一处是沉默的 no-op。
+
+### 36.1 逐处实测与修复
+
+| 位置 | 修前 | 修后 |
+|---|---|---|
+| fv/render/streamline.py `_numeric_trace_fld` | 缺分量用 `np.zeros()` 顶替，然后积分这个伪造出来的场 | `resolve_vector_base` 折叠 + 告警，返回 None（调用方不出 actor） |
+| fv/render/oilflow.py `_numeric_trace_fld` | 同上（`oilflow_var`） | 同上 |
+| fv/render/pathline.py `_attach_vectors` | 静默 return，轨迹继续用上一周期留在 grid 上的数组 | 返回 bool；缺分量告警，调用方 break（不再用旧场） |
+| fv/render/point.py `_probe_fld` | 缺分量报 0.0（伪造矢量） | 折叠；缺分量时不出 vector 项并告警 |
+| fv/render/point.py `_probe_vtk` | 按字面名 `GetArray(vector_var)`，分量名 → 静默无结果 | 折叠后按 `attach_vector` 实际写入的名字读 |
+| fv/render/cylinder.py（Cylinder 与 Circle 两条） | ①import 的是 `plane.vector_actor(ugrid, ff, obj, cc)`，却按 3 个参数调用 → **Vector 页一开就 TypeError**；②从未 attach 过矢量 | 改用 `surface.vector_actor`；新增 `_prepare_vector`（点数据 + `TransformAllInputVectorsOn`）把场带到切面 |
+
+### 36.2 顺带抓到的 R133c 回归（如实记录）
+
+R133c 让 `surface.vector_actor` 复用 plane 的 `vector_glyph_source(obj)`，而后者直接读 `obj.vector_type`。
+实测各对象的 `__dataclass_fields__`：PlaneObject 有 15 个 `vector_*`，SurfaceObject 只有 `vector_var`，
+Cylinder/Circle 只有 `vector_var` + `vector_scale_length`。于是 R133c 之后**任何 Surface 开矢量都会 AttributeError**，
+而当轮门禁是 1143 passed / 0 failed —— 覆盖这条路径的实文件测试当时全在 skip。
+本轮把读字段改成 getattr 默认值，并补了一条 SurfaceObject 的回归测试。
+这条教训（门禁只能证明被覆盖的路径）已写进 analysis/gap_table.md。
+
+### 36.3 测试
+
+`tests/test_r133d_vector_consumers.py`：10 项 / 6.0 s。9 项合成数据（折叠后的名字、节点值、元组数、告警文本），
+1 项真机：tr03_9.fph 上 Cylinder 的矢量 actor 必须画得出（修前该路径直接 TypeError，从未跑通过）。
+R133 系列合计 31 项通过（test_r133 / test_r133c / test_r133d）。
+
+### 36.4 门禁
+
+1153 passed / 92 skipped / 5 deselected / **0 failed，330.20 s（5:30）**；
+`scripts/gates.py all` PASS（真值断言 769/1494 = 51.5%、核心 129/198 = 65.2%、字段 313 / 86 reserved / 0 UNCONSUMED）。
+
+同一台机器、同一份快层，本次 5:30，而 §35.3 记的两次是 23:47 与 33:35 —— 差别就是外部负载：
+那两次本机有 8 个 chtMultiRegionSimpleFoam（CPU 100%），本次跑完后 `Get-Process chtMultiRegionSimpleFoam` 为 0。
+但**不能**据此说“快层提速到 5:30”：本次 92 skipped（R127d 的样例搬迁让约 86 个实文件测试被跳过），
+而 R132 记录的 588–661 s 是 6 skipped 的数字。R127c 的对比必须同时固定“负载 + skip 数”。
+
+### 36.5 未做（已记入差距表）
+
+- Surface / Cylinder / Circle 的对象模型没有 Type / Arrow Angle / Arrow Size / Thickness 字段，
+  所以这几个对象的 Vector 页没有可写入口；scPOST 对应 tab 是否提供这些控件未核对 → R133e。
+- streamline / pathline / oilflow 本轮只在合成数据上验证了解析与失败路径，真机整链路（真 ugrid + 追踪）
+  仍只有 Plane / Surface / Cylinder 三条被覆盖 → R133f。

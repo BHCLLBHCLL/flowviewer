@@ -35,9 +35,12 @@ def build_streamline_actors(ff: FieldFile, obj,
     base = getattr(obj, "vector_var", "") or ""
     if not base:
         return out
-    for suff in ("X", "Y", "Z"):
-        if ff.variable_array(f"{base}{suff}") is None:
-            return out
+    # R133d: fold a component name (VELX) and say why when a component is
+    # missing -- this used to return an empty dict in silence.
+    from .vector import resolve_vector_base
+    base, missing = resolve_vector_base(ff, base, label="streamline vector")
+    if missing or not base:
+        return out
 
     from .plane import build_ugrid
     if ugrid is None or cell_centered is None:
@@ -312,12 +315,15 @@ def _numeric_trace_fld(ff: FieldFile, obj) -> Optional["vtk.vtkPolyData"]:
     verts = np.asarray(ff.vertices, dtype=np.float64)
     if verts is None or len(verts) == 0:
         return None
-    base = getattr(obj, "vector_var", "") or ""
-    comps = []
-    for suff in ("X", "Y", "Z"):
-        a = ff.variable_array(f"{base}{suff}")
-        comps.append(np.asarray(a, dtype=np.float64) if a is not None
-                     else np.zeros(len(verts)))
+    # R133d: a missing component used to be replaced by a zero column, so the
+    # trace silently integrated a fabricated field.  Refuse instead.
+    from .vector import resolve_vector_base
+    base, missing = resolve_vector_base(ff, getattr(obj, "vector_var", "") or "",
+                                        label="streamline vector")
+    if missing or not base:
+        return None
+    comps = [np.asarray(ff.variable_array(base + suff), dtype=np.float64)
+             for suff in ("X", "Y", "Z")]
     field = np.column_stack(comps)
     color_var = (getattr(obj, "color_var", "") or "").strip()
     color_vals = None

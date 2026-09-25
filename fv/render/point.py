@@ -96,12 +96,16 @@ def _probe_fld(ff: FieldFile, pos, scalar_var: str, vector_var: str,
         if arr is not None and node < len(arr):
             out["scalar"] = (scalar_var, float(arr[node]))
     if vector_var and vector_on:
-        comps = []
-        for suff in ("X", "Y", "Z"):
-            arr = ff.variable_array(f"{vector_var}{suff}")
-            comps.append(float(arr[node]) if arr is not None and node < len(arr)
-                         else 0.0)
-        out["vector"] = (vector_var, tuple(comps))
+        # R133d: missing components used to become 0.0 (a fabricated vector);
+        # report and omit the entry instead.
+        from .vector import resolve_vector_base
+        base, missing = resolve_vector_base(ff, vector_var,
+                                            label="probe vector")
+        if not missing and base:
+            comps = [float(np.asarray(ff.variable_array(base + suff))[node])
+                     for suff in ("X", "Y", "Z")]
+            out["vector"] = (base, tuple(comps))
+        vector_var = base
     return out
 
 
@@ -125,7 +129,15 @@ def _probe_vtk(ff: FieldFile, pos, scalar_var: str, vector_var: str,
     if scalar_var and scalar_on:
         attach_scalar(ugrid, ff, scalar_var, cell_centered)
     if vector_var and vector_on:
-        attach_vector(ugrid, ff, vector_var, cell_centered)
+        # R133d: fold a component name (the attached array carries the base
+        # name) and skip the read when the field is incomplete.
+        from .vector import resolve_vector_base
+        vector_var, missing = resolve_vector_base(ff, vector_var,
+                                                  label="probe vector")
+        if missing or not vector_var:
+            vector_on = False
+        else:
+            attach_vector(ugrid, ff, vector_var, cell_centered)
 
     work = ugrid
     if cell_centered:
@@ -149,7 +161,7 @@ def _probe_vtk(ff: FieldFile, pos, scalar_var: str, vector_var: str,
         arr = pout.GetPointData().GetArray(scalar_var)
         if arr is not None:
             out["scalar"] = (scalar_var, float(arr.GetTuple1(0)))
-    if vector_var:
+    if vector_var and vector_on:
         arr = pout.GetPointData().GetArray(vector_var)
         if arr is None:
             arr = pout.GetPointData().GetVectors(vector_var)

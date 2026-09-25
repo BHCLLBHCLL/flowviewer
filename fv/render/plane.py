@@ -675,9 +675,12 @@ def vector_glyph_source(obj):
     it and no renderer read it (R133c).
     """
     thickness = float(getattr(obj, "vector_scale_thickness", 1.0) or 1.0)
-    if obj.vector_type in ("Simple", "Animation"):
+    # Only the Plane object carries the whole Vector tab: Surface, Cylinder and
+    # Circle have vector_var (+ scale_length) alone, so every knob is optional.
+    vtype = getattr(obj, "vector_type", "Standard") or "Standard"
+    if vtype in ("Simple", "Animation"):
         return vtk.vtkLineSource()
-    if obj.vector_type == "3D":
+    if vtype == "3D":
         src = vtk.vtkConeSource()
         src.SetHeight(0.4)
         src.SetRadius(0.15 * thickness)

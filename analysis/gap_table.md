@@ -17,8 +17,10 @@
 | R129b | 分析栈弱断言：spatialreport 2/9、gui_analysis 0/9、spatialreport_dmd 3/8、spatialfield 3/8 | 用 scripts/gates.py 的 _is_independent 逐项统计 | 需要数值金标 |
 | R127d | 真实样例搬迁：`D:/training/cgns/examples/` 已空（只剩一个“见E盘cradle目录.txt”），样例现在在 `E:/cradle` 与 `D:/training/cradle/laptop/...`。**约 27 个测试模块仍写旧路径**：多数带 skipif 静默跳过，test_pod.py 没有守卫，于是在 R133/R133b 那两次门禁里是 **4 个 FAIL**（本轮开场即撞上） | 本轮新增 `tests/samples.py`（按 ROOTS 依次解析，缺失返回 None），已接进 test_pod.py：5 passed / 21.8 s，实文件真的跑了。复现：`python -m pytest tests/test_pod.py -q` | 需决定“逐模块重接路径”还是“接受跳过”；重接会把 20+ 个实文件测试拉回快层，直接影响 R127c 的时间预算 |
 | R127e | 被中断的测试会话不再清理 `tests/pytest_tmp`（conftest 只在正常退出时删 session 根），会累积到数 GB | 本轮清理前实测 **20 个会话目录 / 3.3 GB**（单个最大 644 MB；三次被 kill 的门禁各留一份 ~200 MB）。复现：`Get-ChildItem tests/pytest_tmp -Directory` | 需要在 conftest 里补异常退出清理（或每次门禁开头先清），本轮只做了人工清理 |
-| R133d | 其余矢量消费点仍按字面名取分量、缺分量时静默返回：streamline（2 处）、pathline、oilflow、point/probe、cylinder | `resolve_vector_base`（fv/render/vector.py）已提供折叠+告警；本轮只接了 plane / surface / volume-isosurface 三条 | 逐处核对，一次改太多会掩盖回归 |
-| R132b | DEV_PLAN.md / function_gap_analysis.md 压缩（本表是第一步，两份历史文档未动） | 归并依据：计划 §1 轮次总表 + DEV_SUMMARY §12–§35 | 纯文档工作 |
+| R133e | Surface / Cylinder / Circle 的对象模型里根本没有 Type / Arrow Angle / Arrow Size / Thickness 字段（实测 `__dataclass_fields__`：Plane 有 15 个 `vector_*`，Surface 只有 `vector_var`，Cylinder/Circle 只有 `vector_var` + `vector_scale_length`），所以这几个对象的 Vector 页没有可写入口 | R133d 实测；scPOST 对应 tab 是否提供这些控件**未核对**（COM 仍阻塞，R117b） | 先核对 scPOST 手册/界面，再决定是否加字段；加字段就会进字段消费门禁 |
+| R133f | streamline / pathline / oilflow 只验证了解析与失败路径（合成数据），真机整链路（真 ugrid + 追踪）仍未覆盖 | R133d：真机只补了 Cylinder；这三条要么需要真实样例的追踪时间，要么需要在慢层跑 | 需要在慢层加真机追踪用例（或在 test_gui.py 里补） |
+| R133g | "向量归一化的参考幅值" 还有两处没用共享实现：fv/render/particle.py `_glyph_scale` 与 fv/render/vector.py `_glyph_scale` 都直接 `mags.max()`，NaN 会让系数变 NaN、1e20 哨兵会把箭头压成 0 | R133d 已把 `vector_peak()`（忽略 NaN 与 1e20）放进 fv/render/vector.py；这两处未接 | 三行改动，但需要重跑门禁，故单独一轮 |
+| R132b | DEV_PLAN.md / function_gap_analysis.md 压缩（本表是第一步，两份历史文档未动） | 归并依据：计划 §1 轮次总表 + DEV_SUMMARY §12–§36 | 纯文档工作 |
 | 指标 | 可复现正确率 51.4%（核心 65.2%）、无静默错误 0 unconsumed、字段贯通率 71.9% | python scripts/gates.py all；python scripts/round.py --check | 只许上升 |
 
 ## 已如实推翻的计划前提（不写假修复）
@@ -27,6 +29,14 @@ R125 的"节点量多帧"（实测 EC_* 本就单帧）、R127 的"iter_data_blo
 （实测 0.000–0.001 s/段、profile 中不出现）、R129 的"IDW 改名/标注"
 （实测各层文档与元数据都已写明 IDW，且插值场不注册进变量表）。
 三轮均以测量结论替代改动，并把测量值记录在 DEV_SUMMARY。
+
+## 门禁绿的适用范围（R133d 实测，写给下一次读表的人）
+
+R133c 让 surface 的矢量源复用 plane 的 `vector_glyph_source`，而后者直接读 `obj.vector_type`；
+只有 PlaneObject 有该字段，于是**所有 Surface 开矢量都会 AttributeError**，
+而当轮门禁仍是 1143 passed / 0 failed——覆盖这条路径的实文件测试全在 skip（R127d）。
+结论：门禁只能证明**被覆盖**的路径；报绿时必须同时报 skip 数（本轮 92），
+新增路径要么带合成单测，要么进慢层真机用例。
 
 ## 三条可测指标的复现命令
 

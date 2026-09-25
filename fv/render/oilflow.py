@@ -56,6 +56,12 @@ def build_oilflow_actor(ff: FieldFile, obj, ugrid=None,
     base = getattr(obj, "oilflow_var", "") or ""
     if not base:
         return None
+    # R133d: fold a component name and report a missing component instead of
+    # naming the glyph array after a base that does not exist.
+    from .vector import resolve_vector_base
+    base, missing = resolve_vector_base(ff, base, label="oil-flow vector")
+    if missing or not base:
+        return None
     if ugrid is None:
         from ..render.plane import build_ugrid
         ugrid, cell_centered = build_ugrid(ff, cell_mask=None)
@@ -217,12 +223,15 @@ def _numeric_trace_fld(ff: FieldFile, obj) -> Optional["vtk.vtkPolyData"]:
     verts = np.asarray(ff.vertices, dtype=np.float64)
     if verts is None or len(verts) == 0:
         return None
-    base = getattr(obj, "oilflow_var", "") or ""
-    comps = []
-    for suff in ("X", "Y", "Z"):
-        a = ff.variable_array(f"{base}{suff}")
-        comps.append(np.asarray(a, dtype=np.float64) if a is not None
-                     else np.zeros(len(verts)))
+    # R133d: a missing component used to become a zero column (a fabricated
+    # field); refuse instead of tracing it.
+    from .vector import resolve_vector_base
+    base, missing = resolve_vector_base(ff, getattr(obj, "oilflow_var", "") or "",
+                                        label="oil-flow vector")
+    if missing or not base:
+        return None
+    comps = [np.asarray(ff.variable_array(base + suff), dtype=np.float64)
+             for suff in ("X", "Y", "Z")]
     field = np.column_stack(comps)
     color_var = (getattr(obj, "oilflow_color_var", "") or "").strip()
     color_vals = None

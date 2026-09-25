@@ -296,7 +296,7 @@ def vector_actor(pd, obj, cell_centered: bool) -> Optional[vtk.vtkActor]:
     actor.SetMapper(mapper)
     from .vector import apply_vector_coloring
     apply_vector_coloring(obj, work, mapper, actor)
-    if obj.vector_type in ("Simple", "Animation"):
+    if getattr(obj, "vector_type", "Standard") in ("Simple", "Animation"):
         actor.GetProperty().SetLineWidth(max(
             1.0, float(getattr(obj, "vector_scale_thickness", 1.0) or 1.0)))
     return actor

@@ -31,6 +31,12 @@ def build_pathline_actors(obj, files: list, ff0: Optional[FieldFile] = None) -> 
     from .plane import build_ugrid
     ff = ff0 or load_file(files[0])
     var = (getattr(obj, "vector_var", "") or "").strip() or "VEL"
+    # R133d: resolve against the first file once, so a component name (VELX) is
+    # folded and an incomplete field is reported before any tracing starts.
+    from .vector import resolve_vector_base
+    var, missing = resolve_vector_base(ff, var, label="pathline vector")
+    if missing or not var:
+        return {}
     seeds = _seed_points(ff, obj)
     if seeds is None or seeds.shape[0] == 0:
         return {}
@@ -50,7 +56,10 @@ def build_pathline_actors(obj, files: list, ff0: Optional[FieldFile] = None) -> 
         ffc = ff if fi == 0 else load_file(path)
         if ffc is None:
             continue
-        _attach_vectors(ugrid, ffc, var, cc)
+        if not _attach_vectors(ugrid, ffc, var, cc):
+            # No usable velocity in this cycle: stop rather than keep tracing
+            # with the previous cycle's array (R133d).
+            break
         seg, ends, vals = _trace(ugrid, ffc, cur, steps, reverse, cc,
                                  step_len=step_len, color_var=color_var)
         if seg is None:
@@ -101,21 +110,29 @@ def _seed_points(ff, obj) -> Optional[np.ndarray]:
     return pts
 
 
-def _attach_vectors(ugrid, ff, var: str, cell_centered: bool) -> None:
-    """(Re)attach the velocity vector array for the current cycle."""
-    ff._path_var = var
-    comps = [ff.variable_array(var + c) for c in "XYZ"]
-    if not all(a is not None for a in comps):
-        return
+def _attach_vectors(ugrid, ff, var: str, cell_centered: bool) -> bool:
+    """(Re)attach the velocity vector array for the current cycle.
+
+    R133d: returns False (and reports) when the field is incomplete -- the
+    caller used to keep tracing with whatever array the previous cycle had
+    left attached.
+    """
+    from .vector import resolve_vector_base
+    base, missing = resolve_vector_base(ff, var, label="pathline vector")
+    if missing or not base:
+        return False
+    ff._path_var = base
+    comps = [ff.variable_array(base + c) for c in "XYZ"]
     v = np.column_stack(comps).astype(np.float64)
     arr = _vns.numpy_to_vtk(v, deep=True)
-    arr.SetName(var)
+    arr.SetName(base)
     if cell_centered:
         ugrid.GetCellData().AddArray(arr)
-        ugrid.GetCellData().SetActiveVectors(var)
+        ugrid.GetCellData().SetActiveVectors(base)
     else:
         ugrid.GetPointData().AddArray(arr)
-        ugrid.GetPointData().SetActiveVectors(var)
+        ugrid.GetPointData().SetActiveVectors(base)
+    return True
 
 
 def _trace(ugrid, ff, seeds, steps: int, reverse: bool,
