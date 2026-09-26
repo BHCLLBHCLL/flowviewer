@@ -1617,3 +1617,23 @@ R133 系列合计 31 项通过（test_r133 / test_r133c / test_r133d）。
   所以这几个对象的 Vector 页没有可写入口；scPOST 对应 tab 是否提供这些控件未核对 → R133e。
 - streamline / pathline / oilflow 本轮只在合成数据上验证了解析与失败路径，真机整链路（真 ugrid + 追踪）
   仍只有 Plane / Surface / Cylinder 三条被覆盖 → R133f。
+---
+
+## 37. R133g：最后两处字形比例也用共享峰值（2026-09-26）
+
+R133c 把 `vector_peak()`（忽略 NaN 与 1e20 哨兵）放进 fv/render/vector.py，但另外两处仍自己算峰值：
+
+| 位置 | 修前 | 修后 |
+|---|---|---|
+| fv/render/vector.py `_glyph_scale`（volume / isosurface 用） | `mags.max()`：一个 NaN → 系数 NaN；一个 1e20 → 参考幅值 1e20，真实箭头被压成 0 | `vector_peak(pd)` |
+| fv/render/particle.py `_glyph_scale` | 同上 | `vector_peak(polydata)` |
+
+两处的比例常数（0.03 × 模型对角线）和"没有可用数据时返回 1.0"的回退都保持不变，所以这是纯鲁棒性修复，
+不改变任何一个正常场的画面。
+
+**测试**：`tests/test_r133g_glyph_scale_peaks.py`，5 项 / 1.3 s，解析期望 = 0.03 · 对角线 / 峰值：
+NaN 与 1e20 混合场给出有限系数、没有有限数据时回退 1.0、两条路径对同一个场给出相同系数。
+
+**门禁**：1158 passed / 92 skipped / 5 deselected / **0 failed，319.15 s（5:19）**；`scripts/gates.py all` PASS
+（真值断言 773/1499 = 51.6%、核心 129/198 = 65.2%、字段 313 / 86 reserved / 0 UNCONSUMED）。
+与 §36.4 的 330.20 s 同一量级：那一次的快是“机器空了”，不是改动带来的。

@@ -240,6 +240,12 @@ def _probe_vector(ff, pd, base, source_grid, cell_centered):
 
 
 def _glyph_scale(pd, scale_length: float = 1.0) -> float:
+    """Glyph factor putting the longest vector at 3% of the model diagonal.
+
+    R133g: the reference peak comes from :func:`vector_peak`, which ignores
+    NaN and the 1e20 "undefined" sentinel.  A plain mags.max() returned NaN
+    (the factor became NaN) or 1e20 (every arrow collapsed to nothing).
+    """
     vec = pd.GetPointData().GetVectors()
     if vec is None:
         return 1.0
@@ -248,9 +254,7 @@ def _glyph_scale(pd, scale_length: float = 1.0) -> float:
         return 1.0
     b = pts.GetBounds()
     diag = np.sqrt((b[1] - b[0]) ** 2 + (b[3] - b[2]) ** 2 + (b[5] - b[4]) ** 2)
-    mags = _vns.vtk_to_numpy(vec)
-    mags = np.linalg.norm(mags, axis=1) if mags.ndim > 1 else mags
-    peak = float(mags.max()) if mags.size else 1.0
+    peak = vector_peak(pd)
     if peak <= 0:
         return 1.0
     return 0.03 * diag / peak * scale_length

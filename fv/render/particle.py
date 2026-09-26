@@ -240,18 +240,22 @@ def _glyph_actor(polydata, obj) -> Optional[vtk.vtkActor]:
 
 
 def _glyph_scale(polydata) -> float:
+    """Scale so the longest vector is ~3% of the model diagonal.
+
+    R133g: the peak comes from the shared :func:`vector_peak` -- a single NaN
+    used to make the factor NaN, and a 1e20 "undefined" sentinel collapsed
+    every arrow to nothing.
+    """
     vec = polydata.GetPointData().GetVectors()
     if vec is None:
         return 1.0
-    # Bounds-based: scale so longest vector is ~3% of the model diagonal
     pts = polydata.GetPoints()
     if pts is None or pts.GetNumberOfPoints() < 2:
         return 1.0
     b = pts.GetBounds()
     diag = np.sqrt((b[1] - b[0]) ** 2 + (b[3] - b[2]) ** 2 + (b[5] - b[4]) ** 2)
-    mags = np.linalg.norm(
-        _vns.vtk_to_numpy(vec), axis=1) if vec.GetNumberOfTuples() else np.array([1.0])
-    peak = float(mags.max()) if mags.size else 1.0
+    from .vector import vector_peak
+    peak = vector_peak(polydata)
     if peak <= 0:
         return 1.0
     return 0.03 * diag / peak
