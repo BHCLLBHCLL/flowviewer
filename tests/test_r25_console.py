@@ -6,10 +6,11 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
 import pytest  # noqa: E402
+from samples import sample  # noqa: E402
 
-FPH = r"D:\training\cgns\examples\tr03_9.fph"
+_FPH = sample("tr03_9.fph")
+FPH = str(_FPH) if _FPH else r"D:\training\cgns\examples\tr03_9.fph"
 _HAS_FPH = Path(FPH).exists()
 
 

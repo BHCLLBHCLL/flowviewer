@@ -11,8 +11,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
 import pytest  # noqa: E402
+from samples import sample  # noqa: E402
 
 try:
     import vtk
@@ -120,7 +120,8 @@ def test_scene_actor_names_consistent_across_viewports():
 
 # ── S2 GUI wiring (offscreen Qt + real VTK render window) ─────────────────
 
-_FPH = r"D:\training\cgns\examples\tr03_9.fph"
+__FPH = sample("tr03_9.fph")
+_FPH = str(__FPH) if __FPH else r"D:\training\cgns\examples\tr03_9.fph"
 
 try:
     import os as _os

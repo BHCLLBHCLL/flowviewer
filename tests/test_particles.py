@@ -7,8 +7,10 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from samples import sample  # noqa: E402
 
-SAMPLE_FPH = Path(r"D:\training\cgns\examples\tr03_9.fph")
+_SAMPLE_FPH = sample("tr03_9.fph")
+SAMPLE_FPH = _SAMPLE_FPH if _SAMPLE_FPH else Path(r"D:\training\cgns\examples\tr03_9.fph")
 
 
 def _section(name: str, *payloads: bytes) -> bytes:

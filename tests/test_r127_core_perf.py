@@ -23,14 +23,16 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
 import fv.crdl.core as core  # noqa: E402
 import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 from fv.crdl.mesh_fld import _normalise_face_nodes  # noqa: E402
+from samples import sample  # noqa: E402
 
-TR03 = Path(r"D:\training\cgns\examples\tr03_9.fph")
-FLD = Path(r"D:\training\cgns\examples\ex1_100.fld")
+_TR03 = sample("tr03_9.fph")
+TR03 = _TR03 if _TR03 else Path(r"D:\training\cgns\examples\tr03_9.fph")
+_FLD = sample("ex1_100.fld")
+FLD = _FLD if _FLD else Path(r"D:\training\cgns\examples\ex1_100.fld")
 BIG_FLD = Path(r"D:\training\cgns\flddecoding\tests\ex2_e_67.fld")
 
 

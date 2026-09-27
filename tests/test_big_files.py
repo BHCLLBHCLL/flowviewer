@@ -5,15 +5,20 @@ Marked ``slow``; run explicitly with ``pytest -m slow``.
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-BIG_GPH = [
-    Path(r"D:\training\cgns\examples\box.gph"),
-    Path(r"D:\training\cgns\examples\laptop_simplified_more_regions_v6.gph"),
-]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from samples import sample  # noqa: E402
+
+#: R127d: the samples moved; resolve them at run time instead of skipping.
+BIG_GPH = [p for p in (sample("box.gph"),
+                       sample("laptop_simplified_more_regions_v6.gph"))
+           if p is not None]
 
 
 @pytest.mark.slow

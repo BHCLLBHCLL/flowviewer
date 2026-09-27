@@ -1678,3 +1678,52 @@ deselected 从 5 增到 9 就是本模块新增的 4 项 slow 用例（默认层
 实测：`steps_per_cycle=5` 时一段轨迹仍有 2002 个点（vtkStreamTracer 的默认 2000 步上限），
 即 `steps` 实际只起“≥1”的作用。改它要先定语义（是否为 steps × step_size），且会改变路径线外观，
 所以单独一轮 → R133h。
+---
+
+## 39. R127d：把静默跳过的 85 个实文件测试接回来（2026-09-26）
+
+差距表 R127d 记录：样例从 `D:/training/cgns/examples` 搬到了 `E:/cradle`，约 27 个模块仍写旧路径，
+于是快层有 **92 skipped**——其中大部分是 R114–R128 建立的实文件验证（R132 记录里它们还在跑：1208 passed / 6 skipped）。
+
+### 39.1 做了什么
+
+1. `tests/samples.py`（R133c 建的）作为解析器：按 ROOTS 依次找 `sample(name)`，缺失返回 None；
+2. 两个 codemod 把 30 个测试模块里的路径常量（`NAME = r"D:\training\cgns\examples\..."` 与 `NAME = Path(r"...")`）
+   改成 `_NAME = sample("...")` + `NAME = str(_NAME) if _NAME else <旧路径>`，保留原来的 skipif 语义
+   （样例真的不在时仍然 skip，而不是失败）；
+3. `test_gui.py` 里三个内联字面量（box_ansa_gph.cgns、laptop_thermal_steady_scaled_v3_10.fph）提取成模块常量；
+4. `test_big_files.py`（慢层）改成只保留存在的样例。
+
+codemod 自己踩的坑如实记下：第一版把 `box\box.pph` 写进普通字符串，`\b` 成了退格符，
+test_pph 的 “box.pph sample not present” 恒为真（已改成 `box/box.pph`）；另一版在没有 `sys.path.insert` 的
+文件上插入 import 时抛 ValueError，写盘前就中止，没有留下半改状态。
+
+### 39.2 实测（同一台空载机器）
+
+| | 恢复前（R133g 门禁） | 恢复后（本轮最终门禁） |
+|---|---|---|
+| 结果 | 1158 passed / **92 skipped** / 0 failed | **1244 passed / 6 skipped** / 0 failed |
+| 耗时 | 306.53 s（5:06） | 563.87 s（9:23） |
+
+（第一次门禁是 1243 / 7；修掉上面那个退格符后 test_pph 又多跑 1 项、少 1 个 skip。）
+
+也就是 **85 个测试恢复了运行**（绝大多数是实文件用例），代价 **+261 s（+4:21）**，全部通过。
+这些正是 R114–R128 建立的“真值验证”层，过去两周一直在 skip。
+
+### 39.3 未解决（记 R127f）
+
+ROOTS 仍是本机绝对路径：换机器或 CI 上这 85 个测试还会 skip。要闭环得让样例位置可配置
+（环境变量或入仓小样例），记为 R127f。
+
+### 39.4 门禁
+**门禁**（`python -m pytest tests -q --ignore=tests/test_gui.py --durations=15 -rs`）：
+**1244 passed / 6 skipped / 9 deselected / 0 failed，563.87 s（9:23）**；`scripts/gates.py all` PASS
+（真值断言 777/1503 = 51.7%、核心 129/198 = 65.2%、字段 313 / 86 reserved / 0 UNCONSUMED）。
+
+剩余 6 个 skip 都是真缺样例或环境限制，语义未改：test_marc_t16 ×2（Mentat 样例不在）、
+test_r113b_differences ×3（数据本身“非横向”）、test_r31_stream ×1（需要显示器）。
+
+顺带给 R127c 一个新事实：样例接回来之后慢测试榜首换人了——test_r118 的体渲染 32.3 s、
+test_r119 两项各 32 s、test_r26_plane 的 LRU 用例 17.1 s、test_r116 门禁用例三项 9–17 s。
+也就是说“快层慢”现在同时来自两处：实文件渲染/切面（本轮接回）与分析报告栈（§35.3 量的 test_r57–r67）。
+下一轮提速两边都得看。

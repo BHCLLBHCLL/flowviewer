@@ -22,8 +22,8 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
 import pytest
+from samples import sample  # noqa: E402
 
 vtk = pytest.importorskip("vtk")
 
@@ -31,8 +31,10 @@ from fv.model import dataset  # noqa: E402
 from fv.model import objects as O  # noqa: E402
 from fv.render import scene as S  # noqa: E402
 
-FPH = r"D:\training\cgns\examples\tr03_9.fph"
-FLD = r"D:\training\cgns\examples\ex1_100.fld"
+_FPH = sample("tr03_9.fph")
+FPH = str(_FPH) if _FPH else r"D:\training\cgns\examples\tr03_9.fph"
+_FLD = sample("ex1_100.fld")
+FLD = str(_FLD) if _FLD else r"D:\training\cgns\examples\ex1_100.fld"
 
 
 def _make(kind):

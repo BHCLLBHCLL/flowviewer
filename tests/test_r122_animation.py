@@ -16,8 +16,8 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
 import pytest
+from samples import sample  # noqa: E402
 
 vtk = pytest.importorskip("vtk")
 
@@ -26,7 +26,8 @@ from fv.model import objects as O  # noqa: E402
 from fv.render import scene as S  # noqa: E402
 from fv.render.plane import automove_coordinate  # noqa: E402
 
-FPH = r"D:\training\cgns\examples\tr03_9.fph"
+_FPH = sample("tr03_9.fph")
+FPH = str(_FPH) if _FPH else r"D:\training\cgns\examples\tr03_9.fph"
 
 
 def _plane() -> O.PlaneObject:

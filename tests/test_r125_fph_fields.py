@@ -25,16 +25,18 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
 import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 from fv.crdl.fields import (  # noqa: E402
     fph_unparsed_fields,
     parse_fph_flow_solution,
 )
+from samples import sample  # noqa: E402
 
-TR03 = Path(r"D:\training\cgns\examples\tr03_9.fph")
-EXPRE = Path(r"D:\training\cgns\examples\exPRE04-1_37.fph")
+_TR03 = sample("tr03_9.fph")
+TR03 = _TR03 if _TR03 else Path(r"D:\training\cgns\examples\tr03_9.fph")
+_EXPRE = sample("exPRE04-1_37.fph")
+EXPRE = _EXPRE if _EXPRE else Path(r"D:\training\cgns\examples\exPRE04-1_37.fph")
 
 
 # ---------------------------------------------------------------------------

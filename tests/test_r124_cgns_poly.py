@@ -25,17 +25,19 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
 import numpy as np  # noqa: E402
 import pytest  # noqa: E402
+from samples import sample  # noqa: E402
 
 h5py = pytest.importorskip("h5py")
 
 from fv.crdl.cgns import _location_of, read_cgns  # noqa: E402
 
 #: Real Cradle samples used by the acceptance tests (skipped when absent).
-TR03 = Path(r"D:\training\cgns\examples\tr03_9_orig.cgns")
-EXPRE = Path(r"D:\training\cgns\examples\exPRE04-1_37.cgns")
+_TR03 = sample("tr03_9_orig.cgns")
+TR03 = _TR03 if _TR03 else Path(r"D:\training\cgns\examples\tr03_9_orig.cgns")
+_EXPRE = sample("exPRE04-1_37.cgns")
+EXPRE = _EXPRE if _EXPRE else Path(r"D:\training\cgns\examples\exPRE04-1_37.cgns")
 
 #: Measured from the same-source .fph files (see the module docstring).
 TR03_FPH_NV, TR03_FPH_NC, TR03_FPH_NF = 221786, 63697, 323827

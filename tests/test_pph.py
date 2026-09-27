@@ -10,9 +10,11 @@ import zipfile
 from pathlib import Path
 
 import pytest
+from samples import sample  # noqa: E402
 
 PPH_BOX2 = Path(r"D:\training\cgns\pphdecoding\box2.pph")
-PPH_BOX = Path(r"D:\training\cgns\examples\box\box.pph")
+_PPH_BOX = sample("box/box.pph")
+PPH_BOX = _PPH_BOX if _PPH_BOX else Path(r"D:\training\cgns\examples\box\box.pph")
 
 
 @pytest.fixture(scope="module")

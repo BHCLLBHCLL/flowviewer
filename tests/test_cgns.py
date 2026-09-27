@@ -6,12 +6,13 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
 import numpy as np
 import pytest
+from samples import sample  # noqa: E402
 
 CGNS = r"D:\training\cgns\CGNS-4.5.1\src\tests\data\cgnslib_vers-4400.cgns"
-FPH = r"D:\training\cgns\examples\tr03_9.fph"
+_FPH = sample("tr03_9.fph")
+FPH = str(_FPH) if _FPH else r"D:\training\cgns\examples\tr03_9.fph"
 
 
 @pytest.mark.skipif(not Path(CGNS).exists(), reason="sample not present")

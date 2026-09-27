@@ -20,12 +20,13 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
 import numpy as np  # noqa: E402
 import pytest  # noqa: E402
+from samples import sample  # noqa: E402
 
 FLD = Path(r"D:\training\cgns\flddecoding\tests\ex2_e_67.fld")
-CGNS = Path(r"D:\training\cgns\examples\tr03_9_orig.cgns")
+_CGNS = sample("tr03_9_orig.cgns")
+CGNS = _CGNS if _CGNS else Path(r"D:\training\cgns\examples\tr03_9_orig.cgns")
 
 #: digest of the (cell id, weights) results for the 400 seeded query points
 #: below, recorded with the pre-R128 full-scan locate (409188 cells)

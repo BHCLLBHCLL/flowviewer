@@ -8,8 +8,10 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from samples import sample  # noqa: E402
 
-FPH = Path(r"D:\training\cgns\examples\tr03_9.fph")
+_FPH = sample("tr03_9.fph")
+FPH = _FPH if _FPH else Path(r"D:\training\cgns\examples\tr03_9.fph")
 
 
 @pytest.fixture(scope="module")

@@ -11,11 +11,12 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
 import numpy as np
 import pytest
+from samples import sample  # noqa: E402
 
-FPH = r"D:\training\cgns\examples\tr03_9.fph"
+_FPH = sample("tr03_9.fph")
+FPH = str(_FPH) if _FPH else r"D:\training\cgns\examples\tr03_9.fph"
 
 from fv.model.objects import PlaneObject  # noqa: E402
 from fv.render.plane import (  # noqa: E402

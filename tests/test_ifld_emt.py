@@ -6,9 +6,11 @@ import shutil
 from pathlib import Path
 
 import pytest
+from samples import sample  # noqa: E402
 
 FLD_EX1 = Path(r"D:\training\cgns\flddecoding\tests\ex1_e_from_sxemt_run.fld")
-FPH_TR03 = Path(r"D:\training\cgns\examples\tr03_9.fph")
+_FPH_TR03 = sample("tr03_9.fph")
+FPH_TR03 = _FPH_TR03 if _FPH_TR03 else Path(r"D:\training\cgns\examples\tr03_9.fph")
 SCTETA = Path(r"C:\Program Files\Cradle\CradleCFD2025.2\Programs_x64")
 SCTETA = SCTETA / "Samples_POST" / "FLD" / "SCTeta_tutorial.fld"
 

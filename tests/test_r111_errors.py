@@ -18,12 +18,14 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
 import numpy as np
 import pytest
+from samples import sample  # noqa: E402
 
-FPH = r"D:\training\cgns\examples\tr03_9.fph"
-GPH = r"D:\training\cgns\examples\tr03.gph"
+_FPH = sample("tr03_9.fph")
+FPH = str(_FPH) if _FPH else r"D:\training\cgns\examples\tr03_9.fph"
+_GPH = sample("tr03.gph")
+GPH = str(_GPH) if _GPH else r"D:\training\cgns\examples\tr03.gph"
 
 def _crdl_container(payload: bytes) -> bytes:
     """Minimal CRDL-FLD file: 8-byte header, magic, then *payload*."""

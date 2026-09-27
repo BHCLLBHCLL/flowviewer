@@ -19,13 +19,14 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
 import numpy as np
 import pytest
 from fv.crdl.mesh_fld import _decode_name, _looks_like_text  # noqa: E402
 from fv.model import dataset  # noqa: E402
+from samples import sample  # noqa: E402
 
-FLD = r"D:\training\cgns\examples\ex1_100.fld"
+_FLD = sample("ex1_100.fld")
+FLD = str(_FLD) if _FLD else r"D:\training\cgns\examples\ex1_100.fld"
 
 
 def test_utf8_names_decode_instead_of_replacing():

@@ -6,10 +6,11 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
 from fv.crdl import mesh_gph  # noqa: E402
+from samples import sample  # noqa: E402
 
-SAMPLE_FPH = r"D:\training\cgns\examples\tr03_9.fph"
+_SAMPLE_FPH = sample("tr03_9.fph")
+SAMPLE_FPH = str(_SAMPLE_FPH) if _SAMPLE_FPH else r"D:\training\cgns\examples\tr03_9.fph"
 
 
 @pytest.mark.skipif(not Path(SAMPLE_FPH).exists(), reason="sample fph not present")
@@ -46,7 +47,8 @@ def test_parse_ls_nodes_none_for_empty():
     assert xyz is None
 
 
-SAMPLE_GPH = r"D:\training\cgns\examples\tr03.gph"
+_SAMPLE_GPH = sample("tr03.gph")
+SAMPLE_GPH = str(_SAMPLE_GPH) if _SAMPLE_GPH else r"D:\training\cgns\examples\tr03.gph"
 
 
 @pytest.mark.skipif(not Path(SAMPLE_FPH).exists(), reason="sample fph not present")

@@ -6,11 +6,18 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
 import pytest  # noqa: E402
+from samples import sample  # noqa: E402
 
-FPH = r"D:\training\cgns\examples\tr03_9.fph"
+_FPH = sample("tr03_9.fph")
+FPH = str(_FPH) if _FPH else r"D:\training\cgns\examples\tr03_9.fph"
 FLD = r"D:\training\cgns\flddecoding\tests\ex1_e_from_sxemt_run.fld"
+#: R127d: samples the GUI tests used to name inline (they moved with the rest)
+_ANSA = sample("box_ansa_gph.cgns")
+ANSA_CGNS = str(_ANSA) if _ANSA else r"D:\training\cgns\examples\box_ansa_gph.cgns"
+_V3 = sample("laptop_thermal_steady_scaled_v3_10.fph")
+V3_FPH = str(_V3) if _V3 else (
+    r"D:\training\cgns\examples\laptop_thermal_steady_scaled_v3_10.fph")
 
 try:
     from PyQt5.QtWidgets import QApplication
@@ -236,12 +243,12 @@ def test_loader_registry_registered():
     assert "gph" in loaders.loaders()
     assert "cgns" in loaders.loaders()  # P1.2: CGNS reader implemented
     assert loaders.can_load(FPH) is True
-    assert loaders.can_load(r"D:\training\cgns\examples\box_ansa_gph.cgns") is True
+    assert loaders.can_load(ANSA_CGNS) is True
 
 def test_cgns_detection_probe():
     """CGNS files are flagged specifically, not as 'unknown' (G-gap)."""
     from fv.model import loaders
-    cgns = r"D:\training\cgns\examples\box_ansa_gph.cgns"
+    cgns = ANSA_CGNS
     if not Path(cgns).exists():
         pytest.skip("no cgns sample")
     assert loaders.probe_format(cgns).startswith("cgns")
@@ -253,8 +260,7 @@ def test_open_dialog_is_loadable_honest(qapp):
     from fv.gui.dialogs import OpenDialog
     dlg = OpenDialog()
     assert dlg.is_loadable(FPH) is True
-    assert dlg.is_loadable(
-        r"D:\training\cgns\examples\box_ansa_gph.cgns") is True
+    assert dlg.is_loadable(ANSA_CGNS) is True
 
 def test_options_qsettings_headless():
     """Options facade stores/recalls values even without a real store."""
@@ -2942,7 +2948,7 @@ def test_fileset_scan_sequence(tmp_path):
 def test_fileset_scans_real_v3_sequence():
     """Real laptop_thermal_steady_scaled_v3 sequence exposes 3 steps."""
     from fv.model.fileset import scan_sequence
-    v3 = r"D:\training\cgns\examples\laptop_thermal_steady_scaled_v3_10.fph"
+    v3 = V3_FPH
     if not Path(v3).exists():
         pytest.skip("sequence samples not present")
     fs = scan_sequence(v3)
