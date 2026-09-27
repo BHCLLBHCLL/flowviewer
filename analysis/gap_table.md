@@ -19,6 +19,7 @@
 | R127e | 被中断的测试会话不再清理 `tests/pytest_tmp`（conftest 只在正常退出时删 session 根），会累积到数 GB | 本轮清理前实测 **20 个会话目录 / 3.3 GB**（单个最大 644 MB；三次被 kill 的门禁各留一份 ~200 MB）。复现：`Get-ChildItem tests/pytest_tmp -Directory` | 需要在 conftest 里补异常退出清理（或每次门禁开头先清），本轮只做了人工清理 |
 | R133e | Surface / Cylinder / Circle 的对象模型里根本没有 Type / Arrow Angle / Arrow Size / Thickness 字段（实测 `__dataclass_fields__`：Plane 有 15 个 `vector_*`，Surface 只有 `vector_var`，Cylinder/Circle 只有 `vector_var` + `vector_scale_length`），所以这几个对象的 Vector 页没有可写入口 | R133d 实测；scPOST 对应 tab 是否提供这些控件**未核对**（COM 仍阻塞，R117b） | 先核对 scPOST 手册/界面，再决定是否加字段；加字段就会进字段消费门禁 |
 | R133h | pathline.py `_trace` 把"每周期步数"当"最大传播长度"用：`SetMaximumPropagation(max(1, steps))`，单位是模型长度；实测 steps_per_cycle=5 时一段轨迹仍走了 2002 个点（vtkStreamTracer 默认上限 2000 步），steps 实际只起"≥1"的作用 | R133f 真机实测（tr03_9.fph：5 步 → 2002 点，线段从 (0.0250, 0.03702, -0.00502) 到 (0.0254, 0.03510, -0.00875)） | 需先定语义（steps × step_size 作为传播长度？），改它会改变路径线外观 |
+| R127i | 体积重采样可再快约 10×：把多面体先四面体化再 `vtkResampleToImage`，实测 34.25 s → 3.29 s（tr03_9.fph，63³ 采样点） | R127c 第二步实测；但两条路径的图像 max\|diff\| = 319.4，属改变画面 | 需要先证明视觉等价（或作为"高精度/快速"选项暴露给用户），再决定是否切换默认 |
 | R132b | DEV_PLAN.md / function_gap_analysis.md 压缩（本表是第一步，两份历史文档未动） | 归并依据：计划 §1 轮次总表 + DEV_SUMMARY §12–§36 | 纯文档工作 |
 | 指标 | 可复现正确率 51.4%（核心 65.2%）、无静默错误 0 unconsumed、字段贯通率 71.9% | python scripts/gates.py all；python scripts/round.py --check | 只许上升 |
 

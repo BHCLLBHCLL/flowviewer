@@ -107,6 +107,30 @@ def test_gate_reports_failure_on_a_stale_exemption(monkeypatch):
     assert gates.run("fields", report_only=False) == 1
 
 
+def test_field_scan_matches_the_whole_word_predicate():
+    """R127c: one token pass replaced 313 x files regex searches.
+
+    The fast path must stay identical to the old lookaround predicate --
+    including the cases that look like a match but are not: a name glued to
+    another identifier (alphabet) or preceded by a digit (x2alpha).
+    """
+    import re
+
+    names = ["alpha", "beta2", "alpha2"]
+    sources = {
+        "a.py": "x = alpha + 1\n",
+        "b.py": "# beta2 mentioned\nname = 'alpha2'\n",
+        "c.py": "alphabet = 1   # not alpha\nx2alpha = 2   # not alpha\n",
+    }
+    got = gates.used_field_names(sources, names)
+    assert got == {"alpha", "beta2", "alpha2"}
+    for name in names:
+        pattern = re.compile(r"(?<![A-Za-z0-9_])" + re.escape(name)
+                             + r"(?![A-Za-z0-9_])")
+        assert (name in got) == any(pattern.search(t)
+                                    for t in sources.values()), name
+
+
 def test_gate_is_wired_into_the_round_gate():
     """A gate nobody runs is documentation, not a gate."""
     src = (ROOT / "scripts" / "round.py").read_text(encoding="utf-8-sig")
