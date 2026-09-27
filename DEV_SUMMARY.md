@@ -1727,3 +1727,51 @@ test_r113b_differences ×3（数据本身“非横向”）、test_r31_stream ×
 test_r119 两项各 32 s、test_r26_plane 的 LRU 用例 17.1 s、test_r116 门禁用例三项 9–17 s。
 也就是说“快层慢”现在同时来自两处：实文件渲染/切面（本轮接回）与分析报告栈（§35.3 量的 test_r57–r67）。
 下一轮提速两边都得看。
+---
+
+## 40. R127c 第二步：体积重采样被记忆化（2026-09-26）
+
+R127d 把实文件测试接回来后快层是 563.87 s，慢测试榜首是三项体积渲染
+（test_r118 的 FPH 体积、test_r119 的两项体积场景，各约 32 s）。先量后改：
+
+### 40.1 实测（tr03_9.fph，63697 个多面体单元）
+
+| 步骤 | 耗时 |
+|---|---|
+| load_file | 0.62 s |
+| build_ugrid（R19 已记忆化，重建 0.00 s） | 3.08 s |
+| **build_volume_actors** | **29.4 s**（cProfile：`vtkResampleToImage.Update()` 约 32 s，`vtkCellDataToPointData.Update()` 只有 0.04 s） |
+| 200×150 离屏渲染并数像素 | 0.67 s |
+
+进一步实验：把 63697 个多面体四面体化后再重采样，**34.25 s → 3.29 s**
+（四面体的点定位远比 ConvexPointSet 便宜），但两条路径的图像 max|diff| = 319.4，
+属“改变画面”而不是纯提速，本轮**不做**（记为 R127i：可作为可选加速，先要证明视觉等价）。
+
+### 40.2 改了什么
+
+`fv/render/volume.py` 新增 `_scalar_fingerprint` 与 `_resampled_image`：重采样结果按
+`(id(ugrid), var, dim, 标量 size/sum/max)` 记忆化，LRU 上限 4。键里带标量内容指纹是必须的——
+时间线切周期会改写同一个 grid 上的数组，只用 (grid, var, dim) 会返回过期图像（有测试专门钉这一点）。
+NaN 钳位在写入缓存前完成，命中时不再重复；`_resampled_volume_actor` 只保留传输函数与 mapper 的重建（毫秒级）。
+
+同一对象连建 3 次：**33.91 s / 0.01 s / 0.01 s**；改掉标量值后 → 30.53 s（正确失效）。
+对 GUI 的意义更大：调一次不透明度不再冻结 30 秒。
+
+### 40.3 测试侧
+
+* 新增 `tests/test_r127c_volume_resample_cache.py`（6 项 / 1.6 s）：复用同一图像对象、改值必须失效、
+  dim 参与键、LRU 有界、缺标量返回 None、`_volume_actor` 两次构建共用图像；
+* test_r118 / test_r119 改用 conftest 的 session 级 `load_cached`——记忆化的 ugrid 与重采样图像都以
+  grid 对象为键，**共享 FieldFile 才能命中**；
+* test_r118 的体积断言原来把 `_nonblack(actor)` 调了两次（断言 + 失败消息），改成只渲染一次。
+
+模块实测：test_r118 36.1 s（其中 32 s 是首次体积）、test_r119 38.3 s（第二次体积 0.22 s 命中）。
+
+### 40.4 门禁
+**门禁**：**1250 passed / 6 skipped / 9 deselected / 0 failed，530.90 s（8:50）**；`scripts/gates.py all` PASS
+（真值断言 779/1509 = 51.6%、核心 131/204 = 64.2%、字段 313 / 86 reserved / 0 UNCONSUMED）。
+对照上一轮的 563.87 s 少了 33 s。两个体积模块单独跑同口径：**46.22 s**，其中 test_r118 的 39.11 s 是
+整个会话唯一一次重采样，其余体积构建都是 0.27–0.29 s；改前是两个模块各付一次（36 + 38 ≈ 74 s）。
+
+注意：同一次重采样在门禁里显示 59.37 s、单独跑 39.11 s——单次秒数随机器负载在 32–59 s 波动，
+所以本轮的结论按**次数**记（3 次 → 1 次），不按单次秒数。

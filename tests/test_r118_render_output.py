@@ -16,7 +16,6 @@ from samples import sample  # noqa: E402
 
 vtk = pytest.importorskip("vtk")
 
-from fv.model import dataset  # noqa: E402
 from fv.model import objects as O  # noqa: E402
 from fv.render import information as INF  # noqa: E402
 from fv.render import particle as PA  # noqa: E402
@@ -54,9 +53,12 @@ def _nonblack(actor) -> int:
 
 
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
-def test_fld_volume_actually_renders():
+def test_fld_volume_actually_renders(load_cached):
     """Hex cells went to the tetra-only ray-cast mapper: 0 pixels."""
-    ff = dataset.load_file(FLD)
+    # R127c: one parse per session -- the memoised ugrid and the resampled
+    # volume image are keyed by the grid object, so sharing the FieldFile is
+    # what makes the expensive volume build hit its cache.
+    ff = load_cached(FLD)
     ug, cc = P.build_ugrid(ff)
     obj = O.VolumeObject()
     obj.show_scalar = True
@@ -64,14 +66,19 @@ def test_fld_volume_actually_renders():
     actors = V.build_volume_actors(ff, obj, ugrid=ug, cell_centered=cc)
     assert actors, "no volume actor was built"
     for name, actor in actors.items():
-        assert _nonblack(actor) > 100, "%s rendered %d pixels" % (
-            name, _nonblack(actor))
+        # render once: the message used to call _nonblack() a second time,
+        # which doubled the cost of this test (R127c)
+        lit = _nonblack(actor)
+        assert lit > 100, "%s rendered %d pixels" % (name, lit)
 
 
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
-def test_fld_sentinel_values_become_nan():
+def test_fld_sentinel_values_become_nan(load_cached):
     """1e20 undefined markers used to poison every derived range."""
-    ff = dataset.load_file(FLD)
+    # R127c: one parse per session -- the memoised ugrid and the resampled
+    # volume image are keyed by the grid object, so sharing the FieldFile is
+    # what makes the expensive volume build hit its cache.
+    ff = load_cached(FLD)
     pres = np.asarray(ff.variable_array("PRES"), dtype=float)
     assert np.isnan(pres).any(), "the fixture has no sentinel entries"
     assert np.nanmax(np.abs(pres)) < 1e10, "a sentinel survived"
@@ -79,9 +86,12 @@ def test_fld_sentinel_values_become_nan():
 
 
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
-def test_surface_trim_keeps_the_requested_half():
+def test_surface_trim_keeps_the_requested_half(load_cached):
     """Clipping on the surface own bbox left 0 of 5556 faces."""
-    ff = dataset.load_file(FLD)
+    # R127c: one parse per session -- the memoised ugrid and the resampled
+    # volume image are keyed by the grid object, so sharing the FieldFile is
+    # what makes the expensive volume build hit its cache.
+    ff = load_cached(FLD)
     obj = O.SurfaceObject()
     obj.selected_regions = []
     pd = SU.build_surface_polydata(ff, obj)[0]
@@ -115,9 +125,9 @@ def test_surface_trim_keeps_the_requested_half():
 
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
-def test_particle_points_are_drawable():
+def test_particle_points_are_drawable(load_cached):
     """Loose vtkPoints are not cells, so the cloud rendered nothing."""
-    ff = dataset.load_file(FPH)
+    ff = load_cached(FPH)
     obj = O.ParticleObject()
     actors = PA.build_particle_actors(obj, ff)
     assert actors, "no particle actor was built"
@@ -130,9 +140,9 @@ def test_particle_points_are_drawable():
 
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
-def test_information_probe_covers_the_whole_domain():
+def test_information_probe_covers_the_whole_domain(load_cached):
     """A vertex index was used for cell arrays, silently returning {}."""
-    ff = dataset.load_file(FPH)
+    ff = load_cached(FPH)
     verts = np.asarray(ff.vertices, dtype=np.float64)
     n_vars = len(ff.variables)
     for vtx in (10, 50_000, 200_000):
@@ -143,9 +153,9 @@ def test_information_probe_covers_the_whole_domain():
 
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
-def test_fph_volume_still_renders():
+def test_fph_volume_still_renders(load_cached):
     """The R118 dispatch change must not regress the polyhedral path."""
-    ff = dataset.load_file(FPH)
+    ff = load_cached(FPH)
     ug, cc = P.build_ugrid(ff)
     obj = O.VolumeObject()
     obj.show_scalar = True

@@ -6,6 +6,7 @@ volume with an optional vector glyph overlay. Sampling/resolution is
 respected by decimating the cell list for large grids (``obj.sampling``).
 """
 
+from collections import OrderedDict
 from typing import Optional
 
 import numpy as np
@@ -254,17 +255,49 @@ def _raycast_volume_actor(ugrid, var: str, obj, opacity: float):
     return vol
 
 
-def _resampled_volume_actor(ugrid, var: str, obj, opacity: float):
-    """Polyhedral volume path (P1.1): resample to a vtkImageData and
-    render with vtkSmartVolumeMapper.
+#: R127c: resampled images keyed by (grid identity, var, dim, scalar content).
+#: The resample itself costs ~32 s on the real 64k-polyhedron sample, and it
+#: does not depend on any display parameter, so rebuilding a volume actor for a
+#: colour/opacity change used to re-pay the whole cost.
+_RESAMPLE_CACHE: "OrderedDict[tuple, object]" = OrderedDict()
+_RESAMPLE_CACHE_MAX = 4
 
-    ``obj.sampling`` trades resolution for speed (1 → 64³, 2 → 32³ …).
-    Cell-centred scalars are converted to point data before resampling;
-    out-of-domain NaN samples are clamped to the scalar minimum.
+
+def _scalar_fingerprint(ugrid, var: str):
+    """(size, sum, max) of the scalar -- cheap and content-based.
+
+    A plain (id(ugrid), var, dim) key would hand back a stale image whenever a
+    cycle switch rewrites the values of the *same* grid, which is what the
+    timeline does.
     """
-    if not hasattr(vtk, "vtkResampleToImage") or \
-            not hasattr(vtk, "vtkSmartVolumeMapper"):
+    arr = ugrid.GetPointData().GetArray(var)
+    if arr is None:
+        arr = ugrid.GetCellData().GetArray(var)
+    if arr is None:
         return None
+    vals = _vns.vtk_to_numpy(arr)
+    finite = vals[np.isfinite(vals)] if vals.dtype.kind == "f" else vals
+    if finite.size == 0:
+        return (int(vals.size), 0.0, 0.0)
+    return (int(vals.size), float(finite.sum()), float(finite.max()))
+
+
+def _resampled_image(ugrid, var: str, dim: int):
+    """Memoised vtkResampleToImage output for *(ugrid, var, dim)*.
+
+    Returns the image with out-of-domain samples already clamped to the
+    scalar minimum, or None when the scalar is not on the grid.
+    """
+    if not hasattr(vtk, "vtkResampleToImage"):
+        return None
+    fingerprint = _scalar_fingerprint(ugrid, var)
+    if fingerprint is None:
+        return None
+    key = (id(ugrid), str(var), int(dim)) + fingerprint
+    hit = _RESAMPLE_CACHE.get(key)
+    if hit is not None:
+        _RESAMPLE_CACHE.move_to_end(key)
+        return hit
     work = ugrid
     if work.GetPointData().GetArray(var) is None:
         c2p = vtk.vtkCellDataToPointData()
@@ -273,14 +306,9 @@ def _resampled_volume_actor(ugrid, var: str, obj, opacity: float):
         work = c2p.GetOutput()
         if work.GetPointData().GetArray(var) is None:
             return None
-    sampling = max(1, int(getattr(obj, "sampling", 1) or 1))
-    # 64³ default balances fidelity against the ConvexPointSet probe cost
-    # (96³ ≈ 885k samples over 63k polyhedra ≈ minutes).
-    dim = max(16, min(64, 64 // sampling))
     rs = vtk.vtkResampleToImage()
-    # VTK ≥9.2 ships the parallel vtkPResampleToImage under this alias,
-    # which only accepts connections — bridge the data object through a
-    # trivial producer.
+    # VTK >=9.2 ships the parallel vtkPResampleToImage under this alias, which
+    # only accepts connections -- bridge the data object through a producer.
     if hasattr(rs, "SetInputData"):
         rs.SetInputData(work)
     else:
@@ -295,9 +323,37 @@ def _resampled_volume_actor(ugrid, var: str, obj, opacity: float):
         return None
     vals = _vns.vtk_to_numpy(arr)
     if not np.isfinite(vals).all():
-        lo = float(np.nanmin(vals[np.isfinite(vals)]))
-        vals = np.where(np.isfinite(vals), vals, lo)
+        finite = vals[np.isfinite(vals)]
+        if finite.size == 0:
+            return None
+        vals = np.where(np.isfinite(vals), vals, float(finite.min()))
         arr.DeepCopy(_vns.numpy_to_vtk(vals))
+    _RESAMPLE_CACHE[key] = img
+    while len(_RESAMPLE_CACHE) > _RESAMPLE_CACHE_MAX:
+        _RESAMPLE_CACHE.popitem(last=False)
+    return img
+
+
+def _resampled_volume_actor(ugrid, var: str, obj, opacity: float):
+    """Polyhedral volume path (P1.1): resample to a vtkImageData and render it.
+
+    obj.sampling trades resolution for speed (1 -> 64^3, 2 -> 32^3 ...).
+    Cell-centred scalars are converted to point data before resampling and
+    out-of-domain NaN samples are clamped to the scalar minimum.  The
+    resampled image is memoised (R127c): it dominates the build and does not
+    depend on any display parameter, so a colour or opacity change no longer
+    re-pays it.
+    """
+    if not hasattr(vtk, "vtkResampleToImage") or \
+            not hasattr(vtk, "vtkSmartVolumeMapper"):
+        return None
+    sampling = max(1, int(getattr(obj, "sampling", 1) or 1))
+    # 64^3 balances fidelity against the ConvexPointSet probe cost (measured
+    # 34.2 s on the real 63,697-polyhedron sample; 96^3 is minutes).
+    dim = max(16, min(64, 64 // sampling))
+    img = _resampled_image(ugrid, var, dim)
+    if img is None:
+        return None
     lo, hi = _data_range(img, var)
     if not (hi > lo):
         hi = lo + 1.0

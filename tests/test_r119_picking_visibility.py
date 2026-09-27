@@ -27,7 +27,6 @@ from samples import sample  # noqa: E402
 
 vtk = pytest.importorskip("vtk")
 
-from fv.model import dataset  # noqa: E402
 from fv.model import objects as O  # noqa: E402
 from fv.render import scene as S  # noqa: E402
 
@@ -45,10 +44,15 @@ def _make(kind):
     return None
 
 
-def _scene_for(path, kind, **cfg):
-    ff = dataset.load_file(path)
+def _scene_for(ff, kind, **cfg):
+    """Scene for one object kind over an already-loaded FieldFile.
+
+    R127c: the caller passes the session-cached parse (conftest's
+    load_cached) so the memoised ugrid -- and with it the resampled volume
+    image, 32 s on this sample -- is shared across the module's tests.
+    """
     sc = S.Scene()
-    main = O.MainObject(path, Path(path).name)
+    main = O.MainObject(ff.path, Path(ff.path).name)
     obj = _make(kind)
     assert obj is not None, kind
     for key, value in cfg.items():
@@ -60,9 +64,9 @@ def _scene_for(path, kind, **cfg):
 
 
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
-def test_surface_actors_are_resolvable_by_pick():
+def test_surface_actors_are_resolvable_by_pick(load_cached):
     """The default Surface used to be invisible to pick_actor."""
-    sc, obj = _scene_for(FLD, "surface", show_contour=True,
+    sc, obj = _scene_for(load_cached(FLD), "surface", show_contour=True,
                          contour_var="PRES", show_mesh=True)
     owners = {kind for kind, o in sc._actor_object.values() if o is obj}
     assert owners == {"surface"}, owners
@@ -77,16 +81,16 @@ def test_surface_actors_are_resolvable_by_pick():
 
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
-def test_particle_actors_are_resolvable_by_pick():
-    sc, obj = _scene_for(FPH, "particle")
+def test_particle_actors_are_resolvable_by_pick(load_cached):
+    sc, obj = _scene_for(load_cached(FPH), "particle")
     owners = {kind for kind, o in sc._actor_object.values() if o is obj}
     assert owners == {"particle"}, owners
 
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
-def test_bare_kind_selects_every_namespaced_layer():
+def test_bare_kind_selects_every_namespaced_layer(load_cached):
     """The tree asks for "surface"; pipelines stored "surface:contour"."""
-    sc, obj = _scene_for(FPH, "volume", show_scalar=True,
+    sc, obj = _scene_for(load_cached(FPH), "volume", show_scalar=True,
                          scalar_var="PRES")
     assert sc.layer_count("volume") > 0, "bare lookup found nothing"
     named = [k for k in sc._layer_actors if k.startswith("volume:")]
@@ -96,9 +100,9 @@ def test_bare_kind_selects_every_namespaced_layer():
 
 
 @pytest.mark.skipif(not Path(FPH).exists(), reason="sample not present")
-def test_tree_visibility_actually_hides_the_actors():
+def test_tree_visibility_actually_hides_the_actors(load_cached):
     """A checkbox that changes no actor is indistinguishable from a no-op."""
-    sc, obj = _scene_for(FPH, "volume", show_scalar=True,
+    sc, obj = _scene_for(load_cached(FPH), "volume", show_scalar=True,
                          scalar_var="PRES")
     actors = [a for a in sc._layer_actors_for("volume")
               if not isinstance(a, str)]
@@ -111,17 +115,17 @@ def test_tree_visibility_actually_hides_the_actors():
 
 
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
-def test_unknown_kind_toggles_nothing_and_does_not_raise():
-    sc, _ = _scene_for(FLD, "surface", show_contour=True,
+def test_unknown_kind_toggles_nothing_and_does_not_raise(load_cached):
+    sc, _ = _scene_for(load_cached(FLD), "surface", show_contour=True,
                        contour_var="PRES")
     sc.set_layer_visible("no_such_kind", False)  # must be a silent no-op
     assert sc.layer_count("no_such_kind") == 0
 
 
 @pytest.mark.skipif(not Path(FLD).exists(), reason="sample not present")
-def test_every_built_layer_uses_a_kind_prefixed_key():
+def test_every_built_layer_uses_a_kind_prefixed_key(load_cached):
     """Otherwise the bare-kind lookup above cannot reach it."""
-    sc, obj = _scene_for(FLD, "surface", show_contour=True,
+    sc, obj = _scene_for(load_cached(FLD), "surface", show_contour=True,
                          contour_var="PRES", show_mesh=True)
     keys = [k for k in sc._layer_actors if k != "grid"]
     assert keys
