@@ -1802,3 +1802,28 @@ NaN 钳位在写入缓存前完成，命中时不再重复；`_resampled_volume_
 本轮没有把它当成“绿”，而是重跑并如实记录。
 
 本轮的净收益按**同时刻前后对比**记：`gates.py all` **11.39 → 1.84 s**、`tests/test_r116_gates.py` **44.3 → 1.76 s**（9 项）。
+---
+
+## 42. R127e：被中断的测试会话自己清理残留（2026-09-26）
+
+R127e 记的是“被 kill 的测试会话不再清理 `tests/pytest_tmp`”。这个证据本轮又更新了一次：
+R127d 之前手工清理过 20 个会话根 / 3.3 GB；2026-09-26 一次门禁被 Windows 以 **AppHangB1** 关掉
+（16 个 chtMultiRegionSimpleFoam 占满 CPU，进程长时间不响应），又留下 **233.2 MB**。
+
+改法：`tests/conftest.py` 新增 `clean_stale_sessions(root, hours)`，在会话导入时对
+`tests/pytest_tmp/session-*` 做一次清扫，只删 **mtime 早于 6 小时**的目录。阈值理由写在码里：
+本机实测最长的一次全量快层是 45 分钟（16 倍外部负载），6 小时留足余量，
+所以同一仓库里并发跑的另一个会话不会被误删。
+
+验证：
+
+* 单元测试 `tests/test_r127e_session_cleanup.py`（3 项 / 0.06 s）：13 小时前的会话根被删、
+  0.1 小时的存活、非 `session-*` 目录不动、根不存在不报错、阈值有下限；
+* 端到端：把真实的 2 个残留目录（233.2 MB）回拨到 7 小时前再跑一个小模块 →
+  **清扫前 2 个目录 / 233.2 MB，清扫后 0 个 / 0.1 MB**，15 项测试照常通过。
+
+### 42.1 门禁
+**1254 passed / 6 skipped / 9 deselected / 0 failed，2744.47 s（45:44）**；`scripts/gates.py all` PASS
+（真值断言 780/1513 = 51.6%、核心 132/208 = 63.5%、字段 313 / 86 reserved / 0 UNCONSUMED）。
+与 §41.1 一样，这个 45:44 是**16 个 chtMultiRegionSimpleFoam 满负载**下的数字；空载同口径约 9 分钟，
+本轮没有条件复测（外部负载不受本项目控制），所以只记录实际发生的事。

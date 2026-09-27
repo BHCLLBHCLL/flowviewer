@@ -32,12 +32,47 @@ from __future__ import annotations
 
 import os
 import shutil
+import time
 import uuid
 from pathlib import Path
 
 import pytest
 
 _TMP_ROOT = Path(__file__).resolve().parent / "pytest_tmp"
+
+#: a session root older than this cannot belong to a live run (R127e).
+#: The longest run measured on this machine is 45 minutes (full suite under
+#: 16x external CPU load), so six hours leaves a wide margin.
+_STALE_SESSION_HOURS = 6
+
+
+def clean_stale_sessions(root: Path, hours: int = _STALE_SESSION_HOURS):
+    """Delete session roots abandoned by killed or aborted runs (R127e).
+
+    The session root is removed on a normal exit, but a run that is killed --
+    Ctrl-C at the wrong moment, or Windows closing a process it thinks has
+    hung (AppHangB1, seen on 2026-09-26 under heavy external load) -- leaves
+    its directory behind: 20 roots / 3.3 GB had accumulated before R127d, and
+    one more 233 MB root appeared when a gate run was closed mid-flight.
+    Only directories older than *hours* are touched, so a concurrent session
+    in the same checkout is never deleted.
+    """
+    removed = []
+    if not root.is_dir():
+        return removed
+    cutoff = time.time() - hours * 3600
+    for path in root.glob("session-*"):
+        try:
+            if path.is_dir() and path.stat().st_mtime < cutoff:
+                shutil.rmtree(path, ignore_errors=True)
+                removed.append(path.name)
+        except OSError:                     # pragma: no cover - race
+            continue
+    return removed
+
+
+# One sweep per session, before any temp dir is handed out.
+clean_stale_sessions(_TMP_ROOT)
 
 
 def _fresh_dir(path: Path) -> Path:
