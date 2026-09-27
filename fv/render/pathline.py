@@ -153,8 +153,19 @@ def _trace(ugrid, ff, seeds, steps: int, reverse: bool,
         np.ascontiguousarray(seeds, dtype=np.float64), deep=True))
     src = vtk.vtkPolyData()
     src.SetPoints(pts)
+    # R133f: FPH fields are cell-centred, and vtkStreamTracer only reads point
+    # vectors -- without this conversion it produced zero points for every FPH
+    # file (the Pathline object drew nothing at all).  build_streamline_actors
+    # has always done the same conversion.
+    work = ugrid
+    if cell_centered:
+        c2p = vtk.vtkCellDataToPointData()
+        c2p.SetInputData(ugrid)
+        c2p.PassCellDataOn()
+        c2p.Update()
+        work = c2p.GetOutput()
     tracer = vtk.vtkStreamTracer()
-    tracer.SetInputData(ugrid)
+    tracer.SetInputData(work)
     tracer.SetSourceData(src)
     tracer.SetMaximumPropagation(max(1, steps))
     tracer.SetInitialIntegrationStep(max(1e-6, step_len))

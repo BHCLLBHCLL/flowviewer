@@ -1637,3 +1637,44 @@ NaN 与 1e20 混合场给出有限系数、没有有限数据时回退 1.0、两
 **门禁**：1158 passed / 92 skipped / 5 deselected / **0 failed，319.15 s（5:19）**；`scripts/gates.py all` PASS
 （真值断言 773/1499 = 51.6%、核心 129/198 = 65.2%、字段 313 / 86 reserved / 0 UNCONSUMED）。
 与 §36.4 的 330.20 s 同一量级：那一次的快是“机器空了”，不是改动带来的。
+---
+
+## 38. R133f：三条追踪路径的真机验证（2026-09-26）
+
+R133d 改的是“取不到场就拒绝”，但拒绝得对不对要靠真机证明。本轮在
+`E:/cradle/tr03_9.fph`（FPH，221786 节点 / 63697 单元，模型框 0.106×0.206×0.122）上跑通三条路径，
+并因此又抓到一个“永远画不出东西”的缺陷。
+
+### 38.1 实测（修前 / 修后）
+
+| 路径 | 设置 | 结果 |
+|---|---|---|
+| Streamline | vector_var=**VELX**（分量名）、4×4 种子、中点切面 | **2020 点 / 10 条线**，全部有限且落在模型框内，0.68 s |
+| Oil Flow | oilflow_var=**VEL**（基名）、20 步 | **7960 点 / 362 条线**，有限、框内，2.17 s |
+| Pathline | vector_var=**VELX**、3×3 种子、10 步/周期 | 修前 **0 点**；修后 **2002 点 / 1 条线** |
+
+### 38.2 缺陷：FPH 文件的 Pathline 永远是空的
+
+`fv/render/pathline.py::_trace` 直接把 `ugrid` 交给 `vtkStreamTracer`，而 FPH 的矢量在 **CellData** 里；
+`vtkStreamTracer` 只读点矢量，于是 trace 输出 0 点、函数返回 (None, None, None)、对象树里什么都没有——
+**对任何 FPH 文件都如此**（FLD 走数值追踪分支，所以只有 FPH 中招）。
+`build_streamline_actors` 一直有 `vtkCellDataToPointData` 这一步，pathline 漏了；补上同一段转换后 2002 点。
+
+### 38.3 测试
+
+`tests/test_r133f_real_tracing.py`：4 项 / 8.5 s，标记 slow（`-m slow` 才跑）。
+断言是独立期望式的：轨迹点必须有限、必须落在模型框内（5% 余量）、点数有下限；
+外加一条负路径——`NOPE` 这种不存在的场，三条路径都必须拒绝并各报一次 "has no X/Y/Z component"。
+
+### 38.4 门禁
+1158 passed / 92 skipped / **9 deselected** / **0 failed，306.53 s（5:06）**；`scripts/gates.py all` PASS
+（真值断言 777/1503 = 51.7%、核心 129/198 = 65.2%、字段 313 / 86 reserved / 0 UNCONSUMED）。
+deselected 从 5 增到 9 就是本模块新增的 4 项 slow 用例（默认层不跑，`-m slow` 才跑）——
+这是有意为之：真机追踪既要真实网格又要 VTK 追踪，不适合每轮门禁。
+
+### 38.5 顺带发现（未修，记 R133h）
+
+`_trace` 里 `tracer.SetMaximumPropagation(max(1, steps))` 把“每周期步数”当成“最大传播长度”（单位是模型长度）。
+实测：`steps_per_cycle=5` 时一段轨迹仍有 2002 个点（vtkStreamTracer 的默认 2000 步上限），
+即 `steps` 实际只起“≥1”的作用。改它要先定语义（是否为 steps × step_size），且会改变路径线外观，
+所以单独一轮 → R133h。
